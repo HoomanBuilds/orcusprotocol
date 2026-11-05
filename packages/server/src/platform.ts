@@ -16,6 +16,7 @@ export const accountSchema=z.object({venue:z.enum(["uniswap","hyperliquid"]),add
 export const automationSchema=z.object({kind:z.enum(["trade","alert"]).default("trade"),accountId:z.string(),name:z.string().min(1).max(80),instruction:z.string().min(1).max(2000).optional(),intervalSeconds:z.number().int().min(60).max(86400).default(300),request:tradeRequestSchema.optional(),condition:z.object({symbol:z.string().min(1).max(50),operator:z.enum(["above","below"]),price:z.string().max(80).regex(/^\d+(?:\.\d+)?$/).refine(value=>/[1-9]/.test(value),"Use a positive alert threshold")}).optional(),expiresAt:z.number().int().optional()}).strict().superRefine((value,ctx)=>{if(value.kind==="alert"&&(!value.condition||value.request))ctx.addIssue({code:"custom",message:"Price alerts require a condition and cannot contain a trade request."});if(value.kind==="trade"&&!value.request&&!value.instruction)ctx.addIssue({code:"custom",message:"Trading strategies require an instruction or an explicitly approved recurring request."});});
 const terminalStates=new Set(["confirmed","rejected","cancelled"]);
 const evaluationSchema=z.object({id:z.string(),automationId:z.string(),accountId:z.string(),chainId:z.number().int(),decision:z.enum(["allow","reject","no-action"]),reason:z.string(),source:z.literal("local-simulation"),observedAt:z.number().int(),expiresAt:z.number().int(),controlRevision:z.number().int(),policyVersion:z.number().int(),requestId:z.string().optional()}).passthrough();
+type AgentReply={message:string;proposal?:TradeRequest;automationProposal?:unknown;requestId?:string;requestIds?:string[];modelCalls?:number;usage?:unknown;costUsd?:string;requiresClarification?:boolean};
 
 export class Platform {
   constructor(readonly store:Store=getStore()){}
@@ -253,18 +254,24 @@ export class Platform {
   }
   async proposal(user:User,message:string,account:StoredAccount|undefined,reference:string){
     const cached=this.store.get<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"proposal",reference);
-    if(cached)return cached.result as {message:string;proposal?:TradeRequest;requestId?:string;usage?:unknown;requiresClarification?:boolean};
+    if(cached)return cached.result as AgentReply;
     const runtime=new AgentRun(this.store,user.id,reference,message,memoryId=>this.forgetMemory(user,memoryId));runtime.start();
     try{
       const agent=this.agent(user),portfolio=await this.portfolio(user),history=this.store.list<StoredMessage>(user.id,"message",9).reverse();
       if(history.at(-1)?.role==="user"&&history.at(-1)?.content===message)history.pop();
-      const result=await callEngine<{message:string;proposal?:TradeRequest;requestId?:string;usage?:unknown;costUsd?:string;requiresClarification?:boolean}>("planWith0G",message,{...runtime.context(),evaluationId:reference,account,accounts:this.accounts(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired});
+      const result=await callEngine<AgentReply>("planWith0G",message,{...runtime.context(),evaluationId:reference,account,accounts:this.accounts(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired});
       if(typeof result.message!=="string"||!result.message.trim())throw new ApiError("INVALID_AI_RESULT","The model did not return a valid response. No action was taken.",502);
       if(result.proposal){
         const selected=account??(this.accounts(user).length===1?this.accounts(user)[0]:undefined);
         if(!selected){delete result.proposal;result.requiresClarification=true;result.message="Select which trading account this instruction applies to. No action was taken.";}
         else if(result.proposal.accountId!==selected.id||result.proposal.venue!==selected.venue){delete result.proposal;result.requiresClarification=true;result.message="The proposal targets a different trading account. Select the intended account or clarify your instruction. No action was taken.";}
         else result.proposal=tradeRequestSchema.parse({...result.proposal,mode:"agent"});
+      }
+      if(result.automationProposal){
+        const parsed=automationSchema.safeParse(result.automationProposal),selected=account??(this.accounts(user).length===1?this.accounts(user)[0]:undefined);
+        if(!parsed.success||!selected||parsed.data.accountId!==selected.id||parsed.data.request&&(parsed.data.request.accountId!==selected.id||parsed.data.request.venue!==selected.venue)){
+          delete result.automationProposal;result.requiresClarification=true;result.message="Clarify the target account and valid strategy settings before creating an automation. No job was created.";
+        }else result.automationProposal=parsed.data;
       }
       this.store.put("proposal",{id:reference,userId:user.id,result,createdAt:Date.now(),updatedAt:Date.now()});
       runtime.complete(result);
@@ -292,13 +299,13 @@ export class Platform {
     const agent=this.agent(user),account=input.accountId?this.account(user,input.accountId):undefined;
     if(!this.store.get(user.id,"message",`${reference}:user`))this.store.put("message",{id:`${reference}:user`,userId:user.id,role:"user",content:input.message,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     const result=await this.proposal(user,input.message,account,reference);
-    const message=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
+    const message=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     let action:StoredAction|undefined;
     if(result.proposal&&input.autonomous&&agent.mode==="autonomous"&&!agent.paused){
       const prepared=await this.prepare(user,result.proposal,`chat:${reference}`,"agent");
       action=(await this.submit(user,{actionId:prepared.action.id})).action;
     }
-    return {message,proposal:result.proposal,requestId:result.requestId,requiresClarification:result.requiresClarification,action};
+    return {message,proposal:result.proposal,automationProposal:result.automationProposal,runId:reference,requestId:result.requestId,requestIds:result.requestIds,modelCalls:result.modelCalls,requiresClarification:result.requiresClarification,action};
   }
   automations(user:User){return {automations:this.store.list<StoredAutomation>(user.id,"automation")};}
   notifications(user:User){const notifications=this.store.list<Document&{readAt?:number}>(user.id,"notification",100);return{notifications,unreadCount:notifications.filter(item=>!item.readAt).length};}

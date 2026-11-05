@@ -8,6 +8,7 @@ import { handleRequest, readBody } from "./http";
 import { Store } from "./store";
 import { Platform } from "./platform";
 import * as engineBoundary from "./engine";
+import type { StoredAutomation } from "./types";
 
 const origin = "http://localhost:3000";
 let runtimeDirectory: string;
@@ -70,7 +71,7 @@ describe("durable limits", () => {
       });
       for(let index=0;index<4;index++){
         decision=index===2?"no-action":"allow";
-        store.update(user.id,"automation",job.id,{nextRunAt:Date.now()-1000*(index+1)});
+        store.update<StoredAutomation>(user.id,"automation",job.id,{nextRunAt:Date.now()-1000*(index+1)});
         await platform.tick();
         expect(platform.notifications(user).notifications).toHaveLength(index===3?2:1);
       }
