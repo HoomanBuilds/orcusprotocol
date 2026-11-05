@@ -58,7 +58,7 @@ export async function approveHyperliquidAgent(agentAddress: string, agentName = 
   return client.approveAgent({ agentAddress: getAddress(agentAddress), agentName: agentName.slice(0, 16) });
 }
 
-export async function executePreparedAction(prepared: PreparedAction): Promise<{ transactionHash?: string; orderId?: string; response?: unknown }> {
+export async function executePreparedAction(prepared: PreparedAction): Promise<{ transactionHash?: string; userOperationHash?: string; orderId?: string; response?: unknown }> {
   if (prepared.expiresAt <= Date.now()) throw new Error("This quote expired. Refresh it before signing.");
   const owner = await currentWalletAddress();
   if (getAddress(prepared.account.ownerAddress) !== owner) throw new Error("Your wallet changed. Reconnect the account owner before trading.");
@@ -87,9 +87,14 @@ export async function executePreparedAction(prepared: PreparedAction): Promise<{
     return { to: getAddress(tx.to), data: tx.data as Hex, value: BigInt(tx.value) };
   });
   const hash = await kernel.client.sendUserOperation({ callData: await kernel.account.encodeCalls(calls) });
+  const recorded = await fetch("/api/actions/submit", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ actionId: prepared.id, userOperationHash: hash }),
+  }).catch(() => undefined);
+  if (!recorded?.ok) throw new Error(`User operation ${hash} was submitted, but recording its pending status failed. Check account activity before retrying.`);
   const receipt = await kernel.client.waitForUserOperationReceipt({ hash, timeout: 120_000 });
   if (!receipt.success) throw new Error("The swap was submitted but reverted. Check activity before retrying.");
-  return { transactionHash: receipt.receipt.transactionHash, response: { userOperationHash: hash } };
+  return { transactionHash: receipt.receipt.transactionHash, userOperationHash: hash, response: { userOperationHash: hash } };
 }
 
 export async function grantKernelPermission(input: KernelGrantPolicy): Promise<KernelAuthorization> {

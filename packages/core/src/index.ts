@@ -163,6 +163,7 @@ export interface ActionRecord {
   initiator: "manual" | "agent" | "automation";
   prepared?: PreparedAction;
   transactionHash?: string;
+  userOperationHash?: string;
   orderId?: string;
   providerRequestId?: string;
   error?: string;
