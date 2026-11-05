@@ -36,8 +36,19 @@ export class Platform {
   }
   async portfolio(user:User):Promise<Portfolio>{
     const accounts=this.accounts(user),balances:Portfolio["balances"]=[],positions:Portfolio["positions"]=[],orders:Portfolio["orders"]=[],errors:NonNullable<Portfolio["errors"]>=[];
-    await Promise.all(accounts.map(async account=>{try{const portfolio=await callEngine<Partial<Portfolio>>("getPortfolio",account);balances.push(...(portfolio.balances??[]));positions.push(...(portfolio.positions??[]));orders.push(...(portfolio.orders??[]));errors.push(...(portfolio.errors??[]));}catch(error){errors.push({accountId:account.id,message:errorMessage(error)});}}));
-    return {accounts,balances,positions,orders,observedAt:Date.now(),errors};
+    const valuations=new Map<string,bigint>(),observations:number[]=[];
+    await Promise.all(accounts.map(async account=>{try{
+      const portfolio=await callEngine<{balances?:Portfolio["balances"];positions?:Portfolio["positions"];orders?:Portfolio["orders"];equityUsd?:string;observedAt?:number;errors?:Array<string|{message:string}>}>("getPortfolio",account);
+      balances.push(...(portfolio.balances??[]));positions.push(...(portfolio.positions??[]));orders.push(...(portfolio.orders??[]));
+      errors.push(...(portfolio.errors??[]).map(error=>({accountId:account.id,message:typeof error==="string"?error:error.message})));
+      if(typeof portfolio.observedAt==="number"&&Number.isFinite(portfolio.observedAt))observations.push(portfolio.observedAt);
+      if(typeof portfolio.equityUsd==="string"&&/^-?\d+(?:\.\d{1,18})?$/.test(portfolio.equityUsd)){
+        const negative=portfolio.equityUsd.startsWith("-"),[whole,fraction=""]=portfolio.equityUsd.replace(/^-/,'').split(".");
+        valuations.set(account.id,(negative?-1n:1n)*(BigInt(whole)*1_000_000n+BigInt(fraction.padEnd(6,"0").slice(0,6))));
+      }
+    }catch(error){errors.push({accountId:account.id,message:errorMessage(error)});}}));
+    const totalEquityUsd=accounts.length>0&&valuations.size===accounts.length&&errors.length===0?formatUnits([...valuations.values()].reduce((sum,value)=>sum+value,0n),6):undefined;
+    return {accounts,balances,positions,orders,totalEquityUsd,observedAt:observations.length?Math.min(...observations):Date.now(),errors};
   }
   control(user:User,input:{command:string;mode?:"approval-required"|"autonomous";preferences?:string;privateInferenceRequired?:boolean}){
     const agent=this.agent(user);if(!["pause","resume","take-over","update"].includes(input.command))throw new ApiError("INVALID_CONTROL","Use pause, resume, take-over or update.");
@@ -146,7 +157,13 @@ export class Platform {
     const previous=this.store.get<StoredAction>(user.id,"action",actionId);
     if(previous){if(JSON.stringify(previous.request)!==JSON.stringify(request))throw new ApiError("IDEMPOTENCY_CONFLICT","This action ID was already used for a different request.",409);return {action:previous,execution:previous.prepared,preview:previous.prepared.quote};}
     return this.withAccountLease(account.id,async()=>{
-      if(request.mode==="agent")await this.checkAgentPolicy(user,request,account);
+      if(request.mode==="agent"){
+        for(const uncertain of this.store.list<StoredAction>(user.id,"action").filter(item=>item.accountId===account.id&&["submitting","submitted-unknown"].includes(item.status))){
+          const reconciled=await this.reconcile(user,uncertain);
+          if(["submitting","submitted-unknown"].includes(reconciled.status))throw new ApiError("ACCOUNT_RECONCILING","A previous action still has an unknown venue outcome. Reconcile it before another autonomous trade.",409);
+        }
+        await this.checkAgentPolicy(user,request,account);
+      }
       const prepared=await callEngine<PreparedAction>("prepareAction",request,account);
       prepared.id=actionId;prepared.request=tradeRequestSchema.parse({...prepared.request,accountId:account.id,venue:account.venue,mode:request.mode});prepared.account=account;prepared.controlRevision=account.controlRevision;
       if(!prepared.expiresAt||prepared.expiresAt<=Date.now())throw new ApiError("QUOTE_EXPIRED","The prepared action expired. Request a new quote.",409);
@@ -179,7 +196,11 @@ export class Platform {
       const permission=await this.checkAgentPolicy(user,action.request,current);
       const fresh=await callEngine<PreparedAction>("prepareAction",action.request,current);
       fresh.id=action.id;fresh.request=tradeRequestSchema.parse({...fresh.request,accountId:current.id,venue:current.venue,mode:"agent"});fresh.account=current;fresh.controlRevision=current.controlRevision;
-      const assertAuthority=()=>{assertLease();const latest=this.account(user,current.id),latestAgent=this.agent(user),latestPermission=this.store.get<StoredPermission>(user.id,"permission",permission.id);if(latest.controlRevision!==action!.controlRevision||latest.status!=="authorized"||latestAgent.paused||latestAgent.controlRevision!==action!.agentRevision||latestPermission?.status!=="active"||latestPermission.expiresAt<=Date.now())throw new ApiError("CONTROL_CHANGED","Authority changed during preparation. No new action was signed.",409);};
+      const assertAuthority=()=>{
+        assertLease();const latest=this.account(user,current.id),latestAgent=this.agent(user),latestPermission=this.store.get<StoredPermission>(user.id,"permission",permission.id);
+        if(latest.controlRevision!==action!.controlRevision||latest.status!=="authorized"||latestAgent.paused||latestAgent.controlRevision!==action!.agentRevision||latestPermission?.status!=="active"||latestPermission.expiresAt<=Date.now())throw new ApiError("CONTROL_CHANGED","Authority changed during preparation. No new action was signed.",409);
+        if(action!.automationId){const strategy=this.store.get<StoredAutomation>(user.id,"automation",action!.automationId);if(!strategy||strategy.status!=="active"||strategy.policyVersion!==action!.automationPolicyVersion||!action!.evaluationExpiresAt||action!.evaluationExpiresAt<=Date.now())throw new ApiError("STRATEGY_CHANGED","The workflow decision expired or its strategy changed before signing.",409);}
+      };
       assertAuthority();
       action=this.store.update<StoredAction>(user.id,"action",action.id,{status:"submitting",prepared:fresh});
       try{
@@ -284,9 +305,10 @@ export class Platform {
     const results:Document[]=[];
     for(const automation of this.store.dueAutomations<StoredAutomation>(3)){
       const evaluationId=createHash("sha256").update(`${automation.id}|${automation.nextRunAt}|${automation.policyVersion}`).digest("hex"),holder=id(),scope=`evaluation:${automation.id}`;
-      if(!this.store.takeLease(scope,holder,180_000))continue;
+      if(!this.store.takeLease(scope,holder,360_000))continue;
+      const timer=setInterval(()=>{this.store.renewLease(scope,holder,360_000);},30_000);timer.unref();
       const row=this.store.db.prepare("SELECT * FROM users WHERE id=?").get(automation.userId) as {id:string;address:string;created_at:number}|undefined;
-      if(!row){this.store.releaseLease(scope,holder);continue;}
+      if(!row){clearInterval(timer);this.store.releaseLease(scope,holder);continue;}
       const user:User={id:row.id,address:row.address,createdAt:row.created_at};
       try{
         const current=this.store.get<StoredAutomation>(user.id,"automation",automation.id)!;
@@ -313,11 +335,12 @@ export class Platform {
         if(evaluation.decision==="allow"){
           if(!proposal)throw new ApiError("MISSING_PROPOSAL","Workflow allowed no executable proposal.",502);
           const prepared=await this.prepare(user,{...proposal,mode:"agent"},`evaluation:${evaluationId}`,"automation");
+          this.store.update<StoredAction>(user.id,"action",prepared.action.id,{automationId:current.id,automationPolicyVersion:current.policyVersion,evaluationExpiresAt:evaluation.expiresAt});
           const submitted=await this.submit(user,{actionId:prepared.action.id});
           results.push({automationId:current.id,evaluationId,decision:evaluation.decision,actionId:submitted.action.id,status:submitted.action.status});
         }else results.push({automationId:current.id,evaluationId,decision:evaluation.decision});
       }catch(error){const status=error instanceof ApiError&&error.code==="INSUFFICIENT_BUDGET"?"insufficient-budget":"failed";this.store.update<StoredAutomation>(user.id,"automation",automation.id,{status,error:errorMessage(error)});results.push({automationId:automation.id,error:errorMessage(error),status});}
-      finally{this.store.releaseLease(scope,holder);}
+      finally{clearInterval(timer);this.store.releaseLease(scope,holder);}
     }
     return {processed:results.length,results,observedAt:Date.now()};
   }
