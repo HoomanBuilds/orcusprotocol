@@ -65,7 +65,7 @@ function requireUser(request: Request, store: Store): User {
 function internalAuth(request: Request) {
   const expected = process.env.ORCUS_INTERNAL_TOKEN;
   const supplied = request.headers.get("authorization")?.replace(/^Bearer /, "");
-  if (!expected || expected.length < 32 || !supplied || supplied.length !== expected.length || !timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) throw new ApiError("INTERNAL_AUTH_REQUIRED", "The worker requires a configured internal credential.", 401);
+  if (!expected || expected.length < 32 || !supplied || Buffer.byteLength(supplied) !== Buffer.byteLength(expected) || !timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) throw new ApiError("INTERNAL_AUTH_REQUIRED", "The worker requires a configured internal credential.", 401);
 }
 
 const rpcMethods = new Set(["eth_chainId", "eth_blockNumber", "eth_call", "eth_getCode", "eth_getBalance", "eth_getTransactionCount", "eth_estimateGas", "eth_getBlockByNumber", "eth_getBlockByHash", "eth_getTransactionReceipt", "eth_getTransactionByHash", "eth_maxPriorityFeePerGas", "eth_feeHistory", "eth_gasPrice", "eth_getLogs"]);
@@ -97,7 +97,8 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if (path === "health" && method === "GET") return json({ data: await callEngine<HealthStatus>("getHealth") });
     if (path === "wallet-config" && method === "GET") {
       const config = await callEngine<{ uniswap: { router: string; weth: string; usdc: string; quoter: string; factory: string } }>("engineConfig");
-      return json({ data: { chainId: 11155111, rpcUrl: "/api/rpc", bundlerUrl: "/api/bundler", smartAccountsConfigured: Boolean(process.env.ZERODEV_RPC_URL), ...config.uniswap, rpcUrlConfigured: Boolean(process.env.SEPOLIA_RPC_URL ?? process.env.SEPOLIA_RPC) } });
+      const { router, weth, usdc, quoter, factory } = config.uniswap;
+      return json({ data: { chainId: 11155111, rpcUrl: "/api/rpc", bundlerUrl: "/api/bundler", smartAccountsConfigured: Boolean(process.env.ZERODEV_RPC_URL), router, weth, usdc, quoter, factory, rpcUrlConfigured: Boolean(process.env.SEPOLIA_RPC_URL ?? process.env.SEPOLIA_RPC) } });
     }
     if (path === "markets" && method === "GET") {
       const venue = z.enum(["uniswap", "hyperliquid"]).parse(url.searchParams.get("venue") ?? "hyperliquid");
@@ -169,7 +170,8 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     return json({ error: { code: "NOT_FOUND", message: "This API route does not exist." } }, 404);
   } catch (error) {
     if (error instanceof z.ZodError) return json({ error: { code: "INVALID_INPUT", message: error.issues[0]?.message ?? "Invalid request." } }, 400);
-    if (error instanceof ApiError || error instanceof Error && "code" in error && "status" in error && typeof error.code === "string" && typeof error.status === "number") return json({ error: { code: error.code, message: error.message } }, error.status);
+    if (error instanceof ApiError) return json({ error: { code: error.code, message: error.message } }, error.status);
+    if (error instanceof Error && "code" in error && "status" in error && typeof error.code === "string" && typeof error.status === "number") return json({ error: { code: error.code, message: error.message } }, error.status);
     return json({ error: { code: "REQUEST_FAILED", message: "The service could not complete this request. Check its configuration and try again." } }, 500);
   }
 }
