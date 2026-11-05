@@ -110,6 +110,7 @@ export class Store {
       return true;
     })();
   }
+  renewLease(scope:string,holder:string,ttl:number):boolean {return this.db.prepare("UPDATE leases SET expires_at=? WHERE scope=? AND holder=? AND expires_at>?").run(Date.now()+ttl,scope,holder,Date.now()).changes===1;}
   releaseLease(scope:string,holder:string) { this.db.prepare("DELETE FROM leases WHERE scope=? AND holder=?").run(scope,holder); }
   dueAutomations<T>(limit=10):T[] {
     return (this.db.prepare("SELECT body FROM records WHERE kind='automation' AND json_extract(body,'$.status')='active' AND json_extract(body,'$.nextRunAt')<=? ORDER BY created_at LIMIT ?").all(Date.now(),limit) as {body:string}[]).map(row=>JSON.parse(row.body) as T);
