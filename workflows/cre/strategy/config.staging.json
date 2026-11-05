@@ -1,0 +1,20 @@
+{
+  "schedule": "0 */5 * * * *",
+  "evaluationId": "configure-via-authorized-worker",
+  "automationId": "configure-via-authorized-worker",
+  "accountId": "configure-via-authorized-worker",
+  "accountAddress": "0x0000000000000000000000000000000000000000",
+  "chainId": 11155111,
+  "chainName": "ethereum-testnet-sepolia",
+  "tokenAddress": "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
+  "tokenDecimals": 6,
+  "venue": "uniswap",
+  "amount": "1",
+  "request": { "accountId": "configure-via-authorized-worker", "venue": "uniswap", "amount": "1", "symbol": "WETH/USDC", "type": "swap" },
+  "proposalId": "configure-via-authorized-worker",
+  "marketUrl": "https://api.coinbase.com/v2/prices/ETH-USD/spot",
+  "condition": { "operator": "always", "maxAgeSeconds": 60 },
+  "controlRevision": 0,
+  "policyVersion": 1,
+  "expiresAt": 0
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@orcus/cre-workflow",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "bun x cre-compile main.ts dist/workflow.wasm"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": "true",
+  "dependencies": {
+    "@chainlink/cre-sdk": "1.23.0",
+    "viem": "^2.48.11",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
