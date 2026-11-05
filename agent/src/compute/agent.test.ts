@@ -75,6 +75,17 @@ describe("personal LangGraph agent", () => {
     expect(reply.message).toContain("budget");
     expect(reply.proposal).toBeUndefined();
   });
+  it("converts default memory importance to the backend integer scale", async () => {
+    fakeProvider([{ type: "tool", name: "remember_preference", arguments: { content: "Use conservative position sizes.", sourceQuote: "use conservative position sizes" } }, final]);
+    const memory = personalMemory("agent:user-a", "Use conservative position sizes.");
+    const remember = vi.fn(async (input: { content: string; importance?: number }) => {
+      if (!Number.isInteger(input.importance) || input.importance! < 0 || input.importance! > 100) throw new Error("importance must be an integer from 0 to 100");
+      return { id: "saved", kind: "preference", content: input.content, importance: input.importance!, source: "user", createdAt: 1, updatedAt: 1 };
+    });
+    const reply = await planWith0G("Remember: use conservative position sizes.", { ...memory, memoryStore: { ...memory.memoryStore, remember } });
+    expect(remember).toHaveBeenCalledWith({ content: "Use conservative position sizes.", kind: "preference", importance: 50 });
+    expect(reply.toolTrace[0]?.ok).toBe(true);
+  });
   it("isolates recalled memory across personal threads and rejects a foreign checkpoint", async () => {
     const provider = fakeProvider([final, final]);
     const a = personalMemory("agent:user-a", "UniqueA conservative preference.");

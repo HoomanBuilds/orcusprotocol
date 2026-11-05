@@ -55,7 +55,7 @@ export function buildAgentTools(context: AgentContext, latestMessage: string) {
     if (remembered || !/\b(?:remember|save|keep|store|always|prefer)\b/i.test(latestMessage) || !latestMessage.includes(String(input.sourceQuote))) throw new Error("Memory writes require an explicit request and a quote from the current user message.");
     if (/\b(?:private\s*key|seed\s*phrase|api\s*key|password|secret)\b/i.test(String(input.content)) || /0x[\da-fA-F]{64}\b|\b(?:sk|mk|pk)_[A-Za-z0-9_-]{12,}/.test(String(input.content))) throw new Error("Credentials and signing secrets cannot be stored as agent memory.");
     remembered = true;
-    return context.memoryStore.remember({ content: String(input.content), kind: input.kind as "note" | "preference", importance: Number(input.importance) });
+    return context.memoryStore.remember({ content: String(input.content), kind: input.kind as "note" | "preference", importance: Math.round(Number(input.importance) * 100) });
   });
   add("forget_memory", "Delete a personal memory only when the current user explicitly asks to forget it.", "{id:string}", z.object({ id: z.string().min(1).max(100) }).strict(), async input => {
     if (!context.memoryStore || !/\b(?:forget|delete|remove)\b/i.test(latestMessage)) throw new Error("Forgetting memory requires the user's explicit request.");
