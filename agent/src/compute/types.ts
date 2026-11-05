@@ -1,5 +1,6 @@
 import type { TradeRequest } from "@orcus/core";
 import type { PlannerContext } from "../types";
+import type { AutomationProposal } from "./automation";
 
 export interface ModelUsage { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
 export interface ModelEvidence { callId: string; requestId?: string; usage?: ModelUsage; receivedAt: number }
@@ -24,6 +25,7 @@ export interface AgentCheckpoint {
   toolTrace: ToolTrace[];
   evidence: ModelEvidence[];
   proposal?: TradeRequest;
+  automationProposal?: AutomationProposal;
   summary?: string;
   reply?: PlannerReply;
   inferencePending: boolean;
@@ -48,6 +50,7 @@ export interface AgentContext extends PlannerContext {
 export interface PlannerReply {
   message: string;
   proposal?: TradeRequest;
+  automationProposal?: AutomationProposal;
   requestId?: string;
   requestIds: string[];
   usage?: ModelUsage;

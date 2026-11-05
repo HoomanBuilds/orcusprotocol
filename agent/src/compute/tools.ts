@@ -6,6 +6,7 @@ import { sma, rsi, realizedVolatility } from "../strategy/indicators";
 import { getHyperliquidCandles, getHyperliquidMarkets, getHyperliquidPortfolio } from "../venues/hyperliquid";
 import { getUniswapMarkets, getUniswapPortfolio } from "../venues/uniswap";
 import type { AgentContext } from "./types";
+import { automationProposalSchema } from "./automation";
 
 export interface AgentTool { name: string; description: string; arguments: string; run(input: unknown): Promise<unknown> }
 const venueSchema = z.enum(["uniswap", "hyperliquid"]);
@@ -73,6 +74,18 @@ export function buildAgentTools(context: AgentContext, latestMessage: string) {
       if (portfolio.positions.length > 1 && !mentioned) throw new Error("Several positions are open. Ask which position the user means before proposing a change.");
     }
     return { proposal: { ...request, mode: "agent" }, executable: false, authorization: "Pending independent account permissions and execution checks." };
+  });
+  add("propose_automation", "Propose a bounded scheduled trade/DCA or price alert for explicit user acceptance. Does not create, activate or execute an automation.", "{automation:{kind:'trade'|'alert',accountId,name,intervalSeconds:60..86400,expiresAt?:epochMs,instruction?:string,request?:TradeRequest,condition?:{symbol,operator:'above'|'below',price:positiveDecimalString}}}. Trade requires request. Alert requires condition and forbids request.", z.object({ automation: automationProposalSchema }).strict(), async input => {
+    const automation = automationProposalSchema.parse(input.automation);
+    const account = accountById(automation.accountId);
+    if (context.account && context.account.id !== account.id) throw new Error("The automation does not match the selected trading account.");
+    const now = Date.now();
+    if (automation.expiresAt !== undefined && (automation.expiresAt <= now || automation.expiresAt > now + 30 * 86_400_000)) throw new Error("Automation expiry must be in the future and no more than 30 days away.");
+    if (automation.kind === "trade" && (automation.request.accountId !== account.id || automation.request.venue !== account.venue)) throw new Error("The scheduled trade does not belong to this automation's connected account.");
+    const automationProposal = automation.kind === "trade"
+      ? { ...automation, request: { ...automation.request, mode: "agent" }, instruction: automation.instruction ?? latestMessage.slice(0, 2000) }
+      : { ...automation, expiresAt: automation.expiresAt ?? now + 86_400_000 };
+    return { automationProposal, executable: false, created: false, authorization: "User acceptance is required. The server independently checks expiry, budgets, account grants and CRE policy before any scheduled trade." };
   });
   return registry;
 }

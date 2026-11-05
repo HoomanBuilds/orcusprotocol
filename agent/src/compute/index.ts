@@ -4,6 +4,7 @@ import type { PlannerContext } from "../types";
 import { runPersonalAgent } from "./agent";
 import type { AgentContext, PlannerReply } from "./types";
 export type { AgentContext, AgentCheckpoint, AgentMemoryNote, MemoryStore, PlannerReply, ModelEvidence, ModelUsage, ToolTrace } from "./types";
+export { automationProposalSchema, type AutomationProposal } from "./automation";
 
 export function planWith0G(message: string, context: PlannerContext = {}): Promise<PlannerReply> {
   return runPersonalAgent(message, context as AgentContext);

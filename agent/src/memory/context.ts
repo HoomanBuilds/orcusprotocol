@@ -3,7 +3,7 @@ import type { AgentCheckpoint, AgentContext, AgentMessage } from "../compute/typ
 import { EngineError } from "../errors";
 
 const messageSchema = z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(16_000) }).strict();
-const checkpointSchema = z.object({ version: z.literal(1), threadId: z.string().min(1).max(200), runId: z.string().min(1).max(200), messageDigest: z.string().length(64), status: z.enum(["running", "completed", "failed"]), modelCalls: z.number().int().min(0).max(12), toolCalls: z.number().int().min(0).max(20), tokenCount: z.number().min(0), messages: z.array(messageSchema).max(24), toolTrace: z.array(z.unknown()).max(12), evidence: z.array(z.unknown()).max(12), inferencePending: z.boolean(), updatedAt: z.number(), proposal: z.unknown().optional(), summary: z.string().max(4000).optional(), reply: z.unknown().optional() }).strict();
+const checkpointSchema = z.object({ version: z.literal(1), threadId: z.string().min(1).max(200), runId: z.string().min(1).max(200), messageDigest: z.string().length(64), status: z.enum(["running", "completed", "failed"]), modelCalls: z.number().int().min(0).max(12), toolCalls: z.number().int().min(0).max(20), tokenCount: z.number().min(0), messages: z.array(messageSchema).max(24), toolTrace: z.array(z.unknown()).max(12), evidence: z.array(z.unknown()).max(12), inferencePending: z.boolean(), updatedAt: z.number(), proposal: z.unknown().optional(), automationProposal: z.unknown().optional(), summary: z.string().max(4000).optional(), reply: z.unknown().optional() }).strict();
 
 export function safeObservation(value: unknown, depth = 0): unknown {
   if (depth > 6) return "[nested data omitted]";

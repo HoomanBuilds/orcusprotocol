@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TradingAccount } from "@orcus/core";
 import { planWith0G, getComputeBalance } from "./index";
 import type { AgentCheckpoint, AgentContext, AgentMemoryNote } from "./types";
+import { buildAgentTools } from "./tools";
 
 const url = "https://inference.unit.test/v1/chat/completions";
 const account: TradingAccount = { id: "owned-account", userId: "user-a", venue: "hyperliquid", address: "0x1111111111111111111111111111111111111111", ownerAddress: "0x1111111111111111111111111111111111111111", chainId: 421614, status: "authorized", controlRevision: 1 };
@@ -85,6 +86,43 @@ describe("personal LangGraph agent", () => {
     const reply = await planWith0G("Remember: use conservative position sizes.", { ...memory, memoryStore: { ...memory.memoryStore, remember } });
     expect(remember).toHaveBeenCalledWith({ content: "Use conservative position sizes.", kind: "preference", importance: 50 });
     expect(reply.toolTrace[0]?.ok).toBe(true);
+  });
+  it("proposes a typed scheduled trade without executing or creating a job", async () => {
+    const scheduled = { kind: "trade", accountId: account.id, name: "Hourly ETH", intervalSeconds: 3600, request: { ...proposal, type: "market", side: "buy", reduceOnly: false } };
+    const provider = fakeProvider([{ type: "tool", name: "propose_automation", arguments: { automation: scheduled } }, final]);
+    const memory = personalMemory("agent:user-a", "Use conservative amounts.");
+    const reply = await planWith0G("Buy 0.01 ETH every hour until my authorization expires.", { account, accounts: [account], ...memory });
+    expect(reply.automationProposal).toMatchObject(scheduled);
+    expect(reply.automationProposal?.expiresAt).toBeUndefined();
+    expect(reply.proposal).toBeUndefined();
+    expect(reply.message).toContain("no schedule is active");
+    expect(reply.requestId).toBe("unit-provider-response-1");
+    expect(memory.lastCheckpoint().automationProposal).toMatchObject(scheduled);
+    expect(provider.fetch.mock.calls.every(([input]) => String(input) === url)).toBe(true);
+  });
+  it("proposes a finite read-only alert without a trade request or native authorization", async () => {
+    const alertAccount = { ...account, status: "connected" as const };
+    const alert = { kind: "alert", accountId: account.id, name: "ETH below 1800", intervalSeconds: 300, condition: { symbol: "ETH", operator: "below", price: "1800" } };
+    fakeProvider([{ type: "tool", name: "propose_automation", arguments: { automation: alert } }, final]);
+    const started = Date.now();
+    const reply = await planWith0G("Alert me when ETH drops below 1800.", { account: alertAccount, accounts: [alertAccount] });
+    expect(reply.automationProposal).toMatchObject(alert);
+    expect(reply.automationProposal?.expiresAt).toBeGreaterThanOrEqual(started + 86_400_000);
+    expect(reply.automationProposal).not.toHaveProperty("request");
+    expect(reply.proposal).toBeUndefined();
+  });
+  it.each([
+    { kind: "trade", accountId: "other-account", name: "Wrong owner", intervalSeconds: 300, request: proposal },
+    { kind: "trade", accountId: account.id, name: "Wrong request owner", intervalSeconds: 300, request: { ...proposal, accountId: "other-account" } },
+    { kind: "trade", accountId: account.id, name: "Wrong venue", intervalSeconds: 300, request: { ...proposal, venue: "uniswap" } },
+    { kind: "trade", accountId: account.id, name: "No typed action", intervalSeconds: 300 },
+    { kind: "alert", accountId: account.id, name: "Too frequent", intervalSeconds: 59, condition: { symbol: "ETH", operator: "below", price: "1800" } },
+    { kind: "alert", accountId: account.id, name: "Alert cannot trade", intervalSeconds: 300, request: proposal, condition: { symbol: "ETH", operator: "below", price: "1800" } },
+    { kind: "alert", accountId: account.id, name: "Expired", intervalSeconds: 300, expiresAt: 1, condition: { symbol: "ETH", operator: "below", price: "1800" } },
+    { kind: "alert", accountId: account.id, name: "Too long", intervalSeconds: 300, expiresAt: Date.now() + 31 * 86_400_000, condition: { symbol: "ETH", operator: "below", price: "1800" } },
+  ])("rejects unsafe or unbounded automation proposals: $name", async automation => {
+    const tool = buildAgentTools({ account, accounts: [account] }, "Schedule an action.").get("propose_automation")!;
+    await expect(tool.run({ automation })).rejects.toThrow();
   });
   it("isolates recalled memory across personal threads and rejects a foreign checkpoint", async () => {
     const provider = fakeProvider([final, final]);
