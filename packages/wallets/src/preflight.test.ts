@@ -65,6 +65,16 @@ describe("durable user operation evidence", () => {
     await expect(broadcastPreparedOperation({ candidateHash: hash, send: async () => { throw new Error("timeout"); }, onSubmitted, wait: vi.fn() })).rejects.toMatchObject({ phase: "submitted-unknown", evidence: { userOperationHash: hash } });
     expect(onSubmitted).toHaveBeenCalledWith({ userOperationHash: hash });
   });
+  it("stops a revoked or paused session at the final broadcast boundary", async () => {
+    const send = vi.fn();
+    const onSubmitted = vi.fn();
+    await expect(broadcastPreparedOperation({ candidateHash: hash, assertBeforeSend: () => { throw new Error("Permission revoked"); }, send, onSubmitted, wait: vi.fn() })).rejects.toThrow("Permission revoked");
+    expect(send).not.toHaveBeenCalled();
+    expect(onSubmitted).not.toHaveBeenCalled();
+  });
+  it("does not trust a bundler hash that differs from the exact signed payload", async () => {
+    await expect(broadcastPreparedOperation({ candidateHash: hash, send: async () => tx, wait: vi.fn() })).rejects.toMatchObject({ phase: "submitted-unknown", evidence: { userOperationHash: hash } });
+  });
   it("does not call a recorded but timed-out operation rejected or filled", async () => {
     await expect(broadcastPreparedOperation({ candidateHash: hash, send: async () => hash, wait: async () => { throw new Error("timeout"); } })).rejects.toMatchObject({ code: "RECEIPT_UNKNOWN", phase: "submitted-unknown", evidence: { userOperationHash: hash } });
   });

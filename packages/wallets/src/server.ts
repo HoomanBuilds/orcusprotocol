@@ -5,7 +5,7 @@ import { createKernelAccount, createKernelAccountClient } from "@zerodev/sdk";
 import { getAddress, http, isHex, verifyTypedData, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
-import { getUserOperationHash } from "viem/account-abstraction";
+import { formatUserOperationRequest, getUserOperationHash } from "viem/account-abstraction";
 import { createOwnerKernel, createPermissionPlugin, entryPoint, kernelVersion, kernelPublicClient, kernelGrantPolicySchema, type KernelAuthorization, type KernelConfig } from "./kernel";
 import { assertKernelPolicyCompatible, WalletActionError } from "./preflight";
 import { broadcastPreparedOperation } from "./execution";
@@ -74,5 +74,6 @@ async function submitSessionAction(prepared: PreparedAction, key: Hex, authoriza
   await assertAuthority?.();
   assertKernelPolicyCompatible(prepared, policy);
   const candidateHash = getUserOperationHash({ userOperation: { ...operation, signature }, entryPointAddress: entryPoint.address, entryPointVersion: entryPoint.version, chainId: sepolia.id });
-  return broadcastPreparedOperation({ candidateHash, send: () => client.sendUserOperation({ ...operation, signature }), onSubmitted, wait: hash => client.waitForUserOperationReceipt({ hash, timeout: 120_000 }) });
+  const payload = formatUserOperationRequest({ ...operation, signature });
+  return broadcastPreparedOperation({ candidateHash, assertBeforeSend: async () => { assertKernelPolicyCompatible(prepared, policy); await assertAuthority?.(); }, send: () => client.request({ method: "eth_sendUserOperation", params: [payload, entryPoint.address] }, { retryCount: 0 }), onSubmitted, wait: hash => client.waitForUserOperationReceipt({ hash, timeout: 120_000 }) });
 }

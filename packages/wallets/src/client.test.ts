@@ -33,7 +33,7 @@ vi.mock("./kernel", async importOriginal => ({
   kernelPublicClient: () => ({ getCode: async () => mocks.ownerCode }),
   createOwnerKernel: async () => ({
     account: { address: mocks.accountAddress, encodeCalls: async () => "0x1234", signUserOperation: mocks.sign },
-    client: { prepareUserOperation: mocks.prepare, sendUserOperation: mocks.send, waitForUserOperationReceipt: mocks.wait },
+    client: { prepareUserOperation: mocks.prepare, request: mocks.send, waitForUserOperationReceipt: mocks.wait },
     publicClient: { getCode: mocks.getCode, readContract: mocks.read, estimateGas: mocks.estimateGas, estimateFeesPerGas: mocks.estimateFees, getBalance: mocks.getBalance, waitForTransactionReceipt: mocks.waitTransaction },
   }),
   createPermissionPlugin: async () => ({ getIdentifier: () => "0x12345678", getEnableData: async () => "0x" }),
@@ -43,7 +43,6 @@ import { createTradingSmartAccount, executePreparedAction, fundTradingAccount, i
 
 const account: TradingAccount = { id: "account", userId: "user", venue: "uniswap", address: mocks.accountAddress, ownerAddress: mocks.ownerAddress, chainId: 11155111, status: "authorized", controlRevision: 1 };
 const policy: KernelGrantPolicy = { accountAddress: mocks.accountAddress, agentAddress: `0x${"2".repeat(40)}`, router: `0x${"3".repeat(40)}`, swaps: [{ tokenIn: `0x${"4".repeat(40)}`, tokenOut: `0x${"5".repeat(40)}`, feeTier: 500, maxAmountIn: "1000", minAmountOut: "900" }], issuedAt: Date.now(), expiresAt: Date.now() + 60_000, maxGasWei: "1000" };
-const operationHash = `0x${"a".repeat(64)}`;
 const txHash = `0x${"b".repeat(64)}`;
 
 beforeEach(() => {
@@ -55,7 +54,12 @@ beforeEach(() => {
   mocks.getCode.mockResolvedValue("0x1234");
   mocks.prepare.mockResolvedValue({ sender: mocks.accountAddress, nonce: 0n, callData: "0x1234", callGasLimit: 10n, verificationGasLimit: 10n, preVerificationGas: 10n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n });
   mocks.sign.mockResolvedValue("0x1234");
-  mocks.send.mockResolvedValue(operationHash);
+  mocks.send.mockImplementation(async ({ params }: { params: [{ sender: `0x${string}`; nonce: `0x${string}`; callData: `0x${string}`; callGasLimit: `0x${string}`; verificationGasLimit: `0x${string}`; preVerificationGas: `0x${string}`; maxFeePerGas: `0x${string}`; maxPriorityFeePerGas: `0x${string}`; signature: `0x${string}` }] }) => {
+    const { getUserOperationHash } = await import("viem/account-abstraction");
+    const { entryPoint } = await import("./kernel");
+    const op = params[0];
+    return getUserOperationHash({ chainId: 11155111, entryPointAddress: entryPoint.address, entryPointVersion: "0.7", userOperation: { ...op, nonce: BigInt(op.nonce), callGasLimit: BigInt(op.callGasLimit), verificationGasLimit: BigInt(op.verificationGasLimit), preVerificationGas: BigInt(op.preVerificationGas), maxFeePerGas: BigInt(op.maxFeePerGas), maxPriorityFeePerGas: BigInt(op.maxPriorityFeePerGas) } });
+  });
   mocks.wait.mockResolvedValue({ success: true, receipt: { transactionHash: txHash } });
   mocks.estimateGas.mockResolvedValue(21_000n);
   mocks.estimateFees.mockResolvedValue({ maxFeePerGas: 1n, maxPriorityFeePerGas: 1n });

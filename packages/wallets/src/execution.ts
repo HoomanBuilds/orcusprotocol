@@ -8,12 +8,17 @@ export interface OperationReceipt {
 
 export async function broadcastPreparedOperation(input: {
   candidateHash: Hex;
+  assertBeforeSend?: () => Promise<void> | void;
   send: () => Promise<Hex>;
   wait: (hash: Hex) => Promise<OperationReceipt>;
   onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void> | void;
 }) {
+  await input.assertBeforeSend?.();
   let hash: Hex;
-  try { hash = await input.send(); }
+  try {
+    hash = await input.send();
+    if (hash.toLowerCase() !== input.candidateHash.toLowerCase()) throw new Error("The bundler returned a different operation hash.");
+  }
   catch {
     try { await input.onSubmitted?.({ userOperationHash: input.candidateHash }); } catch {}
     throw new WalletActionError("SUBMISSION_UNKNOWN", "The bundler response was not confirmed. Check this user operation before retrying.", "submitted-unknown", { userOperationHash: input.candidateHash });

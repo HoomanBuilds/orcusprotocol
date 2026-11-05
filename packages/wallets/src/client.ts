@@ -3,7 +3,7 @@ import { serializePermissionAccount } from "@zerodev/permissions";
 import { createKernelAccount, KernelV3_1AccountAbi } from "@zerodev/sdk";
 import type { PreparedAction, TradingAccount } from "@orcus/core";
 import { concatHex, createWalletClient, custom, encodeFunctionData, erc20Abi, getAddress, padHex, zeroAddress, type Address, type Chain, type EIP1193Provider, type Hex } from "viem";
-import { getUserOperationHash } from "viem/account-abstraction";
+import { formatUserOperationRequest, getUserOperationHash } from "viem/account-abstraction";
 import { arbitrumSepolia, sepolia } from "viem/chains";
 import { createOwnerKernel, createPermissionPlugin, entryPoint, kernelVersion, kernelPublicClient, kernelGrantPolicySchema, type KernelAuthorization, type KernelConfig, type KernelGrantPolicy } from "./kernel";
 import { exactTokenAmount, inspectPreparedSwap, isOwnerRejection, WalletActionError } from "./preflight";
@@ -95,7 +95,8 @@ async function sendOwnerOperation(owner: Awaited<ReturnType<typeof createOwnerKe
   catch (error) { throw new WalletActionError(isOwnerRejection(error) ? "OWNER_REJECTED" : "SIGNING_FAILED", isOwnerRejection(error) ? "You declined the wallet signature. Nothing was submitted." : "The wallet signature failed. Nothing was submitted."); }
   await assertReady();
   const candidateHash = getUserOperationHash({ userOperation: { ...operation, signature }, entryPointAddress: entryPoint.address, entryPointVersion: entryPoint.version, chainId: sepolia.id });
-  return broadcastPreparedOperation({ candidateHash, send: () => owner.client.sendUserOperation({ ...operation, signature }), onSubmitted, wait: hash => owner.client.waitForUserOperationReceipt({ hash, timeout: 120_000 }) });
+  const payload = formatUserOperationRequest({ ...operation, signature });
+  return broadcastPreparedOperation({ candidateHash, assertBeforeSend: assertReady, send: () => owner.client.request({ method: "eth_sendUserOperation", params: [payload, entryPoint.address] }, { retryCount: 0 }), onSubmitted, wait: hash => owner.client.waitForUserOperationReceipt({ hash, timeout: 120_000 }) });
 }
 
 export async function approveHyperliquidAgent(agentAddress: string, agentName = "Orcus") {
