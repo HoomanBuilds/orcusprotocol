@@ -153,14 +153,19 @@ export async function submitHyperliquidAgentAction(prepared: PreparedAction, acc
 
 export async function reconcileHyperliquidAction(action: { orderId?: string; id?: string; prepared?: PreparedAction }, account: TradingAccount): Promise<SubmissionResult> {
   assertAccount(account);
-  const cloid = action.prepared?.id ? `0x${action.prepared.id.replace(/-/g, "")}` : undefined;
-  const oid = action.orderId && /^\d+$/.test(action.orderId) ? Number(action.orderId) : cloid;
+  const operation = action.prepared?.hyperliquid;
+  const order = (operation?.params.orders as Array<{ c?: unknown }> | undefined)?.[0];
+  const cloid = typeof order?.c === "string" && /^0x[\da-fA-F]{32}$/.test(order.c) ? order.c : undefined;
+  const cancellation = (operation?.params.cancels as Array<{ o?: unknown }> | undefined)?.[0];
+  const cancelOrderId = operation?.method === "cancel" && typeof cancellation?.o === "number" && Number.isSafeInteger(cancellation.o) && cancellation.o >= 0 ? cancellation.o : undefined;
+  const reportedOrderId = action.orderId && /^\d+$/.test(action.orderId) && Number.isSafeInteger(Number(action.orderId)) ? Number(action.orderId) : undefined;
+  const oid = reportedOrderId ?? cancelOrderId ?? cloid;
   if (!oid) return { status: "submitted-unknown", evidence: { message: "No venue or client order ID is available." } };
   const result = await hyperliquidInfo<{ status: string; order?: { status: string; order: { oid: number; sz: string; origSz: string } } }>({ type: "orderStatus", user: account.address, oid });
   if (result.status === "unknownOid" || !result.order) return { status: "submitted-unknown" };
   const status = result.order.status;
   const orderId = String(result.order.order.oid);
-  if (status === "filled") return { status: "confirmed", orderId, evidence: { venueStatus: status } };
+  if (status === "filled") return { status: operation?.method === "cancel" ? "rejected" : "confirmed", orderId, evidence: { venueStatus: status, ...(operation?.method === "cancel" ? { message: "The order filled before cancellation was confirmed." } : {}) } };
   if (status.toLowerCase().includes("cancel")) return { status: "cancelled", orderId, evidence: { venueStatus: status } };
   if (status.toLowerCase().includes("reject")) return { status: "rejected", orderId, evidence: { venueStatus: status } };
   const partial = result.order.order.sz !== result.order.order.origSz;
