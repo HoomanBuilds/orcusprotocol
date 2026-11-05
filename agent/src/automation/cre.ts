@@ -11,7 +11,7 @@ import { EngineError, requireConfigured } from "../errors";
 const run = promisify(execFile);
 const childEnvNames = ["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "CRE_API_KEY", "ORCUS_CRE_PROPOSAL_TOKEN"];
 export function creChildEnvironment(): NodeJS.ProcessEnv {
-  return Object.fromEntries(childEnvNames.flatMap(name => process.env[name] === undefined ? [] : [[name, process.env[name]!]]));
+  return { NODE_ENV: process.env.NODE_ENV ?? "production", ...Object.fromEntries(childEnvNames.flatMap(name => process.env[name] === undefined ? [] : [[name, process.env[name]!]])) };
 }
 const outputSchema = z.object({
   evaluationId: z.string(), automationId: z.string(), accountId: z.string(), chainId: z.number(),
