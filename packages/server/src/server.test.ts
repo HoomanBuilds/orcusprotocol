@@ -6,6 +6,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { getBudget, reserveBudget, setBudget, settleReservation } from "./budget";
 import { handleRequest, readBody } from "./http";
 import { Store } from "./store";
+import { Platform } from "./platform";
 
 const origin = "http://localhost:3000";
 let runtimeDirectory: string;
@@ -54,6 +55,19 @@ describe("owner authentication", () => {
 });
 
 describe("durable limits", () => {
+  it.each([false,true])("releases reservations for inference rejected before sending (private-only=%s)", async privateOnly => {
+    vi.stubEnv("ZEROG_COMPUTE_CHAT_URL", "");
+    vi.stubEnv("ZEROG_COMPUTE_API_KEY", "");
+    const store=new Store(":memory:");
+    try{
+      const user=store.ensureUser("0x1111111111111111111111111111111111111111"),platform=new Platform(store);
+      setBudget(store,user.id,"1","0.1",false);
+      platform.control(user,{command:"update",privateInferenceRequired:privateOnly});
+      await expect(platform.proposal(user,"Explain the portfolio",undefined,`preflight-${privateOnly}`)).rejects.toThrow();
+      expect(getBudget(store,user.id).reservedUsd).toBe("0.000000");
+      expect(getBudget(store,user.id).spentUsd).toBe("0.000000");
+    }finally{store.db.close();}
+  });
   it("reserves funds atomically, deduplicates charges and retains unknown billing", () => {
     const store = new Store(":memory:");
     try {
