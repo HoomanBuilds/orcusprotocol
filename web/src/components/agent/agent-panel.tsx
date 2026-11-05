@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import type { ChatMessage, TradeRequest } from "@orcus/core";
 import type { Workspace } from "@/lib/use-workspace";
-import { displayError, post } from "@/lib/api";
+import { api, ApiError, displayError, post } from "@/lib/api";
 import { number, usd } from "@/lib/format";
 import { Address, Badge, InlineError, Spinner } from "../trading/primitives";
 
@@ -30,6 +30,9 @@ export function AgentPanel({
   const [pendingInput, setPendingInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [autonomous, setAutonomous] = useState(false);
+  const [changingMode, setChangingMode] = useState(false);
+  const [progress, setProgress] = useState("Preparing your agent...");
+  const retry = useRef<{ owner: string; accountId?: string; message: string; requestId: string } | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const agent = w.agentData?.agent ?? w.session.agent;
   const messages = w.agentData?.messages ?? [];
@@ -43,21 +46,41 @@ export function AgentPanel({
   async function send() {
     if (!input.trim() || sending) return;
     const message = input.trim();
+    const owner = w.session.user?.address;
+    if (!owner) return;
+    const previous = retry.current;
+    const requestId = previous?.owner === owner && previous.accountId === w.account?.id && previous.message === message ? previous.requestId : crypto.randomUUID();
+    retry.current = { owner, accountId: w.account?.id, message, requestId };
     setSending(true);
+    setProgress("Retrieving relevant memory...");
     setError(null);
     setInput("");
     setPendingInput(message);
+    let active = true;
+    let polling = false;
+    const timer = setInterval(async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const run = await api<{ message?: string; stage?: string; tool?: string }>(`/api/agent/runs/${encodeURIComponent(requestId)}`);
+        if (active) setProgress(run.message ?? (run.tool ? `Using ${run.tool}...` : run.stage ? `${run.stage}...` : "Working with 0G..."));
+      } catch {} finally { polling = false; }
+    }, 1200);
     try {
       await post<{
         message: ChatMessage;
         proposal?: TradeRequest;
         requestId?: string;
-      }>("/api/agent/chat", { message, accountId: w.account?.id, autonomous });
+      }>("/api/agent/chat", { message, accountId: w.account?.id, autonomous, requestId });
+      retry.current = null;
       await w.refresh();
     } catch (cause) {
+      if (cause instanceof ApiError && ["NOT_CONFIGURED", "AUTH_REQUIRED", "INSUFFICIENT_BUDGET", "PRIVATE_INFERENCE_UNVERIFIED"].includes(cause.code)) retry.current = null;
       setError(displayError(cause));
       setInput(message);
     } finally {
+      active = false;
+      clearInterval(timer);
       setSending(false);
       setPendingInput("");
     }
@@ -170,7 +193,7 @@ export function AgentPanel({
                     void w.prepare({
                       ...message.proposedAction!,
                       mode: "manual",
-                    })
+                    }, "agent")
                   }
                 >
                   {message.actionId
@@ -190,7 +213,7 @@ export function AgentPanel({
         {sending && (
           <div className="agent-thinking">
             <Spinner />
-            <span>Analyzing with 0G...</span>
+            <span>{progress}</span>
           </div>
         )}
         <div ref={end} />
@@ -235,8 +258,17 @@ export function AgentPanel({
           <input
             type="checkbox"
             checked={autonomous}
-            disabled={!w.session.user}
-            onChange={(event) => setAutonomous(event.target.checked)}
+            disabled={!w.session.user || changingMode || sending}
+            onChange={async (event) => {
+              const next = event.target.checked;
+              setChangingMode(true);
+              try {
+                await post("/api/agent/control", { command: "update", mode: next ? "autonomous" : "approval-required" });
+                setAutonomous(next);
+                await w.refresh();
+              } catch (cause) { setError(displayError(cause)); }
+              finally { setChangingMode(false); }
+            }}
           />
           Autonomous execution
         </label>

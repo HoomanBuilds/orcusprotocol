@@ -20,6 +20,7 @@ import type {
 import { api, ApiError, displayError, post } from "./api";
 import {
   connectWallet,
+  currentWalletAddress,
   executePreparedAction,
   signLoginMessage,
 } from "./wallets";
@@ -225,16 +226,16 @@ export function useWorkspace() {
     }
   }
 
-  async function prepare(request: TradeRequest) {
+  async function prepare(request: TradeRequest, initiator: "manual" | "agent" = "manual") {
     if (preparing || executing) return;
     setPreparing(true);
     setError(null);
     setPreview(null);
     const revision = sessionRevision.current;
     try {
-      const prepared = await post<ActionPreview>(
+      const prepared = await api<ActionPreview>(
         "/api/actions/prepare",
-        request,
+        { method: "POST", headers: { "X-Orcus-Initiator": initiator, "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(request) },
       );
       if (revision === sessionRevision.current) setPreview(prepared);
     } catch (cause) {
@@ -253,16 +254,13 @@ export function useWorkspace() {
         throw new Error(
           "This quote has expired. Prepare a new quote before signing.",
         );
-      const result = await executePreparedAction(preview.execution);
-      const saved = await post<{ action: ActionRecord }>(
-        "/api/actions/submit",
-        {
-          actionId: preview.action.id,
-          txHash: result.transactionHash,
-          orderId: result.orderId,
-          result: result.response,
-        },
-      );
+      const owner = await currentWalletAddress();
+      if (owner.toLowerCase() !== preview.execution.account.ownerAddress.toLowerCase()) throw new Error("Your wallet changed. Reconnect the account owner before approving this action.");
+      const result = preview.execution.request.mode === "manual" ? await executePreparedAction(preview.execution) : undefined;
+      const saved = await post<{ action: ActionRecord }>("/api/actions/submit", {
+        actionId: preview.action.id,
+        ...(result ? { txHash: result.transactionHash, userOperationHash: result.userOperationHash, orderId: result.orderId, result: result.response } : {}),
+      });
       setNotice(
         saved.action.status === "confirmed"
           ? "Action confirmed by the venue."

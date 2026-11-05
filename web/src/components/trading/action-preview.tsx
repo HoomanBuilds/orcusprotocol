@@ -100,7 +100,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
         )}
         <div>
           <dt>Permission</dt>
-          <dd>Owner wallet signature</dd>
+          <dd>{prepared.request.mode === "agent" ? "Existing scoped agent grant" : "Owner wallet signature"}</dd>
         </div>
         <div>
           <dt>Quote expires</dt>
@@ -118,8 +118,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
       <div className="safe-note">
         <ShieldCheck size={16} />
         <span>
-          Connecting your wallet does not authorize your agent. This signature
-          is for the action shown above.
+          {prepared.request.mode === "agent" ? "The agent can execute only within your existing grant. Current permissions are checked again before signing." : "Connecting your wallet does not authorize your agent. This signature is for the action shown above."}
         </span>
       </div>
       <InlineError message={w.error} />
@@ -141,12 +140,12 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
           {w.executing ? (
             <>
               <Spinner />
-              Confirming in wallet
+              {prepared.request.mode === "agent" ? "Executing with agent" : "Confirming in wallet"}
             </>
           ) : !expiresIn ? (
             "Quote expired"
           ) : (
-            "Sign and execute"
+            prepared.request.mode === "agent" ? "Execute with agent" : "Sign and execute"
           )}
         </button>
       </div>
