@@ -7,6 +7,7 @@ import { getBudget, reserveBudget, setBudget, settleReservation } from "./budget
 import { handleRequest, readBody } from "./http";
 import { Store } from "./store";
 import { Platform } from "./platform";
+import * as engineBoundary from "./engine";
 
 const origin = "http://localhost:3000";
 let runtimeDirectory: string;
@@ -55,6 +56,26 @@ describe("owner authentication", () => {
 });
 
 describe("durable limits", () => {
+  it("does not move a model proposal to another selected trading account", async () => {
+    const store=new Store(":memory:");
+    const engine=vi.spyOn(engineBoundary,"callEngine");
+    try{
+      const user=store.ensureUser("0x1111111111111111111111111111111111111111"),platform=new Platform(store);
+      const selected=platform.createAccount(user,{venue:"hyperliquid"});
+      const other=platform.createAccount(user,{venue:"uniswap"});
+      setBudget(store,user.id,"1","0.1",false);
+      engine.mockImplementation(async name=>{
+        if(name==="getPortfolio")return {balances:[],positions:[],orders:[],observedAt:Date.now()};
+        if(name==="planWith0G")return {message:"Proposed a spot swap",costUsd:"0",proposal:{accountId:other.id,venue:"uniswap",type:"swap",symbol:"WETH/USDC",side:"buy",amount:"1",slippageBps:50,mode:"agent",reduceOnly:false}};
+        throw new Error("Unexpected engine call");
+      });
+      const result=await platform.proposal(user,"Trade using the selected account",selected,"account-mismatch");
+      expect(result.proposal).toBeUndefined();
+      expect(result.requiresClarification).toBe(true);
+      expect(result.message).toContain("different trading account");
+      expect(store.list(user.id,"action")).toHaveLength(0);
+    }finally{engine.mockRestore();store.db.close();}
+  });
   it.each([false,true])("releases reservations for inference rejected before sending (private-only=%s)", async privateOnly => {
     vi.stubEnv("ZEROG_COMPUTE_CHAT_URL", "");
     vi.stubEnv("ZEROG_COMPUTE_API_KEY", "");

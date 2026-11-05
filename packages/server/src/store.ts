@@ -4,8 +4,8 @@ import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { User } from "@orcus/core";
-import { ApiError } from "./errors.js";
-import type { StoredRecord } from "./types.js";
+import { ApiError } from "./errors";
+import type { StoredRecord } from "./types";
 
 const schema = `
 CREATE TABLE IF NOT EXISTS migrations(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL);
