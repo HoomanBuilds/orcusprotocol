@@ -1,7 +1,7 @@
 # Hackathon Implementation Plan
 
 Date: 2026-11-05
-Status: implementation-ready plan; application code has not been ported or verified in this repository.
+Status: implementation in progress. Application, account controls, venue adapters and the CRE workflow have been integrated; the README describes setup and verification boundaries. End-to-end checklist acceptance remains separate from code completion.
 
 ## 1. Product and fixed scope
 
@@ -308,11 +308,11 @@ Use seeded test scenarios and controlled failures, but label simulation/fork evi
 
 No hard calendar estimates are assumed without team size and the results of P0. The fastest first integration proof is one real manual action followed by an agent action on the same account, with sponsor dependencies tested early. Defer cosmetic polish and extra venues before weakening authorization or dropping checklist capabilities.
 
-## 9. Inspection and execution status
+## 9. Original planning baseline (2026-11-05)
 
 - Source code and tests were inspected; exact provenance is in the reuse inventory.
 - A focused test command was attempted in the original agent package and stopped with `vitest: command not found` (exit 127). No source test pass is claimed.
-- No source dependencies were installed, no application code was ported, and no onchain transaction was submitted during planning.
+- No source dependencies were installed, no application code was ported, and no onchain transaction was submitted during the original planning pass. Subsequent implementation uses the isolated worktrees and commits in this repository.
 - This plan is not evidence that any integration is already live. Checkboxes remain open until demonstrated in this repository.
 
 ## Implementation references

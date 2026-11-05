@@ -5,10 +5,10 @@
   "type": "module",
   "workspaces": ["web", "agent", "packages/*"],
   "scripts": {
-    "dev": "node --env-file-if-exists=.env node_modules/next/dist/bin/next dev web --hostname 0.0.0.0",
-    "start": "node --env-file-if-exists=.env node_modules/next/dist/bin/next start web --hostname 0.0.0.0",
+    "dev": "node scripts/web.mjs dev",
+    "start": "node scripts/web.mjs start",
     "worker": "node --env-file-if-exists=.env --import tsx agent/src/worker.ts",
-    "build": "node --env-file-if-exists=.env node_modules/next/dist/bin/next build web",
+    "build": "node scripts/web.mjs build",
     "doctor": "node --env-file-if-exists=.env --import tsx scripts/doctor.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"

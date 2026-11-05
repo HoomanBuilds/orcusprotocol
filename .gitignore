@@ -1,5 +1,6 @@
 node_modules
 .next/
+web/next-env.d.ts
 dist/
 .turbo/
 coverage/
