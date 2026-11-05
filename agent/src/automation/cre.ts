@@ -15,7 +15,7 @@ const outputSchema = z.object({
   source: z.literal("local-simulation"), observedAt: z.number(), expiresAt: z.number(),
   controlRevision: z.number().int(), policyVersion: z.number().int(),
   requestId: z.string().optional(), proposalId: z.string().optional(),
-  observations: z.record(z.unknown()).optional(),
+  observations: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();
 
 export interface CreEvaluationInput {

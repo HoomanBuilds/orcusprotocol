@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { createPublicClient, encodeFunctionData, erc20Abi, formatEther, formatUnits, getAddress, http, isAddressEqual, parseAbi, zeroAddress } from "viem";
+import { createPublicClient, decodeEventLog, encodeFunctionData, erc20Abi, formatEther, formatUnits, getAddress, http, isAddressEqual, parseAbi, zeroAddress, type Hex } from "viem";
+import { entryPoint } from "@orcus/wallets/kernel";
 import { sepolia } from "viem/chains";
 import { tradeRequestSchema, type Market, type PreparedAction, type TradingAccount, type TradeRequest } from "@orcus/core";
 import { engineConfig } from "../../config";
@@ -112,7 +113,52 @@ export async function getUniswapMarkets(): Promise<Market[]> {
   return [{ venue: "uniswap", symbol: "WETH/USDC", baseAsset: "WETH", quoteAsset: "USDC", midPrice: formatUnits(result[0], 6), observedAt: Date.now() }];
 }
 
-export async function reconcileUniswapAction(action: { transactionHash?: string; txHash?: string }, account: TradingAccount): Promise<SubmissionResult> {
+const operationEventAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash,address indexed sender,address indexed paymaster,uint256 nonce,bool success,uint256 actualGasCost,uint256 actualGasUsed)"]);
+const transferEventAbi = parseAbi(["event Transfer(address indexed from,address indexed to,uint256 value)"]);
+interface SettlementLog { address: string; data: Hex; topics: readonly Hex[] }
+export interface SwapReconciliationInput { transactionHash?: string; txHash?: string; userOperationHash?: string; prepared?: PreparedAction }
+
+export function verifySwapSettlement(action: SwapReconciliationInput, account: TradingAccount, transaction: { from: string; to: string | null; input: Hex }, logs: readonly SettlementLog[]) {
+  const prepared = action.prepared;
+  if (!prepared?.request.tokenIn || !prepared.request.tokenOut || !prepared.quote?.minimumOut || prepared.request.tokenInDecimals === undefined || prepared.request.tokenOutDecimals === undefined) throw new EngineError("SETTLEMENT_CONTEXT_MISSING", "A prepared quote is required to verify the actual swap settlement.");
+  let operationLogs = logs;
+  if (account.smartAccountAddress) {
+    if (!transaction.to || !isAddressEqual(getAddress(transaction.to), entryPoint.address)) throw new EngineError("TRANSACTION_ACCOUNT_MISMATCH", "The transaction did not use the expected account-abstraction EntryPoint.");
+    let start = 0;
+    const matches: Array<{ success: boolean; logs: readonly SettlementLog[] }> = [];
+    for (let index = 0; index < logs.length; index++) {
+      const log = logs[index];
+      if (!isAddressEqual(getAddress(log.address), entryPoint.address)) continue;
+      try {
+        const event = decodeEventLog({ abi: operationEventAbi, data: log.data, topics: log.topics as [Hex, ...Hex[]] });
+        if (isAddressEqual(event.args.sender, getAddress(account.address)) && (!action.userOperationHash || event.args.userOpHash.toLowerCase() === action.userOperationHash.toLowerCase())) matches.push({ success: event.args.success, logs: logs.slice(start, index) });
+        start = index + 1;
+      } catch { continue; }
+    }
+    if (matches.length !== 1) throw new EngineError("USER_OPERATION_NOT_VERIFIED", "The receipt does not uniquely identify this account's user operation.");
+    if (!matches[0].success) return false;
+    operationLogs = matches[0].logs;
+  } else {
+    const swap = prepared.transactions?.at(-1);
+    if (!swap || !isAddressEqual(getAddress(transaction.from), getAddress(account.address)) || !transaction.to || !isAddressEqual(getAddress(transaction.to), getAddress(swap.to)) || transaction.input.toLowerCase() !== swap.data.toLowerCase()) throw new EngineError("TRANSACTION_ACCOUNT_MISMATCH", "The transaction does not match the prepared owner swap.");
+  }
+  const input = getAddress(prepared.request.tokenIn), output = getAddress(prepared.request.tokenOut), owner = getAddress(account.address);
+  const amountIn = decimalToAtoms(prepared.quote.amountIn, prepared.request.tokenInDecimals);
+  const minimumOut = decimalToAtoms(prepared.quote.minimumOut, prepared.request.tokenOutDecimals);
+  let spent = 0n, received = 0n;
+  for (const log of operationLogs) {
+    if (!isAddressEqual(getAddress(log.address), input) && !isAddressEqual(getAddress(log.address), output)) continue;
+    try {
+      const event = decodeEventLog({ abi: transferEventAbi, data: log.data, topics: log.topics as [Hex, ...Hex[]] });
+      if (isAddressEqual(getAddress(log.address), input) && isAddressEqual(event.args.from, owner)) spent += event.args.value;
+      if (isAddressEqual(getAddress(log.address), output) && isAddressEqual(event.args.to, owner)) received += event.args.value;
+    } catch { continue; }
+  }
+  if (spent !== amountIn || received < minimumOut) throw new EngineError("SWAP_SETTLEMENT_NOT_VERIFIED", "The receipt does not prove the quoted input and protected output for this account.");
+  return true;
+}
+
+export async function reconcileUniswapAction(action: SwapReconciliationInput, account: TradingAccount): Promise<SubmissionResult> {
   assertAccount(account);
   const hash = action.transactionHash ?? action.txHash;
   if (!hash || !/^0x[0-9a-fA-F]{64}$/.test(hash)) return { status: "submitted-unknown" };
@@ -120,8 +166,8 @@ export async function reconcileUniswapAction(action: { transactionHash?: string;
   try {
     const receipt = await rpc.getTransactionReceipt({ hash: hash as `0x${string}` });
     const tx = await rpc.getTransaction({ hash: hash as `0x${string}` });
-    if (!account.smartAccountAddress && !isAddressEqual(tx.from, getAddress(account.address))) throw new EngineError("TRANSACTION_ACCOUNT_MISMATCH", "The transaction was not sent by this trading account.");
-    return { status: receipt.status === "success" ? "confirmed" : "rejected", txHash: hash, evidence: { blockNumber: receipt.blockNumber.toString(), gasUsed: receipt.gasUsed.toString(), confirmationsRequired: 1 } };
+    const success = receipt.status === "success" && verifySwapSettlement(action, account, tx, receipt.logs);
+    return { status: success ? "confirmed" : "rejected", txHash: hash, evidence: { blockNumber: receipt.blockNumber.toString(), gasUsed: receipt.gasUsed.toString(), confirmationsRequired: 1, userOperationHash: action.userOperationHash, swapTransfersVerified: success } };
   } catch (error) {
     if (error instanceof EngineError) throw error;
     return { status: "pending", txHash: hash };

@@ -42,6 +42,6 @@ export async function submitAgentAction(prepared: PreparedAction, account: Tradi
   return submitKernelSessionAction(prepared, privateKey, options.authorization);
 }
 
-export function reconcileAction(action: { transactionHash?: string; txHash?: string; orderId?: string; id?: string; prepared?: PreparedAction }, account: TradingAccount) {
+export function reconcileAction(action: { transactionHash?: string; txHash?: string; userOperationHash?: string; orderId?: string; id?: string; prepared?: PreparedAction }, account: TradingAccount) {
   return account.venue === "uniswap" ? reconcileUniswapAction(action, account) : reconcileHyperliquidAction(action, account);
 }
