@@ -40,7 +40,3 @@ export function realizedVolatility(values: number[]): number | null {
   const variance = returns.reduce((a, r) => a + (r - mean) ** 2, 0) / returns.length;
   return Math.sqrt(variance) * 100;
 }
-
-
-
-export async function fetchKlineCloses(
