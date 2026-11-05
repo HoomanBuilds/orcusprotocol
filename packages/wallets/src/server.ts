@@ -39,6 +39,15 @@ export async function verifyKernelEnrollment(input: { ownerAddress: string; smar
 }
 
 export async function submitKernelSessionAction(prepared: PreparedAction, key: Hex, authorization: KernelAuthorization, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void> | void, assertAuthority?: () => Promise<void> | void) {
+  try { return await submitSessionAction(prepared, key, authorization, onSubmitted, assertAuthority); }
+  catch (error) {
+    if (error instanceof WalletActionError) throw error;
+    const detail = error as { code?: string; message?: string };
+    throw new WalletActionError(detail?.code ?? "SESSION_PREFLIGHT_FAILED", detail?.message ?? "Session preparation failed. Nothing was submitted.");
+  }
+}
+
+async function submitSessionAction(prepared: PreparedAction, key: Hex, authorization: KernelAuthorization, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void> | void, assertAuthority?: () => Promise<void> | void) {
   const policy = kernelGrantPolicySchema.parse(authorization.policy);
   assertKernelPolicyCompatible(prepared, policy);
   await assertAuthority?.();
