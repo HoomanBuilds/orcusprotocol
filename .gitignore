@@ -22,4 +22,10 @@ secrets/
 
 contracts/artifacts/
 contracts/cache/
+contracts/broadcast/
+workflows/cre/node_modules/
+workflows/cre/bun.lock
+workflows/cre/strategy/node_modules/
+workflows/cre/strategy/bun.lock
+*.wasm
 .DS_Store
