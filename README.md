@@ -2,12 +2,12 @@
 
 A personal-agent trading platform where users and authorized agents manage the same supported trading accounts. Manual controls and agent capabilities share execution, permissions and position state. Users never share their wallet private keys.
 
-Sponsor integrations: 0G inference and encrypted memory, Uniswap spot execution, and Ethereum Foundation Anon-RPC for supported browser reads. Hyperliquid supplies an additional trading venue.
+Sponsor targets: 0G inference and encrypted memory, Uniswap spot execution, and Chainlink CRE for conditional strategy orchestration. Hyperliquid supplies an additional trading venue. CRE starts in local simulation with real testnet/API calls and a managed runner; this is not hosted DON execution.
 
 ## Project documentation
 
 - [Implementation plan](docs/plans/implementation-plan.md): architecture, reuse decisions, build order, dependency gates and acceptance tests.
-- [Product checklist](docs/specs/product-checklist.md): all 57 requirements with stable IDs.
+- [Product checklist](docs/specs/product-checklist.md): 57 current acceptance items, including the replacement CRE requirements.
 - [Reuse inventory](docs/research/reuse-inventory.md): inspected source paths and revisions, adaptations, known hazards and baseline-test results.
 
 ## Current status

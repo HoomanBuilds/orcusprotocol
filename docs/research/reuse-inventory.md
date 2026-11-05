@@ -14,7 +14,7 @@ Inspection confirms code exists and identifies adaptations. It does not establis
 | Colosseum | `/home/shreyas/code/work/colosseum/` | `3526dbbb` | Clean |
 | Arbitrum Openhouse | `/home/shreyas/code/work/arbitrum-openhouse/` | `7769578` | Existing user modifications listed below |
 
-The product checklist originated at `orcus/docs/plans/2026-11-05-hackathon-product-checklist.md`. That source directory is Git-ignored. The new [canonical checklist](../specs/product-checklist.md) preserves all 57 requirements and adds stable IDs for traceability. The original file was not changed.
+The product checklist originated at `orcus/docs/plans/2026-11-05-hackathon-product-checklist.md`. That source directory is Git-ignored. The initial [canonical checklist](../specs/product-checklist.md) preserved all 57 requirements and added IDs for traceability. The current CRE revision replaces the former six EF/Anon-RPC criteria and updates sponsor/demo references while retaining core product capabilities. It still has 57 items. The original source checklist was not changed.
 
 Arbitrum Openhouse files already modified by the user:
 
@@ -90,7 +90,7 @@ Source: Orcus.
 
 Destination: pure validation/amount types in `packages/core/`; agent tools and automation in `agent/src/`.
 
-Reuse deterministic validation, indicator computation and encryption primitives after reviewing their assumptions and tests. Consolidate duplicated schema definitions. Adapt receipt fields to include user/account binding, action initiator, permission revision, venue evidence and accurate execution status.
+Reuse deterministic validation, indicator computation and encryption primitives after reviewing their assumptions and tests. Pure strategy/indicator helpers can also inform the new CRE workflow after WASM compatibility review; keep Node I/O, secret handling and billable inference behind the worker boundary. Consolidate duplicated schema definitions. Adapt receipt fields to include user/account binding, action initiator, permission revision, venue evidence and accurate execution status.
 
 The existing typed-strategy path can execute deterministically and use AI only for narration. Keep deterministic safeguards, but add meaningful 0G planning/tool selection for the new product. Do not present narration alone as the required AI capability.
 
@@ -105,13 +105,13 @@ Source: Orcus.
 - `agent/src/rpc.test.ts`
 - `web/src/lib/rpc.ts`
 
-Destination: `agent/src/storage/`, `agent/src/execution/` and `web/src/lib/privacy/`.
+Destination: `agent/src/storage/`, `agent/src/execution/` and `web/src/lib/rpc/`.
 
 Use the storage upload boundary as a starting point, not as verified persistence. The current helper serializes receipt JSON, computes a root and can return that root after an upload error. Replace this with encrypted bytes, explicit pending/confirmed/failed status, retry handling and a demonstrated download/recovery path. Do not treat a computed hash as evidence that any node stored the object. Use collision-safe temporary files or a supported in-memory upload path.
 
 The current runtime uses a singleton agent private key and in-memory seen/in-flight tracking. A transaction can be marked seen before execution, and that state disappears on restart. Replace those ownership and scheduling mechanisms with per-user credentials and a durable journal; do not copy the old main loop unchanged.
 
-The browser RPC helper is ordinary HTTP fallback with short timeouts. It is not Anon-RPC. Keep direct transport available only where explicitly identified as such. Add a real browser anonymizing transport and account for its cold-start latency rather than reusing a five-second timeout blindly.
+The browser RPC helper is ordinary HTTP fallback with short timeouts. Reuse it only with explicit freshness/error handling and appropriate timeout review; it provides no anonymous-read guarantee. The former Anon-RPC integration is no longer a required port after the third-sponsor change. CRE's own configured EVM reads are a distinct workflow boundary, not automatically this browser transport.
 
 ## R05. Existing Uniswap fork integration tests
 
@@ -247,11 +247,23 @@ Reuse confirmation/preflight presentation, status timelines and account-level ac
 
 Colosseum's terminal components are useful secondary references for venue-specific controls, but importing its entire terminal context would pull in unrelated protocol machinery. Prefer one coherent UI built from these selected sources.
 
+## R13. CRE workflow and runner
+
+Source: new integration, using the official CRE CLI/SDK and selective pure logic from R03. No inspected source project establishes an existing CRE workflow.
+
+Destination: `workflows/cre/` for workflow code/configuration and `agent/src/automation/` for durable scheduling, bounded CLI invocation and result handoff.
+
+Use the [official CRE templates](https://github.com/smartcontractkit/cre-templates/) as a starting point after checking their actual interfaces and license. Do not invent a custom simulator and label it CRE.
+
+Implement real EVM reads and external HTTP observations, idempotent proposal retrieval, approved-condition checks and structured allow/reject/no-action results. Adapt pure evaluators only where compatible with the WASM runtime; keep wallet signing, encrypted key storage, 0G API credentials and durable execution in the Node worker.
+
+The existing source job/journal patterns can support scheduling and recovery, but runner authentication, evaluation binding, expiry/control revisions and replay handling are new work. Use the actual CLI result format verified in the integration spike. Simulation evidence is local, not a production DON signature. Hosted access, fees and report verification must be verified separately before introducing that mode.
+
 ## New work that the source code does not establish
 
 - The complete user-owned smart-account plus bounded session-key flow for Uniswap.
 - Unified manual/agent action contracts, shared account handoff and external-position reconciliation in this product.
-- Actual Anon-RPC worker integration and dependable gateway configuration.
+- A meaningful CRE workflow, its WASM/toolchain compatibility, real chain/API calls and durable authenticated runner-to-execution handoff.
 - Per-user authorization across the combined web, worker, budget and memory paths.
 - Proven 0G private-inference configuration and actual operating-wallet-to-compute replenishment.
 - Encrypted memory upload confirmation, download and restart recovery.

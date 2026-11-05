@@ -2,11 +2,11 @@
 
 Updated: 2026-11-05
 
-Implementation checklist for this repository. IDs link to the [implementation plan](../plans/implementation-plan.md). All existing requirements are retained; source provenance is recorded separately in the [reuse inventory](../research/reuse-inventory.md).
+Implementation checklist for this repository. IDs link to the [implementation plan](../plans/implementation-plan.md). All core user and agent capabilities are retained; the six former EF/Anon-RPC requirements in section 9 are replaced by CRE requirements in this revision. The current count remains 57. Source provenance is recorded separately in the [reuse inventory](../research/reuse-inventory.md).
 
 Build a personal-agent trading platform where users can research, trade and manage positions themselves or through their authorized agent. Both interfaces operate on the same supported trading accounts. Privacy supports the product; it does not turn public trades into private transactions.
 
-Sponsor targets: **0G + Uniswap + Ethereum Foundation**. Hyperliquid is an additional trading integration, not a fourth sponsor target.
+Sponsor targets: **0G + Uniswap + Chainlink CRE**. Hyperliquid is an additional trading integration, not a fourth sponsor target. Target the CRE workflow bounty; CCIP and Anon-RPC are not required integrations.
 
 This is the product acceptance checklist in build order. Unchecked means not yet verified end to end against this checklist, not necessarily missing from the existing code.
 
@@ -56,7 +56,7 @@ This is the product acceptance checklist in build order. Unchecked means not yet
 
 ## 6. Background automation
 
-- [ ] `C6.1` Run a background worker for monitoring, scheduled purchases, alerts and approved strategies. Automation must not depend on the browser remaining open.
+- [ ] `C6.1` Run a durable worker and actual CRE workflow for conditional monitoring, scheduled purchases, alerts and approved strategies. The worker schedules bounded simulations and reconciles execution; automation must not depend on the browser remaining open.
 - [ ] `C6.2` Show active, paused, expired, insufficient-budget and failed states for each automation.
 - [ ] `C6.3` Define the caller, gas payer and retry policy for each execution. Avoid duplicate trades after a restart or timeout.
 - [ ] `C6.4` Pause unsafe new actions on stale data, expired authorization or unavailable dependencies. Preserve manual controls and previously placed protective orders where the venue permits.
@@ -78,29 +78,31 @@ This is the product acceptance checklist in build order. Unchecked means not yet
 - [ ] `C8.5` If optional earned-funding mode is enabled, demonstrate genuine service revenue reaching the agent's compute account and paying for subsequent inference without manual top-ups. Only then describe it as self-sustaining.
 - [ ] `C8.6` Do not require a token launch. Sponsor credits and owner deposits do not prove earned revenue.
 
-## 9. Ethereum Foundation Anon-RPC
+## 9. Chainlink CRE strategy orchestration
 
-- [ ] `C9.1` Route supported browser blockchain reads through a real anonymizing worker by default. Never present the passthrough example as private.
-- [ ] `C9.2` Verify balance, allowance and contract-state reads against the actual target RPCs through that worker.
-- [ ] `C9.3` Confirm gateway access, RPC compatibility, bootstrap time and response latency on the demo network. Do not depend solely on a demonstration gateway with no availability guarantee.
-- [ ] `C9.4` Show routing status and errors. Never silently fall back to direct requests while displaying a privacy-protected status.
-- [ ] `C9.5` Document covered and uncovered traffic, including background-agent reads, wallet-provider traffic, Uniswap API requests and Hyperliquid APIs.
-- [ ] `C9.6` Describe the protection accurately: reduced IP-to-wallet-query linkage at the destination RPC, not hidden trades, balances or positions on public ledgers.
+Revision note: C9.1-C9.6 now describe CRE acceptance, replacing their former EF/Anon-RPC meanings. No private-read guarantee is carried over. Wallet protection, encrypted memory and verified 0G privacy requirements remain unchanged.
+
+- [ ] `C9.1` Run an actual CRE workflow that reads the target blockchain and an external API/system, consumes structured 0G planning where needed, and evaluates an approved strategy. Its result must drive a real automation feature, not just a log or unused simulation.
+- [ ] `C9.2` Demonstrate successful CLI simulation with real configured testnet/RPC and HTTP calls. Label it local simulation, not hosted execution or DON consensus. Confirm CLI authentication, toolchain and account-enabled networks; do not assume testnet makes third-party services free.
+- [ ] `C9.3` Bind workflow results to the strategy, user/trading account, network, evaluation/proposal IDs, approved policy version, observation time/block and expiry. Deduplicate proposal generation so retries do not multiply billable inference.
+- [ ] `C9.4` Authenticate the runner-to-worker handoff and validate outputs before consumption. Keep wallet keys outside CRE and independently check current permission/control revisions and risk limits before signing. A CRE allow result is not wallet authorization; manual and immediate conversational controls remain separate.
+- [ ] `C9.5` Persist scheduling and evaluation state, prevent duplicate executions, and show active, no-action, rejected, paused and failed states. Stop affected conditional jobs on stale data, revoked authority, low budget or runner failure without disabling owner exits or venue-native protective orders.
+- [ ] `C9.6` Show an allowed action and a rejected candidate end to end, with CLI evidence, observations, 0G request/proposal and actual venue evidence. Document runner availability, authentication, costs/quotas, data exposure and the simulation trust boundary; hosted approval/report verification is a separate future gate.
 
 ## 10. Sponsor acceptance and demo
 
 - [ ] `C10.1` **0G:** working judge-accessible agent flow, real request IDs, a concrete recurring use case and a demo under three minutes. Enter the self-sustaining bounty only if its complete earned-funding loop works.
 - [ ] `C10.2` **Uniswap:** meaningful working swap integration, public open-source repo, integration code references, `FEEDBACK.md` and the required developer feedback form.
-- [ ] `C10.3` **EF:** end-to-end anonymized reads, usable latency, demonstrated failure handling and an honest account of traffic coverage.
+- [ ] `C10.3` **Chainlink CRE:** a meaningfully used workflow connecting onchain state with external data or our agent, successful CLI simulation, real result consumption, allow/reject evidence and documented local-runner requirements. Do not add CCIP solely to claim another bounty.
 - [ ] `C10.4` Use supported testnet or local-fork routes for development and demonstration. Confirm venue compatibility and required balances without relying on mainnet funds.
 - [ ] `C10.5` Demonstrate: user manually opens a position; agent reduces or closes that same position; user takes over again.
 - [ ] `C10.6` Demonstrate: an agent-created position can be managed manually; expired or revoked permissions prevent subsequent agent actions.
-- [ ] `C10.7` Demonstrate: conflicting actions, stale state, low operating budget and unavailable privacy routing produce understandable, safe outcomes.
+- [ ] `C10.7` Demonstrate: conflicting actions, stale state, duplicate CRE results, low operating budget and an unavailable workflow runner produce understandable, safe outcomes.
 
 ## Scope boundaries
 
 - No token launch, compulsory pooled vault or invented private-trading mode.
-- No forced Hedera, Arkiv or extra sponsor integration.
+- No forced Hedera, Arkiv, Anon-RPC, CCIP or extra sponsor integration.
 - No claim that merely connecting a wallet authorizes the agent or makes every existing position controllable.
 - No promise of arbitrary venue support. Add adapters without changing the ownership and permission model.
 - Keep all manual and agent capabilities above in the hackathon product; these are build-order checkpoints, not a six-month release roadmap.
@@ -111,7 +113,9 @@ This is the product acceptance checklist in build order. Unchecked means not yet
 - [Hyperliquid API wallets](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets)
 - [Hyperliquid Exchange API](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint)
 - [Uniswap developer documentation](https://developers.uniswap.org/docs)
-- [Anon-RPC wallet integration](https://ethereum.github.io/anon-rpc/wallets/)
-- [Tor gateway requirements](https://github.com/ethereum/tor-js/tree/main/crates/tor-js-gateway)
+- [CRE overview](https://docs.chain.link/cre/overview)
+- [CRE simulation](https://docs.chain.link/cre/guides/operations/simulating-workflows)
+- [CRE quotas](https://docs.chain.link/cre/service-quotas)
+- [CRE deployment access](https://docs.chain.link/cre/guides/operations/deploy-access)
 
 Sponsor acceptance items follow the supplied event track descriptions. These references support implementation choices; they are not application runtime configuration.
