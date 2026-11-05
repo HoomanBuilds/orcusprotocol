@@ -157,6 +157,9 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
       return json({ data: await platform.permission(user, input) });
     }
     if (path === "automations" && method === "GET") return json({ data: platform.automations(user) });
+    if(path==="notifications"&&method==="GET")return json({data:platform.notifications(user)});
+    const notificationMatch=path.match(/^notifications\/([^/]+)$/);
+    if(notificationMatch&&method==="PATCH"){z.object({read:z.literal(true)}).strict().parse(await readBody(request));return json({data:platform.readNotification(user,notificationMatch[1])});}
     if (path === "automations" && method === "POST") return json({ data: platform.createAutomation(user, await readBody(request)) }, 201);
     const automationMatch = path.match(/^automations\/([^/]+)$/);
     if (automationMatch && method === "PATCH") {

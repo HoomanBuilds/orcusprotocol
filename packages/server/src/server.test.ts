@@ -56,6 +56,29 @@ describe("owner authentication", () => {
 });
 
 describe("durable limits", () => {
+  it("runs read-only alerts without delegation and deduplicates repeated trigger conditions",async()=>{
+    const store=new Store(":memory:"),engine=vi.spyOn(engineBoundary,"callEngine");
+    try{
+      const user=store.ensureUser("0x1111111111111111111111111111111111111111"),platform=new Platform(store),account=platform.createAccount(user,{venue:"hyperliquid"});
+      const job=platform.createAutomation(user,{kind:"alert",accountId:account.id,name:"ETH price",intervalSeconds:60,condition:{symbol:"ETH",operator:"above",price:"2000"}});
+      expect(store.list(user.id,"permission")).toHaveLength(0);
+      let decision:"allow"|"no-action"="allow";
+      engine.mockImplementation(async(name,...args)=>{
+        if(name!=="evaluateStrategy")throw new Error("A read-only alert must not plan or submit a trade");
+        const input=args[0]as{evaluationId:string;automationId:string;account:{id:string;chainId:number};controlRevision:number;policyVersion:number;expiresAt:number};
+        return{id:input.evaluationId,automationId:input.automationId,accountId:input.account.id,chainId:input.account.chainId,controlRevision:input.controlRevision,policyVersion:input.policyVersion,expiresAt:input.expiresAt,source:"local-simulation",observedAt:Date.now(),decision,reason:"Approved price condition evaluated"};
+      });
+      for(let index=0;index<4;index++){
+        decision=index===2?"no-action":"allow";
+        store.update(user.id,"automation",job.id,{nextRunAt:Date.now()-1000*(index+1)});
+        await platform.tick();
+        expect(platform.notifications(user).notifications).toHaveLength(index===3?2:1);
+      }
+      expect(store.list(user.id,"action")).toHaveLength(0);
+      const notification=platform.notifications(user).notifications[0];platform.readNotification(user,String(notification.id));
+      expect(platform.notifications(user).unreadCount).toBe(1);
+    }finally{engine.mockRestore();store.db.close();}
+  });
   it("does not move a model proposal to another selected trading account", async () => {
     const store=new Store(":memory:");
     const engine=vi.spyOn(engineBoundary,"callEngine");
