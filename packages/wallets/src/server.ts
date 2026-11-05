@@ -35,7 +35,7 @@ export async function verifyKernelEnrollment(input: { ownerAddress: string; smar
   } catch { return false; }
 }
 
-export async function submitKernelSessionAction(prepared: PreparedAction, key: Hex, authorization: KernelAuthorization) {
+export async function submitKernelSessionAction(prepared: PreparedAction, key: Hex, authorization: KernelAuthorization, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void> | void) {
   if (!prepared.transactions?.length || prepared.account.chainId !== sepolia.id || prepared.expiresAt <= Date.now()) throw new Error("The prepared Sepolia swap is missing or expired.");
   const policy = kernelGrantPolicySchema.parse(authorization.policy);
   const signerAccount = privateKeyToAccount(key);
@@ -53,6 +53,7 @@ export async function submitKernelSessionAction(prepared: PreparedAction, key: H
     return { to: getAddress(tx.to), data: tx.data as Hex, value: 0n };
   });
   const hash = await client.sendUserOperation({ callData: await account.encodeCalls(calls) });
+  await onSubmitted?.({ userOperationHash: hash });
   const receipt = await client.waitForUserOperationReceipt({ hash, timeout: 120_000 });
   return { transactionHash: receipt.receipt.transactionHash, userOperationHash: hash, status: receipt.success ? "confirmed" : "rejected" };
 }
