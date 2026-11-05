@@ -209,6 +209,7 @@ export interface Automation {
   accountId: string;
   name: string;
   instruction: string;
+  kind?: "trade" | "alert";
   request?: TradeRequest;
   intervalSeconds: number;
   status: "active" | "paused" | "expired" | "insufficient-budget" | "failed";

@@ -26,7 +26,8 @@ export interface CreEvaluationInput {
   evaluationId: string;
   automationId: string;
   account: TradingAccount;
-  request: TradeRequest;
+  kind?: "trade" | "alert";
+  request?: TradeRequest;
   condition?: { operator: "above" | "below" | "always"; price?: string; maxAgeSeconds?: number; symbol?: string };
   instruction?: string;
   controlRevision: number;
@@ -50,15 +51,17 @@ export function parseCreOutput(stdout: string) {
 export async function evaluateStrategy(input: CreEvaluationInput) {
   const cfg = engineConfig().cre;
   if (!cfg.enabled) throw new EngineError("CRE_NOT_CONFIGURED", "Conditional automation requires the real CRE runner. Configure and authenticate it before activating this strategy.", 503);
-  if (!input.request) throw new EngineError("MISSING_PROPOSAL", "0G supplied no executable proposal; this evaluation cannot authorize a trade.", 422);
+  const kind = input.kind ?? "trade";
+  if (kind === "trade" && !input.request) throw new EngineError("MISSING_PROPOSAL", "0G supplied no executable proposal; this evaluation cannot authorize a trade.", 422);
+  if (kind === "alert" && (!input.condition?.symbol || !input.condition.price || input.condition.operator === "always")) throw new EngineError("INVALID_ALERT", "A price alert requires an instrument and an explicit above/below threshold.", 422);
   const workflowDir = resolve(requireConfigured(cfg.workflowDir, "CRE_WORKFLOW_DIR"));
   const cliPath = cfg.cliPath.includes("/") ? resolve(cfg.cliPath) : cfg.cliPath;
   if (input.expiresAt <= Date.now() || input.account.controlRevision !== input.controlRevision) throw new EngineError("STALE_EVALUATION", "The strategy evaluation expired or its account control revision changed.");
-  const base = input.request.symbol.toUpperCase().split(/[\/-]/)[0].replace(/USDC$|USD$/, "");
+  const base = (kind === "alert" ? input.condition!.symbol! : input.request!.symbol).toUpperCase().split(/[\/-]/)[0].replace(/USDC$|USD$/, "");
   const asset = base === "WETH" ? "ETH" : base;
   if (!/^[A-Z0-9]{2,12}$/.test(asset)) throw new EngineError("UNSUPPORTED_MARKET", "This market cannot be evaluated by the configured external price source.");
   const uni = engineConfig().uniswap;
-  const tokenAddress = input.proposal?.tokenIn ?? input.request.tokenIn ?? (input.request.side === "buy" ? uni.usdc : uni.weth);
+  const tokenAddress = input.proposal?.tokenIn ?? input.request?.tokenIn ?? (input.request?.side === "sell" ? uni.weth : uni.usdc);
   const tokenDecimals = tokenAddress.toLowerCase() === uni.usdc.toLowerCase() ? 6 : 18;
   const directory = await mkdtemp(join(tmpdir(), "orcus-cre-"));
   const configPath = join(directory, "evaluation.json");
@@ -70,7 +73,7 @@ export async function evaluateStrategy(input: CreEvaluationInput) {
       schedule: "0 */5 * * * *", evaluationId: input.evaluationId, automationId: input.automationId,
       accountId: input.account.id, accountAddress: input.account.address, chainId: input.account.chainId,
       chainName: "ethereum-testnet-sepolia", tokenAddress, tokenDecimals,
-      venue: input.request.venue, amount: input.request.amount, request: input.request,
+      kind, venue: input.account.venue, amount: input.request?.amount, request: input.request,
       proposal: input.proposal, proposalId: input.evaluationId, requestId: input.requestId,
       proposalUrl: input.proposalUrl, marketUrl: `https://api.coinbase.com/v2/prices/${asset}-USD/spot`,
       condition: input.condition ?? { operator: "always", maxAgeSeconds: 60 },
@@ -86,7 +89,7 @@ export async function evaluateStrategy(input: CreEvaluationInput) {
       throw new EngineError("CRE_RUN_FAILED", "The CRE workflow could not complete. Check CLI availability, authentication, toolchain and target-chain access. No fallback evaluator was used.", 502);
     }
     const result = parseCreOutput(stdout);
-    if (result.evaluationId !== input.evaluationId || result.automationId !== input.automationId || result.accountId !== input.account.id || result.chainId !== input.account.chainId || result.controlRevision !== input.controlRevision || result.policyVersion !== input.policyVersion || result.expiresAt !== input.expiresAt || result.expiresAt <= Date.now() || result.observedAt > Date.now() + 5_000 || Date.now() - result.observedAt > 120_000 || (result.requestId || undefined) !== input.requestId) throw new EngineError("CRE_BINDING_MISMATCH", "The evaluation does not match the approved account, policy, request or validity window.", 422);
+    if ((result.kind ?? "trade") !== kind || result.evaluationId !== input.evaluationId || result.automationId !== input.automationId || result.accountId !== input.account.id || result.chainId !== input.account.chainId || result.controlRevision !== input.controlRevision || result.policyVersion !== input.policyVersion || result.expiresAt !== input.expiresAt || result.expiresAt <= Date.now() || result.observedAt > Date.now() + 5_000 || Date.now() - result.observedAt > 120_000 || (result.requestId || undefined) !== input.requestId) throw new EngineError("CRE_BINDING_MISMATCH", "The evaluation does not match the approved account, policy, request or validity window.", 422);
     return { ...result, id: result.evaluationId, workflowEvidence: { cli: "cre workflow simulate", mode: "local-simulation", hasRealObservations: Boolean(result.observations) } };
   } finally { await rm(directory, { recursive: true, force: true }); }
 }

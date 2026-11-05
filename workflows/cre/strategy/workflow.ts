@@ -8,7 +8,7 @@ const requestSchema = z.object({ accountId: z.string(), venue: z.enum(["uniswap"
 export const configSchema = z.object({
   schedule: z.string(), evaluationId: z.string().min(1), automationId: z.string().min(1), accountId: z.string().min(1), accountAddress: address,
   chainId: z.number().int(), chainName: z.literal("ethereum-testnet-sepolia"), tokenAddress: address, tokenDecimals: z.number().int().min(0).max(36),
-  venue: z.enum(["uniswap", "hyperliquid"]), amount: decimal, request: requestSchema, proposal: requestSchema.optional(), proposalId: z.string(), requestId: z.string().optional(),
+  kind: z.enum(["trade", "alert"]).default("trade"), venue: z.enum(["uniswap", "hyperliquid"]), amount: decimal.optional(), request: requestSchema.optional(), proposal: requestSchema.optional(), proposalId: z.string(), requestId: z.string().optional(),
   proposalUrl: z.string().url().optional(), marketUrl: z.string().regex(/^https:\/\/api\.coinbase\.com\/v2\/prices\/[A-Z0-9]{2,12}-USD\/spot$/),
   condition: z.object({ operator: z.enum(["above", "below", "always"]), price: decimal.optional(), maxAgeSeconds: z.number().int().min(5).max(120).default(60), symbol: z.string().optional() }),
   controlRevision: z.number().int().min(0), policyVersion: z.number().int().min(1), expiresAt: z.number().int().positive(),
@@ -47,23 +47,26 @@ export function onCron(runtime: Runtime<Config>) {
   const now = runtime.now().getTime();
   const observations: Record<string, string | number> = {};
   const finish = (decision: "allow" | "reject" | "no-action", reason: string) => {
-    const output = { evaluationId: config.evaluationId, automationId: config.automationId, accountId: config.accountId, chainId: config.chainId, decision, reason, source: "local-simulation" as const, observedAt: now, expiresAt: config.expiresAt, controlRevision: config.controlRevision, policyVersion: config.policyVersion, requestId: config.requestId ?? "", proposalId: config.proposalId, observations };
+    const output = { kind: config.kind, evaluationId: config.evaluationId, automationId: config.automationId, accountId: config.accountId, chainId: config.chainId, decision, reason, source: "local-simulation" as const, observedAt: now, expiresAt: config.expiresAt, controlRevision: config.controlRevision, policyVersion: config.policyVersion, requestId: config.requestId ?? "", proposalId: config.proposalId, observations };
     runtime.log(`ORCUS_CRE_RESULT=${JSON.stringify(output)}`);
     return output;
   };
   if (config.expiresAt <= now) return finish("reject", "The approved evaluation expired.");
-  if (config.accountAddress === zeroAddress || config.request.accountId !== config.accountId || config.request.venue !== config.venue || config.request.amount !== config.amount) return finish("reject", "The request does not match this approved trading account.");
+  const request = config.request;
+  if (config.accountAddress === zeroAddress || (config.kind === "trade" && (!request || request.accountId !== config.accountId || request.venue !== config.venue || request.amount !== config.amount))) return finish("reject", "The request does not match this approved trading account.");
   let proposal = config.proposal;
   const http = new cre.capabilities.HTTPClient();
-  if (config.proposalUrl) {
+  if (config.kind === "trade" && config.proposalUrl) {
     const secret = runtime.getSecret({ id: "ORCUS_CRE_PROPOSAL_TOKEN" }).result();
     const raw = http.sendRequest(runtime, retrieveProposal, consensusIdenticalAggregation<string>())(config.proposalUrl, secret.value).result();
     const envelope = JSON.parse(raw) as { evaluationId?: string; requestId?: string; proposal?: unknown };
     if (envelope.evaluationId !== config.evaluationId || envelope.requestId !== config.requestId) return finish("reject", "The proposal is not bound to this evaluation.");
     proposal = requestSchema.parse(envelope.proposal);
   }
-  if (!proposal) return finish("no-action", "No executable proposal was supplied.");
-  for (const key of ["accountId", "venue", "type", "symbol", "side", "amount"] as const) if (proposal[key] !== config.request[key]) return finish("reject", "The proposal differs from the approved candidate.");
+  if (config.kind === "trade") {
+    if (!proposal || !request) return finish("no-action", "No executable proposal was supplied.");
+    for (const key of ["accountId", "venue", "type", "symbol", "side", "amount"] as const) if (proposal[key] !== request[key]) return finish("reject", "The proposal differs from the approved candidate.");
+  } else if (config.condition.operator === "always") return finish("reject", "Alerts require an explicit price threshold.");
   const market = http.sendRequest(runtime, readMarket, ConsensusAggregationByFields<{ price: number; observedAt: number }>({ price: median, observedAt: median }))(config.marketUrl, now, config.condition.maxAgeSeconds).result();
   observations.marketPriceUsd = market.price;
   observations.marketObservedAt = market.observedAt;
@@ -83,18 +86,18 @@ export function onCron(runtime: Runtime<Config>) {
     observations.blockObservedAt = blockTime;
     observations.inputBalanceAtoms = balance.toString();
     observations.inputToken = config.tokenAddress;
-    if (balance < parseUnits(config.amount, config.tokenDecimals)) return finish("reject", "The account lacks the approved input token balance.");
+    if (config.kind === "trade" && (!config.amount || balance < parseUnits(config.amount, config.tokenDecimals))) return finish("reject", "The account lacks the approved input token balance.");
   } else {
     if (config.chainId !== 421614) return finish("reject", "The perpetual strategy is not bound to Hyperliquid testnet.");
     const collateral = http.sendRequest(runtime, readHyperliquidBalance, consensusMedianAggregation<number>())(config.accountAddress).result();
     observations.venueAccountValueUsd = collateral;
     observations.venueSource = "Hyperliquid testnet clearinghouseState via CRE HTTP";
-    if (collateral === 0 && !["cancel", "close", "reduce"].includes(config.request.type)) return finish("reject", "The venue account has no trading collateral.");
+    if (config.kind === "trade" && collateral === 0 && !["cancel", "close", "reduce"].includes(request?.type ?? "")) return finish("reject", "The venue account has no trading collateral.");
   }
   const threshold = Number(config.condition.price);
   if (config.condition.operator !== "always" && (!Number.isFinite(threshold) || threshold <= 0)) return finish("reject", "The approved condition has no valid threshold.");
   const matches = config.condition.operator === "always" || (config.condition.operator === "above" ? market.price > threshold : market.price < threshold);
-  return matches ? finish("allow", "Fresh observations satisfy the approved strategy; the execution worker must recheck current permissions and risk limits.") : finish("no-action", "The approved market condition is not satisfied.");
+  return matches ? finish("allow", config.kind === "alert" ? "The price alert threshold is met. Notify the owner; no trade is authorized by this alert." : "Fresh observations satisfy the approved strategy; the execution worker must recheck current permissions and risk limits.") : finish("no-action", "The approved market condition is not satisfied.");
 }
 
 export function initWorkflow(config: Config) {
