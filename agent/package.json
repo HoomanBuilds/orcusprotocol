@@ -1,0 +1,33 @@
+{
+  "name": "@orcus/engine",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx src/worker.ts",
+    "start": "tsx src/worker.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": "true",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@0gfoundation/0g-storage-ts-sdk": "1.2.13",
+    "@nktkas/hyperliquid": "0.33.3",
+    "@orcus/core": "*",
+    "@orcus/wallets": "*",
+    "ethers": "^6.13.1",
+    "viem": "^2.48.11",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.6"
+  }
+}
