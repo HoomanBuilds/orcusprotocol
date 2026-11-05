@@ -3,12 +3,14 @@ import { formatUnits, getAddress, parseUnits } from "viem";
 import type { KernelGrantPolicy } from "@orcus/wallets/kernel";
 import { tradeRequestSchema,type PreparedAction,type TradeRequest,type User,type Portfolio,type Market,type HealthStatus } from "@orcus/core";
 import { z } from "zod";
-import { getBudget,reserveBudget,setBudget,settleReservation } from "./budget";
+import { getBudget,setBudget } from "./budget";
 import { callEngine } from "./engine";
 import { ApiError,errorMessage } from "./errors";
 import { createSigner,memoryKey,readSigner } from "./keystore";
 import { getStore,id,type Store } from "./store";
 import type { Document,StoredAccount,StoredAction,StoredAgent,StoredAutomation,StoredMessage,StoredPermission } from "./types";
+import { AgentMemoryStore } from "./memory";
+import { AgentRun,type AgentRunStatus } from "./agent-runtime";
 
 export const accountSchema=z.object({venue:z.enum(["uniswap","hyperliquid"]),address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
 export const automationSchema=z.object({accountId:z.string(),name:z.string().min(1).max(80),instruction:z.string().min(1).max(2000),intervalSeconds:z.number().int().min(60).max(86400).default(300),request:tradeRequestSchema.optional(),condition:z.object({symbol:z.string().max(50),operator:z.enum(["above","below"]),price:z.string().regex(/^\d+(?:\.\d+)?$/)}).optional(),expiresAt:z.number().int().optional()}).strict();
@@ -55,12 +57,23 @@ export class Platform {
     const paused=input.command==="pause"||input.command==="take-over"?true:input.command==="resume"?false:agent.paused;
     return this.store.db.transaction(()=>{
       const updated=this.store.update<StoredAgent>(user.id,"agent",agent.id,{paused,mode:input.mode??agent.mode,preferences:input.preferences??agent.preferences,privateInferenceRequired:input.privateInferenceRequired??agent.privateInferenceRequired,controlRevision:agent.controlRevision+1});
+      if(input.preferences!==undefined){
+        const memory=new AgentMemoryStore(this.store,user.id);
+        for(const row of this.store.db.prepare("SELECT id FROM agent_memories WHERE user_id=? AND source='profile' AND source_id=?").all(user.id,agent.id)as{id:string}[])memory.forget(row.id);
+        if(input.preferences.trim())memory.remember({content:input.preferences,kind:"preference",importance:100},"profile",agent.id);
+      }
       if(paused){for(const automation of this.store.list<StoredAutomation>(user.id,"automation"))if(automation.status==="active")this.store.update<StoredAutomation>(user.id,"automation",automation.id,{status:"paused"});for(const action of this.store.list<StoredAction>(user.id,"action"))if(["prepared","awaiting-approval"].includes(action.status)&&action.initiator!=="manual")this.store.update<StoredAction>(user.id,"action",action.id,{status:"cancelled",error:"Agent paused or owner took over before submission."});}
       return {agent:updated,inFlight:this.store.list<StoredAction>(user.id,"action").filter(action=>["submitting","submitted-unknown","pending","partially-filled"].includes(action.status))};
     })();
   }
-  budget(user:User){return {...getBudget(this.store,user.id),operatingAddress:this.agent(user).operatingAddress};}
-  setBudget(user:User,input:{limitUsd?:string;capUsd?:string;lowBalanceUsd?:string;autoReplenish?:boolean}){
+  async budget(user:User){
+    const local={...getBudget(this.store,user.id),operatingAddress:this.agent(user).operatingAddress};
+    try{
+      const provider=await callEngine<{status:"verified"|"unavailable"|"unconfigured";balance?:string;message:string;unit?:string;address?:string;[key:string]:unknown}>("getComputeBalance");
+      return {...local,computeBalanceStatus:provider.status,providerBalance:provider,computeBalanceScope:"configured-provider-account",warning:`${local.warning} ${provider.message}`};
+    }catch{return{...local,computeBalanceStatus:"unavailable"as const,warning:"Provider balance is unavailable. The authorized expense cap is not proof of funded compute credits."};}
+  }
+  async setBudget(user:User,input:{limitUsd?:string;capUsd?:string;lowBalanceUsd?:string;autoReplenish?:boolean}){
     const previous=getBudget(this.store,user.id);setBudget(this.store,user.id,input.limitUsd??input.capUsd??previous.limitUsd,input.lowBalanceUsd??previous.lowBalanceUsd,input.autoReplenish??previous.autoReplenish);return this.budget(user);
   }
   async permission(user:User,input:{accountId:string;action:string;expiresAt?:number;maxTradeUsd?:string;allowedSymbols?:string[];allowedActions?:TradeRequest["type"][];authorization?:unknown}){
@@ -167,7 +180,7 @@ export class Platform {
       const prepared=await callEngine<PreparedAction>("prepareAction",request,account);
       prepared.id=actionId;prepared.request=tradeRequestSchema.parse({...prepared.request,accountId:account.id,venue:account.venue,mode:request.mode});prepared.account=account;prepared.controlRevision=account.controlRevision;
       if(!prepared.expiresAt||prepared.expiresAt<=Date.now())throw new ApiError("QUOTE_EXPIRED","The prepared action expired. Request a new quote.",409);
-      const agent=this.agent(user),action=this.store.put("action",{id:actionId,userId:user.id,accountId:account.id,request,status:"awaiting-approval",initiator:request.mode==="manual"?"manual":initiator==="manual"?"agent":initiator,prepared,controlRevision:account.controlRevision,agentRevision:agent.controlRevision,expiresAt:prepared.expiresAt,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAction);
+      const agent=this.agent(user),action=this.store.put("action",{id:actionId,userId:user.id,accountId:account.id,request,status:"awaiting-approval",initiator:initiator!=="manual"?initiator:request.mode==="agent"?"agent":"manual",prepared,controlRevision:account.controlRevision,agentRevision:agent.controlRevision,expiresAt:prepared.expiresAt,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAction);
       return {action,execution:prepared,preview:prepared.quote};
     });
   }
@@ -210,12 +223,12 @@ export class Platform {
           const wallets=await import("@orcus/wallets/server") as unknown as Record<string,unknown>;
           if(typeof wallets.submitKernelSessionAction!=="function")throw new ApiError("SESSION_UNCONFIGURED","Kernel delegated execution is not configured.",503);
           assertAuthority();
-          result=await (wallets.submitKernelSessionAction as (...args:unknown[])=>Promise<typeof result>)(fresh,key,permission.authorization,(evidence:{userOperationHash:string})=>{action=this.store.update<StoredAction>(user.id,"action",action!.id,{status:"pending",userOperationHash:evidence.userOperationHash});});
+          result=await (wallets.submitKernelSessionAction as (...args:unknown[])=>Promise<typeof result>)(fresh,key,permission.authorization,(evidence:{userOperationHash:string})=>{action=this.store.update<StoredAction>(user.id,"action",action!.id,{status:"pending",userOperationHash:evidence.userOperationHash});},assertAuthority);
         }else {assertAuthority();result=await callEngine("submitAgentAction",fresh,current,key);}
         action=this.store.update<StoredAction>(user.id,"action",action.id,{status:result.status??"pending",transactionHash:result.transactionHash??result.txHash??action.transactionHash,userOperationHash:result.userOperationHash??action.userOperationHash,orderId:result.orderId,evidence:result.evidence});
         return {action:await this.reconcile(user,action)};
       }catch(error){
-        const knownPreflight=error instanceof ApiError&&["SESSION_UNCONFIGURED","INVALID_SESSION_APPROVAL","AGENT_NOT_AUTHORIZED","TRADE_LIMIT"].includes(error.code);
+        const knownPreflight=error instanceof Error&&"phase"in error&&error.phase==="not-submitted"||error instanceof ApiError&&["SESSION_UNCONFIGURED","INVALID_SESSION_APPROVAL","AGENT_NOT_AUTHORIZED","TRADE_LIMIT"].includes(error.code);
         this.store.update<StoredAction>(user.id,"action",action.id,{status:knownPreflight?"rejected":"submitted-unknown",error:errorMessage(error)});
         throw error;
       }
@@ -224,7 +237,9 @@ export class Platform {
   async reconcile(user:User,action:StoredAction):Promise<StoredAction>{
     try{
       const result=await callEngine<{status?:StoredAction["status"];transactionHash?:string;txHash?:string;orderId?:string;evidence?:unknown;error?:string}>("reconcileAction",{...action,txHash:action.transactionHash},this.account(user,action.accountId));
-      return this.store.update<StoredAction>(user.id,"action",action.id,{status:result.status??action.status,transactionHash:result.transactionHash??result.txHash??action.transactionHash,orderId:result.orderId??action.orderId,evidence:result.evidence??action.evidence,error:result.error});
+      const updated=this.store.update<StoredAction>(user.id,"action",action.id,{status:result.status??action.status,transactionHash:result.transactionHash??result.txHash??action.transactionHash,orderId:result.orderId??action.orderId,evidence:result.evidence??action.evidence,error:result.error});
+      try{new AgentMemoryStore(this.store,user.id).episode(updated);}catch{}
+      return updated;
     }catch(error){return this.store.update<StoredAction>(user.id,"action",action.id,{error:`Reconciliation pending: ${errorMessage(error)}`});}
   }
   async activity(user:User){
@@ -235,10 +250,11 @@ export class Platform {
   async proposal(user:User,message:string,account:StoredAccount|undefined,reference:string){
     const cached=this.store.get<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"proposal",reference);
     if(cached)return cached.result as {message:string;proposal?:TradeRequest;requestId?:string;usage?:unknown;requiresClarification?:boolean};
-    if(!reserveBudget(this.store,user.id,reference,process.env.ORCUS_COMPUTE_RESERVATION_USD??"0.01"))throw new ApiError("EVALUATION_PENDING","This inference request is already pending or needs billing reconciliation. It will not be charged again automatically.",409);
+    const runtime=new AgentRun(this.store,user.id,reference,message,memoryId=>this.forgetMemory(user,memoryId));runtime.start();
     try{
-      const agent=this.agent(user),portfolio=await this.portfolio(user),history=this.store.list<StoredMessage>(user.id,"message",20).reverse();
-      const result=await callEngine<{message:string;proposal?:TradeRequest;requestId?:string;usage?:unknown;costUsd?:string;requiresClarification?:boolean}>("planWith0G",message,{evaluationId:reference,account,accounts:this.accounts(user),portfolio,memory:{preferences:agent.preferences},history:history.map(item=>({role:item.role,content:item.content})),requirePrivate:agent.privateInferenceRequired});
+      const agent=this.agent(user),portfolio=await this.portfolio(user),history=this.store.list<StoredMessage>(user.id,"message",9).reverse();
+      if(history.at(-1)?.role==="user"&&history.at(-1)?.content===message)history.pop();
+      const result=await callEngine<{message:string;proposal?:TradeRequest;requestId?:string;usage?:unknown;costUsd?:string;requiresClarification?:boolean}>("planWith0G",message,{...runtime.context(),evaluationId:reference,account,accounts:this.accounts(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired});
       if(typeof result.message!=="string"||!result.message.trim())throw new ApiError("INVALID_AI_RESULT","The model did not return a valid response. No action was taken.",502);
       if(result.proposal){
         const selected=account??(this.accounts(user).length===1?this.accounts(user)[0]:undefined);
@@ -247,13 +263,25 @@ export class Platform {
         else result.proposal=tradeRequestSchema.parse({...result.proposal,mode:"agent"});
       }
       this.store.put("proposal",{id:reference,userId:user.id,result,createdAt:Date.now(),updatedAt:Date.now()});
-      settleReservation(this.store,user.id,reference,result.costUsd!==undefined?"settled":"unknown",{requestId:result.requestId,usage:result.usage,billing:result.costUsd===undefined?"Provider cost unavailable; reservation retained.":"provider-reported"},result.costUsd);
+      runtime.complete(result);
       return result;
     }catch(error){
-      const beforeCall=error instanceof ApiError&&["COMPUTE_UNCONFIGURED","PRIVATE_INFERENCE_UNAVAILABLE","PRIVATE_INFERENCE_UNVERIFIED","INTEGRATION_UNCONFIGURED","NOT_CONFIGURED","INVALID_MESSAGE"].includes(error.code);
-      settleReservation(this.store,user.id,reference,beforeCall?"released":"unknown",{message:beforeCall?"Request was not sent.":"Provider usage may be billable; automatic duplicate retry disabled."});
+      runtime.fail(error);
       throw error;
-    }
+    }finally{runtime.close();}
+  }
+  runStatus(user:User,requestId:string){
+    const reference=createHash("sha256").update(`${user.id}|chat|${requestId}`).digest("hex"),run=this.store.get<AgentRunStatus>(user.id,"agent-run",requestId)??this.store.get<AgentRunStatus>(user.id,"agent-run",reference);
+    if(!run)throw new ApiError("RUN_NOT_FOUND","This agent run has not started yet.",404);
+    const{id,status,stage,tool,modelCalls,toolCalls,startedAt,updatedAt,completedAt,errorCode}=run;
+    return{id,status,stage,tool,modelCalls,toolCalls,startedAt,updatedAt,completedAt,errorCode};
+  }
+  memories(user:User,query?:string){const memory=new AgentMemoryStore(this.store,user.id);return{notes:query?memory.search(query,25):memory.list(50),checkpointAvailable:Boolean(memory.loadCheckpoint(memory.threadId)),warning:"Memory cannot change wallet permissions. Forgetting current notes does not delete existing encrypted 0G backups."};}
+  remember(user:User,input:unknown){return new AgentMemoryStore(this.store,user.id).remember(input);}
+  forgetMemory(user:User,memoryId:string){
+    const memory=new AgentMemoryStore(this.store,user.id),note=memory.get(memoryId);
+    if(note?.source==="profile")this.control(user,{command:"update",preferences:""});
+    return memory.forget(memoryId)||Boolean(note?.source==="profile");
   }
   async chat(user:User,input:{message:string;accountId?:string;autonomous?:boolean;requestId?:string}){
     const reference=input.requestId?createHash("sha256").update(`${user.id}|chat|${input.requestId}`).digest("hex"):id();
@@ -288,18 +316,27 @@ export class Platform {
     const key=memoryKey(this.store,user.id);
     try{
       if(action==="backup"){
-        const content={version:1,agent:{preferences:this.agent(user).preferences},messages:this.store.list<StoredMessage>(user.id,"message",100).map(({role,content,createdAt})=>({role,content,createdAt}))};
+        const longTerm=new AgentMemoryStore(this.store,user.id).snapshot();
+        const content={version:2,agent:{preferences:this.agent(user).preferences},messages:this.store.list<StoredMessage>(user.id,"message",16).map(({role,content,createdAt})=>({role,content:content.slice(0,4000),createdAt})),longTerm,capturedAt:Date.now()};
+        while(Buffer.byteLength(JSON.stringify(content))>750_000&&content.longTerm.notes.length)content.longTerm.notes.pop();
+        if(Buffer.byteLength(JSON.stringify(content))>750_000)throw new ApiError("MEMORY_TOO_LARGE","Compact the active checkpoint before backing up this memory.",413);
         const result=await callEngine<Document>("uploadMemory",content,key,readSigner(this.store,user.id,"operating"));
         const rootHash=result.rootHash??result.root;
         if(typeof rootHash!=="string")throw new ApiError("STORAGE_UNCONFIRMED","Storage did not confirm an uploaded root. No backup was marked successful.",502);
-        return this.store.put("memory",{id:id(),userId:user.id,rootHash,status:"confirmed",evidence:result,createdAt:Date.now(),updatedAt:Date.now()});
+        return this.store.put("memory",{id:id(),userId:user.id,rootHash,status:"confirmed",evidence:result,noteCount:longTerm.notes.length,messageCount:content.messages.length,createdAt:Date.now(),updatedAt:Date.now()});
       }
       const backup=this.store.list<Document&{rootHash:string}>(user.id,"memory")[0];if(!backup)throw new ApiError("MEMORY_NOT_FOUND","Create a confirmed encrypted backup first.",404);
-      const content=await callEngine<{version:number;agent?:{preferences?:string};messages?:{role:string;content:string;createdAt:number}[]}>("downloadMemory",backup.rootHash,key);
-      if(content.version!==1||!Array.isArray(content.messages)||content.messages.length>100)throw new ApiError("INVALID_MEMORY","Downloaded memory has an unsupported schema.",502);
-      if(typeof content.agent?.preferences==="string")this.store.update<StoredAgent>(user.id,"agent",this.agent(user).id,{preferences:content.agent.preferences});
-      for(const item of content.messages){if(!["user","assistant"].includes(item.role)||typeof item.content!=="string"||item.content.length>20_000)throw new ApiError("INVALID_MEMORY","Downloaded memory contains invalid conversation data.",502);const messageId=createHash("sha256").update(`${user.id}|${item.role}|${item.content}|${item.createdAt}`).digest("hex");this.store.put("message",{id:messageId,userId:user.id,role:item.role as "user"|"assistant",content:item.content,createdAt:item.createdAt,updatedAt:Date.now()});}
-      return {restored:true,messageCount:content.messages.length,rootHash:backup.rootHash};
+      const raw=await callEngine<unknown>("downloadMemory",backup.rootHash,key);
+      const content=z.object({version:z.union([z.literal(1),z.literal(2)]),agent:z.object({preferences:z.string().max(4000).optional()}).optional(),messages:z.array(z.object({role:z.enum(["user","assistant"]),content:z.string().max(20_000),createdAt:z.number().int().positive()})).max(100),longTerm:z.object({notes:z.array(z.unknown()).max(200),checkpoint:z.unknown().optional()}).optional(),capturedAt:z.number().optional()}).strict().parse(raw);
+      const memory=new AgentMemoryStore(this.store,user.id),holder=id(),scope=`agent-thread:${user.id}`;
+      if(!this.store.takeLease(scope,holder,30_000))throw new ApiError("AGENT_BUSY","Wait for the current agent run before restoring its memory.",409);
+      try{return this.store.db.transaction(()=>{
+        const noteCount=content.longTerm?memory.restoreNotes(content.longTerm.notes):0;
+        if(content.longTerm?.checkpoint!==undefined&&content.longTerm.checkpoint!==null)memory.saveCheckpoint(memory.threadId,content.longTerm.checkpoint);
+        if(typeof content.agent?.preferences==="string"&&!memory.wasForgotten(content.agent.preferences))this.control(user,{command:"update",preferences:content.agent.preferences});
+        for(const item of content.messages){const messageId=createHash("sha256").update(`${user.id}|${item.role}|${item.content}|${item.createdAt}`).digest("hex");this.store.put("message",{id:messageId,userId:user.id,role:item.role,content:item.content,createdAt:item.createdAt,updatedAt:Date.now()});}
+        return {restored:true,messageCount:content.messages.length,noteCount,rootHash:backup.rootHash};
+      })();}finally{this.store.releaseLease(scope,holder);}
     }finally{key.fill(0);}
   }
   async tick(){

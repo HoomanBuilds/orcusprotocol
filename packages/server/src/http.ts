@@ -136,6 +136,8 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if (path === "accounts" && method === "GET") return json({ data: { accounts: platform.accounts(user) } });
     if (path === "accounts" && method === "POST") return json({ data: platform.createAccount(user, await readBody(request)) }, 201);
     if (path === "agent" && method === "GET") return json({ data: platform.agentState(user) });
+    const runMatch=path.match(/^agent\/runs\/([^/]+)$/);
+    if(runMatch&&method==="GET")return json({data:platform.runStatus(user,z.string().max(100).parse(runMatch[1]))});
     if (path === "agent/control" && method === "POST") {
       const input = z.object({ command: z.enum(["pause", "resume", "take-over", "update"]), mode: z.enum(["approval-required", "autonomous"]).optional(), preferences: z.string().max(4000).optional(), privateInferenceRequired: z.boolean().optional() }).strict().parse(await readBody(request));
       return json({ data: platform.control(user, input) });
@@ -144,7 +146,7 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
       const input = z.object({ message: z.string().min(1).max(10_000), accountId: z.string().max(100).optional(), autonomous: z.boolean().optional(), requestId: z.string().min(1).max(100).optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.chat(user, input) });
     }
-    if (path === "actions/prepare" && method === "POST") return json({ data: await platform.prepare(user, await readBody(request), request.headers.get("idempotency-key") ?? undefined) });
+    if (path === "actions/prepare" && method === "POST") return json({ data: await platform.prepare(user, await readBody(request), request.headers.get("idempotency-key") ?? undefined,request.headers.get("x-orcus-initiator")==="agent"?"agent":"manual") });
     if (path === "actions/submit" && method === "POST") {
       const input = z.object({ actionId: z.string().min(1).max(100), transactionHash: z.string().optional(), txHash: z.string().optional(), userOperationHash: z.string().optional(), orderId: z.string().max(100).optional(), response: z.unknown().optional(), result: z.unknown().optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.submit(user, input) });
@@ -161,11 +163,15 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
       const input = z.object({ status: z.enum(["active", "paused"]).optional(), instruction: z.string().min(1).max(2000).optional(), intervalSeconds: z.number().int().min(60).max(86400).optional() }).strict().parse(await readBody(request));
       return json({ data: platform.updateAutomation(user, automationMatch[1], input) });
     }
-    if (path === "budget" && method === "GET") return json({ data: platform.budget(user) });
+    if (path === "budget" && method === "GET") return json({ data: await platform.budget(user) });
     if (path === "budget" && method === "POST") {
       const input = z.object({ limitUsd: decimal.optional(), capUsd: decimal.optional(), lowBalanceUsd: decimal.optional(), autoReplenish: z.boolean().optional() }).strict().parse(await readBody(request));
-      return json({ data: platform.setBudget(user, input) });
+      return json({ data: await platform.setBudget(user, input) });
     }
+    if(path==="memory"&&method==="GET")return json({data:platform.memories(user,url.searchParams.get("query")??undefined)});
+    if(path==="memory/notes"&&method==="POST")return json({data:platform.remember(user,await readBody(request))},201);
+    const memoryMatch=path.match(/^memory\/notes\/([^/]+)$/);
+    if(memoryMatch&&method==="DELETE")return json({data:{forgotten:platform.forgetMemory(user,z.string().max(100).parse(memoryMatch[1]))}});
     if (path === "memory" && method === "POST") { const input = z.object({ action: z.enum(["backup", "restore"]) }).strict().parse(await readBody(request)); return json({ data: await platform.memory(user, input.action) }); }
     return json({ error: { code: "NOT_FOUND", message: "This API route does not exist." } }, 404);
   } catch (error) {

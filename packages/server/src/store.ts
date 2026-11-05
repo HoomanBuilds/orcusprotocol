@@ -18,7 +18,16 @@ CREATE TABLE IF NOT EXISTS secrets(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REF
 CREATE TABLE IF NOT EXISTS leases(scope TEXT PRIMARY KEY,holder TEXT NOT NULL,expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS budgets(user_id TEXT PRIMARY KEY REFERENCES users(id),cap_micros INTEGER NOT NULL DEFAULT 0,spent_micros INTEGER NOT NULL DEFAULT 0,reserved_micros INTEGER NOT NULL DEFAULT 0,low_micros INTEGER NOT NULL DEFAULT 100000,auto_replenish INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS expenses(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),reference TEXT NOT NULL,kind TEXT NOT NULL,amount_micros INTEGER NOT NULL,status TEXT NOT NULL,evidence TEXT,created_at INTEGER NOT NULL,UNIQUE(user_id,reference));
+CREATE TABLE IF NOT EXISTS agent_memories(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL,content TEXT NOT NULL,content_hash TEXT NOT NULL,importance INTEGER NOT NULL,source TEXT NOT NULL,source_id TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,last_accessed_at INTEGER NOT NULL,UNIQUE(user_id,kind,content_hash));
+CREATE INDEX IF NOT EXISTS agent_memories_scope ON agent_memories(user_id,kind,importance,updated_at);
+CREATE VIRTUAL TABLE IF NOT EXISTS agent_memory_search USING fts5(content,content='agent_memories',content_rowid='rowid',tokenize='unicode61');
+CREATE TRIGGER IF NOT EXISTS agent_memories_insert AFTER INSERT ON agent_memories BEGIN INSERT INTO agent_memory_search(rowid,content) VALUES(new.rowid,new.content); END;
+CREATE TRIGGER IF NOT EXISTS agent_memories_delete AFTER DELETE ON agent_memories BEGIN INSERT INTO agent_memory_search(agent_memory_search,rowid,content) VALUES('delete',old.rowid,old.content); END;
+CREATE TRIGGER IF NOT EXISTS agent_memories_update AFTER UPDATE OF content ON agent_memories BEGIN INSERT INTO agent_memory_search(agent_memory_search,rowid,content) VALUES('delete',old.rowid,old.content);INSERT INTO agent_memory_search(rowid,content) VALUES(new.rowid,new.content); END;
+CREATE TABLE IF NOT EXISTS agent_memory_tombstones(user_id TEXT NOT NULL REFERENCES users(id),memory_id TEXT NOT NULL,deleted_at INTEGER NOT NULL,PRIMARY KEY(user_id,memory_id));
+CREATE TABLE IF NOT EXISTS agent_checkpoints(user_id TEXT NOT NULL REFERENCES users(id),thread_id TEXT NOT NULL,state TEXT NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(user_id,thread_id));
 INSERT OR IGNORE INTO migrations(version,applied_at) VALUES(1,unixepoch()*1000);
+INSERT OR IGNORE INTO migrations(version,applied_at) VALUES(2,unixepoch()*1000);
 `;
 
 export function dataDirectory(): string {
