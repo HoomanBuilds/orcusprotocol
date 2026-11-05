@@ -1,0 +1,24 @@
+{
+  "name": "@orcus/wallets",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": "./src/client.ts",
+    "./kernel": "./src/kernel.ts",
+    "./server": "./src/server.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nktkas/hyperliquid": "^0.33.3",
+    "@orcus/core": "*",
+    "@zerodev/ecdsa-validator": "^5.4.9",
+    "@zerodev/permissions": "^5.6.4",
+    "@zerodev/sdk": "^5.5.11",
+    "viem": "^2.57.16",
+    "zod": "^3.25.76"
+  }
+}
