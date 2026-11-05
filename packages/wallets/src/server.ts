@@ -5,7 +5,10 @@ import { createKernelAccount, createKernelAccountClient } from "@zerodev/sdk";
 import { getAddress, http, isHex, verifyTypedData, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
+import { getUserOperationHash } from "viem/account-abstraction";
 import { createOwnerKernel, createPermissionPlugin, entryPoint, kernelVersion, kernelPublicClient, kernelGrantPolicySchema, type KernelAuthorization, type KernelConfig } from "./kernel";
+import { assertKernelPolicyCompatible, WalletActionError } from "./preflight";
+import { broadcastPreparedOperation } from "./execution";
 
 function config(): KernelConfig {
   if (!process.env.ZERODEV_RPC_URL) throw new Error("Set ZERODEV_RPC_URL for the Sepolia bundler.");
@@ -35,25 +38,32 @@ export async function verifyKernelEnrollment(input: { ownerAddress: string; smar
   } catch { return false; }
 }
 
-export async function submitKernelSessionAction(prepared: PreparedAction, key: Hex, authorization: KernelAuthorization, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void> | void) {
-  if (!prepared.transactions?.length || prepared.account.chainId !== sepolia.id || prepared.expiresAt <= Date.now()) throw new Error("The prepared Sepolia swap is missing or expired.");
+export async function submitKernelSessionAction(prepared: PreparedAction, key: Hex, authorization: KernelAuthorization, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void> | void, assertAuthority?: () => Promise<void> | void) {
   const policy = kernelGrantPolicySchema.parse(authorization.policy);
+  assertKernelPolicyCompatible(prepared, policy);
+  await assertAuthority?.();
   const signerAccount = privateKeyToAccount(key);
-  if (getAddress(signerAccount.address) !== getAddress(policy.agentAddress) || getAddress(prepared.account.address) !== getAddress(policy.accountAddress) || policy.expiresAt <= Date.now()) throw new Error("The session authority does not match this account.");
+  if (getAddress(signerAccount.address) !== getAddress(policy.agentAddress)) throw new WalletActionError("SESSION_AUTHORITY_MISMATCH", "The session authority does not match this account.");
   const parsed = JSON.parse(Buffer.from(authorization.approval, "base64").toString("utf8")) as PermissionAccountParams;
-  if (parsed.privateKey || parsed.eip7702Auth || parsed.isPreInstalled) throw new Error("Unsupported serialized session authority.");
+  if (parsed.privateKey || parsed.eip7702Auth || parsed.isPreInstalled) throw new WalletActionError("INVALID_SESSION_APPROVAL", "Unsupported serialized session authority.");
   const network = config();
   const publicClient = kernelPublicClient(network);
   const signer = await toECDSASigner({ signer: signerAccount });
   const account = await deserializePermissionAccount(publicClient, entryPoint, kernelVersion, authorization.approval, signer);
-  if (getAddress(account.address) !== getAddress(prepared.account.address)) throw new Error("Serialized session account mismatch.");
+  if (getAddress(account.address) !== getAddress(prepared.account.address)) throw new WalletActionError("SESSION_AUTHORITY_MISMATCH", "Serialized session account mismatch.");
   const client = createKernelAccountClient({ account, chain: sepolia, client: publicClient, bundlerTransport: http(network.bundlerUrl, { retryCount: 0, timeout: 30_000 }) });
-  const calls = prepared.transactions.map(tx => {
+  const calls = prepared.transactions!.map(tx => {
     if (tx.chainId !== sepolia.id || !isHex(tx.data) || BigInt(tx.value) !== 0n) throw new Error("Session swaps cannot transfer native value.");
     return { to: getAddress(tx.to), data: tx.data as Hex, value: 0n };
   });
-  const hash = await client.sendUserOperation({ callData: await account.encodeCalls(calls) });
-  await onSubmitted?.({ userOperationHash: hash });
-  const receipt = await client.waitForUserOperationReceipt({ hash, timeout: 120_000 });
-  return { transactionHash: receipt.receipt.transactionHash, userOperationHash: hash, status: receipt.success ? "confirmed" : "rejected" };
+  let operation;
+  try { operation = await client.prepareUserOperation({ callData: await account.encodeCalls(calls) }); }
+  catch { throw new WalletActionError("PREFLIGHT_FAILED", "The swap failed bundler simulation or fee estimation. Nothing was submitted."); }
+  assertKernelPolicyCompatible(prepared, policy);
+  await assertAuthority?.();
+  const signature = await account.signUserOperation(operation);
+  await assertAuthority?.();
+  assertKernelPolicyCompatible(prepared, policy);
+  const candidateHash = getUserOperationHash({ userOperation: { ...operation, signature }, entryPointAddress: entryPoint.address, entryPointVersion: entryPoint.version, chainId: sepolia.id });
+  return broadcastPreparedOperation({ candidateHash, send: () => client.sendUserOperation({ ...operation, signature }), onSubmitted, wait: hash => client.waitForUserOperationReceipt({ hash, timeout: 120_000 }) });
 }
