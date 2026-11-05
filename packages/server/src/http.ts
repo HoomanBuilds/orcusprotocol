@@ -160,7 +160,7 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if(path==="notifications"&&method==="GET")return json({data:platform.notifications(user)});
     const notificationMatch=path.match(/^notifications\/([^/]+)$/);
     if(notificationMatch&&method==="PATCH"){z.object({read:z.literal(true)}).strict().parse(await readBody(request));return json({data:platform.readNotification(user,notificationMatch[1])});}
-    if (path === "automations" && method === "POST") return json({ data: platform.createAutomation(user, await readBody(request)) }, 201);
+    if (path === "automations" && method === "POST") return json({ data: platform.createAutomation(user, await readBody(request),z.string().min(1).max(200).optional().parse(request.headers.get("idempotency-key")??undefined)) }, 201);
     const automationMatch = path.match(/^automations\/([^/]+)$/);
     if (automationMatch && method === "PATCH") {
       const input = z.object({ status: z.enum(["active", "paused"]).optional(), instruction: z.string().min(1).max(2000).optional(), intervalSeconds: z.number().int().min(60).max(86400).optional() }).strict().parse(await readBody(request));

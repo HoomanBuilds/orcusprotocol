@@ -8,7 +8,8 @@ import { handleRequest, readBody } from "./http";
 import { Store } from "./store";
 import { Platform } from "./platform";
 import * as engineBoundary from "./engine";
-import type { StoredAutomation } from "./types";
+import type { StoredAction,StoredAutomation } from "./types";
+import { tradeRequestSchema,type PreparedAction } from "@orcus/core";
 
 const origin = "http://localhost:3000";
 let runtimeDirectory: string;
@@ -57,6 +58,35 @@ describe("owner authentication", () => {
 });
 
 describe("durable limits", () => {
+  it("idempotently accepts an automation once and rejects changed settings",()=>{
+    const store=new Store(":memory:");
+    try{
+      const user=store.ensureUser("0x1111111111111111111111111111111111111111"),platform=new Platform(store),account=platform.createAccount(user,{venue:"hyperliquid"});
+      const input={kind:"alert",accountId:account.id,name:"ETH condition",condition:{symbol:"ETH",operator:"above",price:"2000"}};
+      const first=platform.createAutomation(user,input,"assistant-proposal");
+      expect(platform.createAutomation(user,{...input,condition:{price:"2000",operator:"above",symbol:"ETH"}},"assistant-proposal").id).toBe(first.id);
+      expect(store.list(user.id,"automation")).toHaveLength(1);
+      expect(()=>platform.createAutomation(user,{...input,name:"Different condition"},"assistant-proposal")).toThrow("different automation");
+    }finally{store.db.close();}
+  });
+  it("binds an autonomous assistant reply to one execution across replay",async()=>{
+    const store=new Store(":memory:");
+    try{
+      const user=store.ensureUser("0x1111111111111111111111111111111111111111"),platform=new Platform(store),account=platform.createAccount(user,{venue:"hyperliquid"});
+      platform.control(user,{command:"update",mode:"autonomous"});
+      const request=tradeRequestSchema.parse({accountId:account.id,venue:"hyperliquid",type:"market",symbol:"ETH",side:"buy",amount:"0.01",mode:"agent"});
+      const prepared:PreparedAction={id:"one-action",request,account,kind:"hyperliquid",expiresAt:Date.now()+60_000,controlRevision:account.controlRevision};
+      const action:StoredAction={id:prepared.id,userId:user.id,accountId:account.id,request,prepared,status:"awaiting-approval",initiator:"agent",controlRevision:account.controlRevision,agentRevision:1,expiresAt:prepared.expiresAt,createdAt:Date.now(),updatedAt:Date.now()};
+      const proposal=vi.spyOn(platform,"proposal").mockResolvedValue({message:"Proposed an ETH order",proposal:request});
+      const prepare=vi.spyOn(platform,"prepare").mockImplementation(async()=>{store.put("action",action);return{action,execution:prepared,preview:undefined};});
+      const submit=vi.spyOn(platform,"submit").mockImplementation(async()=>({action:store.update<StoredAction>(user.id,"action",action.id,{status:"confirmed"})}));
+      const input={requestId:"one-request",message:"Buy ETH once",accountId:account.id,autonomous:true};
+      const first=await platform.chat(user,input),replay=await platform.chat(user,input);
+      expect(first.message.actionId).toBe(action.id);expect(replay.message.actionId).toBe(action.id);expect(replay.action?.status).toBe("confirmed");
+      expect(proposal).toHaveBeenCalledTimes(1);expect(prepare).toHaveBeenCalledTimes(1);expect(submit).toHaveBeenCalledTimes(1);
+      await expect(platform.chat(user,{...input,message:"Buy something else"})).rejects.toThrow("another chat instruction");
+    }finally{store.db.close();}
+  });
   it("runs read-only alerts without delegation and deduplicates repeated trigger conditions",async()=>{
     const store=new Store(":memory:"),engine=vi.spyOn(engineBoundary,"callEngine");
     try{

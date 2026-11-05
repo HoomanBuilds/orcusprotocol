@@ -296,13 +296,23 @@ export class Platform {
   }
   async chat(user:User,input:{message:string;accountId?:string;autonomous?:boolean;requestId?:string}){
     const reference=input.requestId?createHash("sha256").update(`${user.id}|chat|${input.requestId}`).digest("hex"):id();
+    const requestFingerprint=createHash("sha256").update(JSON.stringify({message:input.message,accountId:input.accountId??null,autonomous:input.autonomous??false})).digest("hex");
+    const priorUserMessage=this.store.get<StoredMessage>(user.id,"message",`${reference}:user`);
+    if(priorUserMessage&&(priorUserMessage.requestFingerprint?priorUserMessage.requestFingerprint!==requestFingerprint:priorUserMessage.content!==input.message))throw new ApiError("IDEMPOTENCY_CONFLICT","This request ID was already used for another chat instruction.",409);
+    const priorAssistant=this.store.get<StoredMessage>(user.id,"message",`${reference}:assistant`);
+    if(priorAssistant?.actionId){
+      const action=this.store.get<StoredAction>(user.id,"action",priorAssistant.actionId);
+      if(!action)throw new ApiError("ACTION_RECONCILIATION_REQUIRED","This request was already linked to an execution. Reconcile it before retrying.",409);
+      return{message:priorAssistant,proposal:priorAssistant.proposedAction,automationProposal:priorAssistant.automationProposal,runId:reference,requestId:priorAssistant.requestId,action};
+    }
     const agent=this.agent(user),account=input.accountId?this.account(user,input.accountId):undefined;
-    if(!this.store.get(user.id,"message",`${reference}:user`))this.store.put("message",{id:`${reference}:user`,userId:user.id,role:"user",content:input.message,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
+    if(!priorUserMessage)this.store.put("message",{id:`${reference}:user`,userId:user.id,role:"user",content:input.message,requestFingerprint,accountId:input.accountId,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     const result=await this.proposal(user,input.message,account,reference);
-    const message=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
+    let message=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,createdAt:priorAssistant?.createdAt??Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     let action:StoredAction|undefined;
     if(result.proposal&&input.autonomous&&agent.mode==="autonomous"&&!agent.paused){
       const prepared=await this.prepare(user,result.proposal,`chat:${reference}`,"agent");
+      message=this.store.update<StoredMessage>(user.id,"message",message.id,{actionId:prepared.action.id});
       action=(await this.submit(user,{actionId:prepared.action.id})).action;
     }
     return {message,proposal:result.proposal,automationProposal:result.automationProposal,runId:reference,requestId:result.requestId,requestIds:result.requestIds,modelCalls:result.modelCalls,requiresClarification:result.requiresClarification,action};
@@ -310,8 +320,12 @@ export class Platform {
   automations(user:User){return {automations:this.store.list<StoredAutomation>(user.id,"automation")};}
   notifications(user:User){const notifications=this.store.list<Document&{readAt?:number}>(user.id,"notification",100);return{notifications,unreadCount:notifications.filter(item=>!item.readAt).length};}
   readNotification(user:User,notificationId:string){return this.store.update<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"notification",notificationId,{readAt:Date.now()});}
-  createAutomation(user:User,input:unknown){
-    const data=automationSchema.parse(input),account=this.account(user,data.accountId),agent=this.agent(user);
+  createAutomation(user:User,input:unknown,idempotencyKey?:string){
+    const data=automationSchema.parse(input),fingerprint=createHash("sha256").update(canonicalJson(data)).digest("hex"),automationId=idempotencyKey?createHash("sha256").update(`${user.id}|automation|${idempotencyKey}`).digest("hex"):id();
+    return this.store.db.transaction(()=>{
+    const existing=this.store.get<StoredAutomation>(user.id,"automation",automationId);
+    if(existing){if(existing.inputFingerprint!==fingerprint)throw new ApiError("IDEMPOTENCY_CONFLICT","This acceptance ID was already used for a different automation.",409);return existing;}
+    const account=this.account(user,data.accountId),agent=this.agent(user);
     if(agent.paused)throw new ApiError("AGENT_PAUSED","Resume the agent before enabling an automation.",409);
     const permission=this.store.list<StoredPermission>(user.id,"permission").find(item=>item.accountId===account.id&&item.status==="active"&&item.expiresAt>Date.now());
     if(data.kind==="trade"&&!permission)throw new ApiError("AGENT_NOT_AUTHORIZED","Authorize agent access before enabling an unattended trading strategy.",403);
@@ -319,7 +333,8 @@ export class Platform {
     const expiresAt=data.expiresAt??maximumExpiry;
     if(expiresAt<=Date.now()||expiresAt>maximumExpiry)throw new ApiError("INVALID_EXPIRY",data.kind==="alert"?"Alerts must expire within 30 days.":"Strategy expiry must be within its agent permission lifetime.");
     if(data.request&&(data.request.accountId!==account.id||data.request.venue!==account.venue))throw new ApiError("ACCOUNT_MISMATCH","Strategy action belongs to a different account.");
-    return this.store.put("automation",{id:id(),userId:user.id,accountId:account.id,kind:data.kind,name:data.name,instruction:data.instruction??(data.kind==="alert"?"Monitor the approved price condition":"Repeat the explicitly approved trade request"),request:data.request?{...data.request,mode:"agent"}:undefined,condition:data.condition,intervalSeconds:data.intervalSeconds,status:"active",nextRunAt:Date.now(),policyVersion:1,controlRevision:account.controlRevision,expiresAt,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAutomation);
+    return this.store.put("automation",{id:automationId,userId:user.id,accountId:account.id,kind:data.kind,name:data.name,instruction:data.instruction??(data.kind==="alert"?"Monitor the approved price condition":"Repeat the explicitly approved trade request"),request:data.request?{...data.request,mode:"agent"}:undefined,condition:data.condition,intervalSeconds:data.intervalSeconds,status:"active",nextRunAt:Date.now(),policyVersion:1,controlRevision:account.controlRevision,inputFingerprint:fingerprint,expiresAt,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAutomation);
+    }).immediate();
   }
   updateAutomation(user:User,automationId:string,input:{status?:"active"|"paused";instruction?:string;intervalSeconds?:number}){
     const automation=this.store.get<StoredAutomation>(user.id,"automation",automationId);if(!automation)throw new ApiError("NOT_FOUND","Automation not found.",404);
@@ -414,4 +429,9 @@ function decimalProductMicros(a:string,b:string):bigint{
   if(!/^\d+(?:\.\d+)?$/.test(a)||!/^\d+(?:\.\d+)?$/.test(b)||a.length>80||b.length>80)throw new ApiError("INVALID_AMOUNT","Invalid exact decimal amount.");
   const [aw,af=""]=a.split("."),[bw,bf=""]=b.split("."),scale=10n**BigInt(af.length+bf.length),product=BigInt(aw+af)*BigInt(bw+bf)*1_000_000n;
   return (product+scale-1n)/scale;
+}
+function canonicalJson(value:unknown):string{
+  if(Array.isArray(value))return`[${value.map(canonicalJson).join(",")}]`;
+  if(value&&typeof value==="object")return`{${Object.keys(value).filter(key=>(value as Document)[key]!==undefined).sort().map(key=>`${JSON.stringify(key)}:${canonicalJson((value as Document)[key])}`).join(",")}}`;
+  return JSON.stringify(value)??"null";
 }
