@@ -2,10 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 import { getAddress, verifyMessage, type Hex } from "viem";
 import { z } from "zod";
 import type { HealthStatus, Market, MarketCandle, User } from "@orcus/core";
-import { callEngine } from "./engine.js";
-import { ApiError } from "./errors.js";
-import { Platform } from "./platform.js";
-import { getStore, type Store } from "./store.js";
+import { callEngine } from "./engine";
+import { ApiError } from "./errors";
+import { Platform } from "./platform";
+import { getStore, type Store } from "./store";
 
 const COOKIE = "orcus_session";
 const address = z.string().regex(/^0x[\da-fA-F]{40}$/);

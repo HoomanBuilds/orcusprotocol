@@ -3,12 +3,12 @@ import { formatUnits, getAddress, parseUnits } from "viem";
 import type { KernelGrantPolicy } from "@orcus/wallets/kernel";
 import { tradeRequestSchema,type PreparedAction,type TradeRequest,type User,type Portfolio,type Market,type HealthStatus } from "@orcus/core";
 import { z } from "zod";
-import { getBudget,reserveBudget,setBudget,settleReservation } from "./budget.js";
-import { callEngine } from "./engine.js";
-import { ApiError,errorMessage } from "./errors.js";
-import { createSigner,memoryKey,readSigner } from "./keystore.js";
-import { getStore,id,type Store } from "./store.js";
-import type { Document,StoredAccount,StoredAction,StoredAgent,StoredAutomation,StoredMessage,StoredPermission } from "./types.js";
+import { getBudget,reserveBudget,setBudget,settleReservation } from "./budget";
+import { callEngine } from "./engine";
+import { ApiError,errorMessage } from "./errors";
+import { createSigner,memoryKey,readSigner } from "./keystore";
+import { getStore,id,type Store } from "./store";
+import type { Document,StoredAccount,StoredAction,StoredAgent,StoredAutomation,StoredMessage,StoredPermission } from "./types";
 
 export const accountSchema=z.object({venue:z.enum(["uniswap","hyperliquid"]),address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
 export const automationSchema=z.object({accountId:z.string(),name:z.string().min(1).max(80),instruction:z.string().min(1).max(2000),intervalSeconds:z.number().int().min(60).max(86400).default(300),request:tradeRequestSchema.optional(),condition:z.object({symbol:z.string().max(50),operator:z.enum(["above","below"]),price:z.string().regex(/^\d+(?:\.\d+)?$/)}).optional(),expiresAt:z.number().int().optional()}).strict();
@@ -98,7 +98,7 @@ export class Platform {
   }
   async verifyKernelApproval(account:StoredAccount,permission:StoredPermission,authorization:unknown){
     if(!permission.policy||JSON.stringify((authorization as {policy?:unknown}|undefined)?.policy)!==JSON.stringify(permission.policy))throw new ApiError("INVALID_SESSION_POLICY","Approve the exact bounded policy prepared for this account.",403);
-    const packageName="@orcus/wallets/server";const wallets=await import(packageName) as Record<string,unknown>;
+    const wallets=await import("@orcus/wallets/server") as unknown as Record<string,unknown>;
     if(typeof wallets.verifyKernelEnrollment!=="function")throw new ApiError("SESSION_UNCONFIGURED","Kernel permission verification is not configured. Manual trading remains available.",503);
     const valid=await (wallets.verifyKernelEnrollment as (input:unknown)=>Promise<boolean>)({ownerAddress:account.ownerAddress,smartAccountAddress:account.smartAccountAddress??account.address,agentAddress:permission.agentAddress,authorization,permission});
     if(!valid)throw new ApiError("INVALID_SESSION_APPROVAL","The permission approval does not match this owner, account and bounded signer.",403);
@@ -207,7 +207,7 @@ export class Platform {
         const key=readSigner(this.store,user.id,`trading:${account.id}`);
         let result:{status?:StoredAction["status"];transactionHash?:string;txHash?:string;userOperationHash?:string;orderId?:string;evidence?:unknown};
         if(current.venue==="uniswap"){
-          const packageName="@orcus/wallets/server",wallets=await import(packageName) as Record<string,unknown>;
+          const wallets=await import("@orcus/wallets/server") as unknown as Record<string,unknown>;
           if(typeof wallets.submitKernelSessionAction!=="function")throw new ApiError("SESSION_UNCONFIGURED","Kernel delegated execution is not configured.",503);
           assertAuthority();
           result=await (wallets.submitKernelSessionAction as (...args:unknown[])=>Promise<typeof result>)(fresh,key,permission.authorization,(evidence:{userOperationHash:string})=>{action=this.store.update<StoredAction>(user.id,"action",action!.id,{status:"pending",userOperationHash:evidence.userOperationHash});});
@@ -243,7 +243,8 @@ export class Platform {
       if(result.proposal){
         const selected=account??(this.accounts(user).length===1?this.accounts(user)[0]:undefined);
         if(!selected){delete result.proposal;result.requiresClarification=true;result.message="Select which trading account this instruction applies to. No action was taken.";}
-        else result.proposal=tradeRequestSchema.parse({...result.proposal,accountId:selected.id,venue:selected.venue,mode:"agent"});
+        else if(result.proposal.accountId!==selected.id||result.proposal.venue!==selected.venue){delete result.proposal;result.requiresClarification=true;result.message="The proposal targets a different trading account. Select the intended account or clarify your instruction. No action was taken.";}
+        else result.proposal=tradeRequestSchema.parse({...result.proposal,mode:"agent"});
       }
       this.store.put("proposal",{id:reference,userId:user.id,result,createdAt:Date.now(),updatedAt:Date.now()});
       settleReservation(this.store,user.id,reference,result.costUsd!==undefined?"settled":"unknown",{requestId:result.requestId,usage:result.usage,billing:result.costUsd===undefined?"Provider cost unavailable; reservation retained.":"provider-reported"},result.costUsd);

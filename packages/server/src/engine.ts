@@ -1,5 +1,5 @@
 import * as engine from "@orcus/engine";
-import { ApiError } from "./errors.js";
+import { ApiError } from "./errors";
 
 export async function callEngine<T>(name:string,...args:unknown[]):Promise<T> {
   const method=(engine as unknown as Record<string,unknown>)[name];

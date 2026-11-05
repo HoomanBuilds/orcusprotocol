@@ -1,7 +1,7 @@
 import type { OperatingBudget } from "@orcus/core";
-import { ApiError } from "./errors.js";
-import type { Document } from "./types.js";
-import { id, type Store } from "./store.js";
+import { ApiError } from "./errors";
+import type { Document } from "./types";
+import { id, type Store } from "./store";
 
 export function micros(value:string):number {
   if (!/^(?:0|[1-9]\d{0,5})(?:\.\d{1,6})?$/.test(value)) throw new ApiError("INVALID_AMOUNT","Use a non-negative USD amount with at most six decimal places.");

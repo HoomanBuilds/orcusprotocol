@@ -2,8 +2,8 @@ import { createCipheriv,createDecipheriv,hkdfSync,randomBytes } from "node:crypt
 import { closeSync,constants,existsSync,fstatSync,openSync,readFileSync,writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { generatePrivateKey,privateKeyToAccount } from "viem/accounts";
-import { ApiError } from "./errors.js";
-import { dataDirectory,id,type Store } from "./store.js";
+import { ApiError } from "./errors";
+import { dataDirectory,id,type Store } from "./store";
 
 function masterKey():Buffer {
   const value=process.env.ORCUS_MASTER_KEY;
