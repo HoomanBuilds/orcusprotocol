@@ -18,7 +18,7 @@ const outputSchema = z.object({
   decision: z.enum(["allow", "reject", "no-action"]), reason: z.string(),
   source: z.literal("local-simulation"), observedAt: z.number(), expiresAt: z.number(),
   controlRevision: z.number().int(), policyVersion: z.number().int(),
-  requestId: z.string().optional(), proposalId: z.string().optional(),
+  requestId: z.string().optional().transform(value => value || undefined), proposalId: z.string().optional(),
   observations: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();
 

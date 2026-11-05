@@ -19,4 +19,11 @@ describe("CRE runner trust boundary", () => {
     expect(() => parseCreOutput("no workflow result")).toThrow("no authenticated evaluation");
     expect(() => parseCreOutput(`ORCUS_CRE_RESULT=${JSON.stringify({ ...output, source: "hosted" })}`)).toThrow("malformed or unsupported");
   });
+  it("normalizes an absent preset-strategy inference ID before backend binding", () => {
+    const output = { evaluationId: "evaluation", automationId: "job", accountId: "account", chainId: 11155111, decision: "allow", reason: "condition met", source: "local-simulation", observedAt: 1, expiresAt: 2, controlRevision: 1, policyVersion: 1 };
+    const parse = (requestId?: string) => parseCreOutput(`ORCUS_CRE_RESULT=${JSON.stringify({ ...output, requestId })}`);
+    expect(parse().requestId).toBeUndefined();
+    expect(parse("").requestId).toBeUndefined();
+    expect(parse("real-provider-request").requestId).toBe("real-provider-request");
+  });
 });
