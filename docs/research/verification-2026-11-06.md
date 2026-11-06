@@ -139,6 +139,8 @@ Nine negative sponsorship cases rejected expired/future authorization, wrong cha
 
 This is real local EntryPoint/paymaster execution, not merely mocked sponsorship. It does not exercise a canonical public bundler's admission rules, a publicly deployed/funded/staked paymaster or a live browser-extension sponsored trade. No public network write occurred.
 
+An independent root rerun on November 6 used `ORCUS_FORK_BLOCK=12075622 npm run verify:operator-paymaster-fork` after the normalized close-cap and quote-validation fixes. All six operations and nine sponsorship denials passed again, with zero ETH in owner/session signers and zero public writes. The exact operator deposit debit was `5190838062413` wei. Local-only owner-native-input receipt: `0x61593ff7a4e6911b56a66a767afa58a0244660f2a12a337b96660a4a0f8685f7`; agent-native-input receipt: `0x0485e5466c2be602572af26c472f8a3e0b7462839ccc5c150162f029db911254`. These are not public explorer receipts or proof of canonical bundler admission.
+
 ## Authenticated CRE CLI and actual worker consumption
 
 `npm run verify:cre -- --account-address=<read-only observation address>` passed five actual simulations through the official authenticated CLI, SDK and configured Sepolia/external HTTP capabilities. An independent root rerun observed Sepolia blocks `12075622`-`12075624`. The verifier uses no signing key and makes zero billable inference calls or public network writes.
@@ -191,6 +193,8 @@ Operator gas authorization additionally checks the actual EntryPoint deposit and
 ## Functional browser and durable-result acceptance
 
 `npm run verify:browser -- http://localhost:3124` passed against an isolated actual Next.js application, real HTTP routes and a real SQLite database. Chromium used fresh disposable owners through an injected EIP-1193 provider; signing keys stayed in the verifier process. The app had no inference credentials, no worker performing paid evaluations and no funded trading permissions. This is not a real browser extension or a public trading demonstration.
+
+An independent November 6 root rerun also passed all seven cases against the actual production build on loopback port 3125. This strengthens the production-build interface proof without changing the injected-wallet, no-public-write or no-paid-inference boundaries. The read-only CRE rerun at blocks `12075622`-`12075624` and operator-paymaster fork above were separate acceptance runs, not one combined inference-to-trade demonstration.
 
 The browser proof verified rejected login produces no session; signed login and owned venue-account registration; distinct owner, trading and operating wallet roles; rapid double pause producing exactly one HTTP mutation; resume; expired automation disabled in the interface and rejected by the actual API; owner change clearing private drafts, session and accounts; and a deliberately delayed old-owner wallet check completing after owner B logged in without clearing or logging out B. It submitted zero trade signatures, public venue writes or inference calls. Temporary browser profiles were removed after the run; the isolated synthetic application data remained outside the repository.
 
