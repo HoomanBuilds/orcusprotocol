@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TradingAccount } from "@orcus/core";
 import { planWith0G, getComputeBalance } from "./index";
@@ -52,6 +52,14 @@ function personalMemory(threadId: string, content: string) {
 }
 
 describe("personal LangGraph agent", () => {
+  it("rejects credential-bearing messages before billing, memory or provider access", async () => {
+    const provider = fakeProvider([final]), memory = personalMemory("agent:user-a", "Use conservative amounts.");
+    const beforeCall = vi.fn(async () => {});
+    await expect(planWith0G(`Use this management key mk-${randomBytes(18).toString("base64url")}`, { ...memory, modelBudget: { beforeCall, afterCall: async () => {} } })).rejects.toMatchObject({ code: "CREDENTIAL_INPUT_REJECTED" });
+    expect(provider.modelCalls()).toBe(0);
+    expect(beforeCall).not.toHaveBeenCalled();
+    expect(memory.checkpoints.load).not.toHaveBeenCalled();
+  });
   it("performs a bounded multi-tool reasoning loop with real adapter reads and typed proposal evidence", async () => {
     const provider = fakeProvider([{ type: "tool", name: "read_portfolio", arguments: { accountId: account.id } }, { type: "tool", name: "analyze_market", arguments: { venue: "hyperliquid", symbol: "ETH", interval: "1h", limit: 20 } }, { type: "tool", name: "propose_action", arguments: { request: proposal } }, final]);
     const memory = personalMemory("agent:user-a", "Prefers conservative position reductions.");

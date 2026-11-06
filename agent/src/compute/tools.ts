@@ -8,6 +8,7 @@ import { getUniswapMarkets, getUniswapPortfolio } from "../venues/uniswap";
 import type { AgentContext } from "./types";
 import { automationProposalSchema } from "./automation";
 import { resolveToolProfile, selectProfileTools } from "./tool-profiles";
+import { rejectCredentialMaterial } from "./input-guard";
 
 export interface AgentTool { name: string; description: string; arguments: string; run(input: unknown): Promise<unknown> }
 const venueSchema = z.enum(["uniswap", "hyperliquid"]);
@@ -56,7 +57,7 @@ export function buildAgentTools(context: AgentContext, latestMessage: string) {
   add("remember_preference", "Remember an explicitly requested user preference, never secrets or inferred financial facts.", "{content:string,sourceQuote:string,kind?:'note'|'preference',importance?:0..1}", z.object({ content: z.string().min(1).max(1000), sourceQuote: z.string().min(5).max(1000), kind: z.enum(["note", "preference"]).default("preference"), importance: z.number().min(0).max(1).default(0.5) }).strict(), async input => {
     if (!context.memoryStore) throw new Error("Durable personal memory is not configured.");
     if (remembered || !/\b(?:remember|save|keep|store|always|prefer)\b/i.test(latestMessage) || !latestMessage.includes(String(input.sourceQuote))) throw new Error("Memory writes require an explicit request and a quote from the current user message.");
-    if (/\b(?:private\s*key|seed\s*phrase|api\s*key|password|secret)\b/i.test(String(input.content)) || /0x[\da-fA-F]{64}\b|\b(?:sk|mk|pk)_[A-Za-z0-9_-]{12,}/.test(String(input.content))) throw new Error("Credentials and signing secrets cannot be stored as agent memory.");
+    rejectCredentialMaterial(String(input.content), "MEMORY_SECRET_REJECTED");
     remembered = true;
     return context.memoryStore.remember({ content: String(input.content), kind: input.kind as "note" | "preference", importance: Math.round(Number(input.importance) * 100) });
   });

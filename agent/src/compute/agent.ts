@@ -9,6 +9,7 @@ import { buildAgentTools } from "./tools";
 import { invoke0G } from "./transport";
 import { automationProposalSchema } from "./automation";
 import { invokeProfileTool, resolveToolProfile } from "./tool-profiles";
+import { rejectCredentialMaterial } from "./input-guard";
 import type { AgentCheckpoint, AgentContext, AgentMessage, ModelEvidence, ModelUsage, PlannerReply, ToolTrace } from "./types";
 
 const decisionSchema = z.discriminatedUnion("type", [
@@ -45,6 +46,7 @@ function addUsage(evidence: ModelEvidence[]): ModelUsage | undefined {
 
 export async function runPersonalAgent(message: string, context: AgentContext = {}): Promise<PlannerReply> {
   if (!message.trim() || message.length > 10_000) throw new EngineError("INVALID_MESSAGE", "Enter a message between 1 and 10,000 characters.");
+  rejectCredentialMaterial(message);
   const toolProfile = resolveToolProfile(context.toolProfile);
   if (context.requirePrivate) throw new EngineError("PRIVATE_INFERENCE_UNVERIFIED", "Private-only inference is disabled until the configured 0G attestation path is verified.", 503);
   if ([process.env.LANGSMITH_TRACING, process.env.LANGCHAIN_TRACING_V2].some(value => value === "true")) throw new EngineError("EXTERNAL_TRACING_DISABLED", "Disable external LangSmith tracing for this private personal-agent runtime.", 503);

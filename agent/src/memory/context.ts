@@ -1,18 +1,19 @@
 import { z } from "zod";
 import type { AgentCheckpoint, AgentContext, AgentMessage } from "../compute/types";
 import { EngineError } from "../errors";
+import { redactCredentialMaterial } from "../compute/input-guard";
 
 const messageSchema = z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(16_000) }).strict();
 const checkpointSchema = z.object({ version: z.literal(1), threadId: z.string().min(1).max(200), runId: z.string().min(1).max(200), messageDigest: z.string().length(64), toolProfile: z.enum(["interactive", "strategy"]).optional(), status: z.enum(["running", "completed", "failed"]), modelCalls: z.number().int().min(0).max(12), toolCalls: z.number().int().min(0).max(20), tokenCount: z.number().min(0), messages: z.array(messageSchema).max(24), toolTrace: z.array(z.unknown()).max(12), evidence: z.array(z.unknown()).max(12), inferencePending: z.boolean(), updatedAt: z.number(), proposal: z.unknown().optional(), automationProposal: z.unknown().optional(), summary: z.string().max(4000).optional(), reply: z.unknown().optional() }).strict();
 
 export function safeObservation(value: unknown, depth = 0): unknown {
   if (depth > 6) return "[nested data omitted]";
-  if (typeof value === "string") return value.slice(0, 2000).replace(/\b(?:sk|mk|pk)_[A-Za-z0-9_-]{12,}\b/g, "[credential omitted]").replace(/0x[\da-fA-F]{64}\b/g, "[32-byte value omitted]");
+  if (typeof value === "string") return redactCredentialMaterial(value).slice(0, 2000);
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "boolean" || value === null) return value;
   if (Array.isArray(value)) return value.slice(0, 24).map(item => safeObservation(item, depth + 1));
-  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([key]) => !/(?:private.?key|api.?key|secret|authorization|signature|token$)/i.test(key)).slice(0, 30).map(([key, item]) => [key, safeObservation(item, depth + 1)]));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([key]) => !/(?:private.?key|api.?key|seed.?phrase|mnemonic|password|secret|authorization|signature|token$)/i.test(key)).slice(0, 30).map(([key, item]) => [key, safeObservation(item, depth + 1)]));
   return null;
 }
 
