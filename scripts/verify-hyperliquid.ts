@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { Wallet } from "ethers";
 import { getAddress, zeroAddress, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { tradeRequestSchema, type TradingAccount, type TradeRequest } from "@orcus/core";
@@ -42,7 +43,7 @@ async function main() {
   }
   const key = process.env.ZEROG_STORAGE_SPONSOR_PRIVATE_KEY;
   if (!key || !/^0x[\da-fA-F]{64}$/.test(key)) throw new VerificationSafetyError("The dedicated testnet owner signer is not configured.");
-  const owner = privateKeyToAccount(key as Hex);
+  const owner = new Wallet(key);
   if (getAddress(owner.address) !== options.owner) throw new VerificationSafetyError("The configured signer is not the explicitly approved owner.");
   const agentKey = generatePrivateKey(), agent = privateKeyToAccount(agentKey), agentName = `orcus-${randomBytes(5).toString("hex")}`;
   if (originalAgents.some(item => item.name === agentName)) throw new VerificationSafetyError("The fresh agent name collided with an existing agent.");

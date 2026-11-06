@@ -1,4 +1,5 @@
 import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { BrowserProvider, type TypedDataDomain, type TypedDataField } from "ethers";
 import { serializePermissionAccount } from "@zerodev/permissions";
 import { createKernelAccount, KernelV3_1AccountAbi } from "@zerodev/sdk";
 import type { PreparedAction, TradingAccount } from "@orcus/core";
@@ -124,8 +125,23 @@ async function sendOwnerOperation(owner: Awaited<ReturnType<typeof createOwnerKe
 
 export async function approveHyperliquidAgent(agentAddress: string, agentName = "Orcus") {
   const wallet = await ownerWallet(arbitrumSepolia);
-  const client = new ExchangeClient({ transport: new HttpTransport({ isTestnet: true }), wallet, signatureChainId: "0x66eee" });
+  const client = new ExchangeClient({ transport: new HttpTransport({ isTestnet: true }), wallet: await hyperliquidOwnerSigner(wallet.account.address), signatureChainId: "0x66eee" });
   return client.approveAgent({ agentAddress: getAddress(agentAddress), agentName: agentName.slice(0, 16) });
+}
+
+async function hyperliquidOwnerSigner(owner: string) {
+  await assertOwner(owner, arbitrumSepolia);
+  // Hyperliquid's approval type contains a colon rejected by viem's struct validator.
+  const signer = await new BrowserProvider(provider()).getSigner(owner);
+  return {
+    getAddress: () => signer.getAddress(),
+    signTypedData: async (domain: TypedDataDomain, types: Record<string, TypedDataField[]>, value: Record<string, unknown>) => {
+      await assertOwner(owner, arbitrumSepolia);
+      const signature = await signer.signTypedData(domain, types, value);
+      await assertOwner(owner, arbitrumSepolia);
+      return signature;
+    },
+  };
 }
 
 export async function executePreparedAction(prepared: PreparedAction): Promise<{ transactionHash?: string; userOperationHash?: string; orderId?: string; response?: unknown }> {
@@ -137,7 +153,7 @@ export async function executePreparedAction(prepared: PreparedAction): Promise<{
     if (!prepared.hyperliquid || prepared.kind !== "hyperliquid") throw new Error("The venue request is missing.");
     if (prepared.account.chainId !== arbitrumSepolia.id || getAddress(prepared.account.address) !== owner || prepared.request.accountId !== prepared.account.id) throw new WalletActionError("ACCOUNT_CHANGED", "The Hyperliquid testnet account does not match this owner.");
     const wallet = await ownerWallet(arbitrumSepolia, owner);
-    const exchange = new ExchangeClient({ transport: new HttpTransport({ isTestnet: true }), wallet, signatureChainId: "0x66eee", defaultExpiresAfter: prepared.expiresAt });
+    const exchange = new ExchangeClient({ transport: new HttpTransport({ isTestnet: true }), wallet: await hyperliquidOwnerSigner(wallet.account.address), signatureChainId: "0x66eee", defaultExpiresAfter: prepared.expiresAt });
     const operation = prepared.hyperliquid;
     if (operation.params.vaultAddress && getAddress(String(operation.params.vaultAddress)) !== owner) throw new WalletActionError("ACCOUNT_CHANGED", "Trading through a different Hyperliquid vault is not authorized.");
     await accountControl(prepared.account, prepared.controlRevision);
