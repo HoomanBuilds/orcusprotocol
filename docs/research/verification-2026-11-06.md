@@ -181,3 +181,13 @@ The shared inference account is protected by exact operator-controlled USD-equiv
 - Dependency-audit findings remain unresolved. The hackathon implementation is not certified production-safe by these functional checks.
 - Optional earned funding remains off. Sponsor credits, owner deposits and theoretical trading profit are not proof of service revenue funding inference.
 - Public repository publication, feedback-form submission, hosted deployment and demo recording were not performed.
+
+## Latest isolated compute recheck
+
+A final HTTP application recheck started from unified source revision `5a86030`, using a fresh external runtime directory and a generated, unfunded owner. The app listened only on loopback. Storage, CRE and service-payment collection were disabled for this proof. The synthetic owner expense cap and both operator compute ceilings were restricted to 0.05 USD equivalent. Credentials were loaded opaquely and never printed or committed.
+
+Wallet authentication and budget/private-mode setup succeeded. The first model call returned an upstream 0G HTTP 502, exposed as the sanitized `INFERENCE_REJECTED` application error. The verifier stopped immediately and logged out; no retry, second synthetic user or extra provider request was initiated. The failed request had error identity `cfcaa15dc039bae7`. Its billing was unverified: local settled spend was 0.000000 USD equivalent and an unknown reservation of 0.010000 remained held. This is not evidence of a zero provider charge or a successful inference.
+
+The namespaced failed agent-run record was persisted with one model call and zero tool calls. No trade, approval, onchain payment, storage write or deployment occurred. The extended tools, memory, typed draft and cold-restart replay cases were not reached and are not claimed as newly verified. The isolated runtime remains available for billing reconciliation; existing user runtime data was not touched.
+
+The verifier now supports an optional `--restart-replay` gate after all extended checks and the budget-stop case succeed. It pauses for restarting the same app against the same database, then replays only the original request and checks unchanged provider IDs, spend, reservations and persisted memory. Four unit tests and strict script typechecking passed for this guard. That unit coverage is not a successful live restart proof; the current upstream 502 prevented reaching the gate.
