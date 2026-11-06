@@ -4,7 +4,7 @@ import { getHealth, getMarkets, engineConfig } from "@orcus/engine";
 import type { Venue } from "@orcus/core";
 import { entryPoint } from "@orcus/wallets/kernel";
 import { sponsorshipSummary } from "../packages/server/src/sponsorship";
-import { doctorBundlerConfiguration } from "./lib/doctor-bundler";
+import { doctorBundlerConfiguration, doctorOperatorStakeConfiguration } from "./lib/doctor-bundler";
 import { doctorRuntimeConfiguration } from "./lib/doctor-runtime";
 
 const checkConfigOnly = process.argv.includes("--check-config");
@@ -26,6 +26,9 @@ const bundler = doctorBundlerConfiguration({ ORCUS_GAS_SPONSOR_PROVIDER: process
 const bundlerUrl = bundler.url;
 console.log(`Smart-account bundler: ${bundler.status}${bundler.provider ? ` (${bundler.provider})` : ""}`);
 if (bundler.status !== "configured") process.exitCode = 1;
+const operatorStake = doctorOperatorStakeConfiguration({ ORCUS_GAS_SPONSOR_PROVIDER: process.env.ORCUS_GAS_SPONSOR_PROVIDER, ORCUS_GAS_SPONSOR_REQUIRE_STAKE: process.env.ORCUS_GAS_SPONSOR_REQUIRE_STAKE, ORCUS_GAS_SPONSOR_MIN_STAKE_WEI: process.env.ORCUS_GAS_SPONSOR_MIN_STAKE_WEI });
+console.log(`Operator bundler stake minimum: ${operatorStake}. Configuration only; locked stake and bundler admission are not verified.`);
+if (operatorStake === "missing" || operatorStake === "invalid") process.exitCode = 1;
 const sponsorship = sponsorshipSummary();
 console.log(`Sponsored Uniswap configuration: ${sponsorship.status}. ${sponsorship.message}`);
 if (!sponsorship.configured) process.exitCode = 1;
