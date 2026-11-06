@@ -36,30 +36,48 @@ export function LandingHeader({ children }: { children: React.ReactNode }) {
   return <header className={`${styles.header} ${scrolled ? styles.scrolledHeader : ""} ${hidden && !open ? styles.hiddenHeader : ""}`} ref={navigation}><a href="#top" aria-label="Orcus home" onClick={() => setOpen(false)}>{children}</a><div className={styles.headerRight}><a className={styles.navApp} href="/">Open app <ArrowUpRight size={15}/></a><button className={styles.menuToggle} type="button" aria-expanded={open} aria-controls="landing-navigation" aria-label={open ? "Close navigation" : "Open navigation"} onClick={() => setOpen(value => !value)} ref={toggle}>{open ? <X size={21}/> : <Menu size={21}/>}<span><strong>explore</strong><small>Orcus</small></span></button></div><nav className={styles.menu} id="landing-navigation" aria-label="Main navigation" hidden={!open}>{[["#about", "Meet Orcus"], ["#markets", "Trading venues"], ["#agent", "The agent"], ["#control", "Your control"], ["#scope", "Prototype scope"]].map(([href, text]) => <a key={href} href={href} onClick={() => setOpen(false)}>{text}<ArrowUpRight size={15}/></a>)}</nav></header>;
 }
 
+export const HERO_MEDIA = {
+  webm: "/landing/garden-hero-v1.webm",
+  mp4: "/landing/garden-hero-v1.mp4",
+  poster: "/landing/garden-hero-v1-poster.webp",
+};
+
+export function canPlayHero({ allowed, visible, pageVisible, userPaused }: { allowed: boolean; visible: boolean; pageVisible: boolean; userPaused: boolean }) {
+  return allowed && visible && pageVisible && !userPaused;
+}
+
 export function MotionVideo() {
   const video = useRef<HTMLVideoElement>(null);
   const userPaused = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [allowed, setAllowed] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const [pageVisible, setPageVisible] = useState(false);
 
   useEffect(() => {
     const element = video.current;
     if (!element) return;
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let visible = true;
-    const sync = () => {
-      setAllowed(!preference.matches);
-      if (!preference.matches && visible && !userPaused.current) void element.play().catch(() => setPlaying(false));
-      else element.pause();
-    };
-    const observer = new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; sync(); });
+    const motionPreference = () => setAllowed(!preference.matches);
+    const visibility = () => setPageVisible(!document.hidden);
+    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting));
     observer.observe(element);
-    preference.addEventListener("change", sync);
-    sync();
-    return () => { observer.disconnect(); preference.removeEventListener("change", sync); element.pause(); };
+    preference.addEventListener("change", motionPreference);
+    document.addEventListener("visibilitychange", visibility);
+    motionPreference();
+    visibility();
+    return () => { observer.disconnect(); preference.removeEventListener("change", motionPreference); document.removeEventListener("visibilitychange", visibility); element.pause(); };
   }, []);
 
-  return <><video className={styles.heroVideo} ref={video} muted playsInline preload="none" poster="/landing/hero-poster.webp" aria-hidden="true" onLoadedMetadata={() => { if (video.current && video.current.duration > 6) video.current.currentTime = 6; }} onEnded={() => { if (video.current && allowed && !userPaused.current) { video.current.currentTime = 6; void video.current.play().catch(() => setPlaying(false)); } }} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}><source media="(max-width: 767px)" src="/landing/hero-mobile.webm" type="video/webm"/><source src="/landing/hero.webm" type="video/webm"/></video>{allowed && <button className={styles.videoControl} aria-label={playing ? "Pause background video" : "Play background video"} type="button" onClick={() => { userPaused.current = playing; if (playing) video.current?.pause(); else void video.current?.play().catch(() => setPlaying(false)); }}>{playing ? <Pause size={14}/> : <Play size={14}/>}</button>}</>;
+  useEffect(() => {
+    const element = video.current;
+    if (!element) return;
+    if (canPlayHero({ allowed, visible, pageVisible, userPaused: userPaused.current })) void element.play().catch(() => setPlaying(false));
+    else element.pause();
+    if (!allowed) element.load();
+  }, [allowed, visible, pageVisible]);
+
+  return <><video className={styles.heroVideo} ref={video} muted playsInline loop hidden={!allowed} preload="none" poster={HERO_MEDIA.poster} aria-hidden="true" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}>{allowed && <><source src={HERO_MEDIA.webm} type="video/webm"/><source src={HERO_MEDIA.mp4} type="video/mp4"/></>}</video>{allowed && <button className={styles.videoControl} aria-label={playing ? "Pause background video" : "Play background video"} type="button" onClick={() => { userPaused.current = playing; if (playing) video.current?.pause(); else if (visible && pageVisible) void video.current?.play().catch(() => setPlaying(false)); }}>{playing ? <Pause size={14}/> : <Play size={14}/>}</button>}</>;
 }
 
 export function MarketMotion({ children }: { children: React.ReactNode }) {

@@ -2,6 +2,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import LandingPage, { metadata } from "./page";
+import { HERO_MEDIA, canPlayHero, MotionVideo } from "./landing-interactions";
+import { readFileSync, statSync } from "node:fs";
 
 describe("Orcus landing page", () => {
   it("explains the actual testnet scope and shared account controls", () => {
@@ -40,6 +42,26 @@ describe("Orcus landing page", () => {
     expect(markup).toContain('aria-hidden="true"');
     for (const match of markup.matchAll(/(?:src|poster|srcSet)="([^"]+)"/g)) expect(match[1]).toMatch(/^\/landing\//);
     expect(markup).not.toMatch(/<input|<textarea|Connect Wallet|Approve USDC/);
+  });
+
+  it("uses the complete local garden loop with poster-only motion opt-out", () => {
+    expect(HERO_MEDIA).toEqual({ webm: "/landing/garden-hero-v1.webm", mp4: "/landing/garden-hero-v1.mp4", poster: "/landing/garden-hero-v1-poster.webp" });
+    for (const path of Object.values(HERO_MEDIA)) expect(statSync(new URL(`../../../public${path}`, import.meta.url)).size).toBeGreaterThan(0);
+    const markup = renderToStaticMarkup(<MotionVideo/>);
+    expect(markup).toContain('loop=""');
+    expect(markup).toContain('hidden=""');
+    expect(markup).toContain(`poster="${HERO_MEDIA.poster}"`);
+    expect(markup).not.toContain("<source");
+    const source = readFileSync(new URL("./landing-interactions.tsx", import.meta.url), "utf8");
+    expect(source).not.toMatch(/currentTime\s*=|hero-mobile\.webm|src="\/landing\/hero\.webm"/);
+    expect(source).toContain('"visibilitychange"');
+    expect(source).toContain("IntersectionObserver");
+  });
+
+  it("pauses motion for reduced preference, hidden page, offscreen hero and the user control", () => {
+    const active = { allowed: true, visible: true, pageVisible: true, userPaused: false };
+    expect(canPlayHero(active)).toBe(true);
+    for (const blocked of [{ allowed: false }, { visible: false }, { pageVisible: false }, { userPaused: true }]) expect(canPlayHero({ ...active, ...blocked })).toBe(false);
   });
 
   it("sets Orcus-specific preview metadata without inventing a public domain", () => {
