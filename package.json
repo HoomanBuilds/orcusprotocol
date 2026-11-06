@@ -29,7 +29,7 @@
     "verify:compute-funding-fork": "node --import tsx scripts/verify-compute-funding-fork.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "test:cre": "vitest run --maxWorkers=2 --no-file-parallelism workflows/cre/strategy/workflow.test.ts"
+    "test:cre": "vitest run --maxWorkers=2 --no-file-parallelism workflows/cre/strategy/*.test.ts"
   },
   "engines": {
     "node": ">=22.16.0"
