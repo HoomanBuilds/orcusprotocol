@@ -48,9 +48,6 @@
 .heroVideo, .heroShade { position: absolute; inset: 0; height: 100%; width: 100%; object-fit: cover; object-position: center 58%; pointer-events: none; }
 .heroVideo[hidden] { display: none; }
 .heroShade { background: linear-gradient(180deg, rgb(0 0 0 / .52) 0%, rgb(0 0 0 / .24) 25%, transparent 72%); }
-.sceneNote { position: absolute; bottom: 28px; left: 28px; display: flex; align-items: center; gap: 10px; padding: 12px 18px; border: 1px solid #ffffff55; border-radius: 8px; background: #253d3370; backdrop-filter: blur(12px); font-size: 12px; color: #fff; }
-.sceneDot { width: 6px; height: 6px; border-radius: 50%; background: #ffc7e1; }
-.testnetBadge { position: absolute; right: 80px; bottom: 38px; color: white !important; font-size: 11px; text-shadow: 0 1px 5px #0008; }
 .videoControl { position: absolute; right: 24px; bottom: 26px; width: 40px; height: 40px; display: grid; place-items: center; background: #253d3370; border: 1px solid #ffffff55; border-radius: 50%; color: white; }
 .heroCaption { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px 24px; font-size: 9px; letter-spacing: 1.2px; color: var(--muted); }
 .heroCaption a { display: flex; align-items: center; gap: 16px; font-size: 11px; letter-spacing: 0; }
@@ -170,7 +167,7 @@
 @media (max-width: 760px) {
   .header { inset: 8px 12px auto; height: 64px; padding: 0 12px; }.brand { font-size: 36px; letter-spacing: -3px; }.headerRight { gap: 20px; }.navApp { font-size: 12px; }
   .heroSection { padding: 112px 16px 0; }.heroHeading { flex-direction: column; align-items: start; gap: 28px; padding: 0 8px 32px; }.heroHeading h1 { font-size: clamp(41px, 8.4vw, 62px); letter-spacing: -1.6px; }.heroAction { gap: 18px; }.heroAction > span { max-width: none; font-size: 12px; }.appButton { font-size: 13px; }
-  .heroScene { height: 360px; border-radius: 12px; }.sceneNote { bottom: 24px; left: 16px; font-size: 10px; padding: 10px 12px; }.testnetBadge { bottom: auto; top: 20px; right: 20px; }.videoControl { right: 16px; bottom: 24px; width: 36px; height: 36px; }.heroCaption { padding: 18px 8px; font-size: 7px; letter-spacing: .7px; }.heroCaption a { font-size: 10px; gap: 8px; }
+  .heroScene { height: 360px; border-radius: 12px; }.videoControl { right: 16px; bottom: 24px; width: 36px; height: 36px; }.heroCaption { padding: 18px 8px; font-size: 7px; letter-spacing: .7px; }.heroCaption a { font-size: 10px; gap: 8px; }
   .productSection, .mapSection, .controlSection { padding: 64px 20px; }.sectionHeading { margin-bottom: 32px; }.sectionHeading h2, .controlSection h2 { font-size: 36px; letter-spacing: -1.1px; }
   .accountTop { padding: 18px; gap: 12px; flex-wrap: wrap; }.accountTop .brand { font-size: 25px; }.accountTag { font-size: 8px; }.demoLabel { font-size: 8px; }.accountBody { display: flex; flex-direction: column; padding: 24px; }.accountBody h3 { font-size: 23px; }.sharedRail { flex-direction: row; gap: 20px; padding: 24px 0; }.sharedRail > span:first-child, .sharedRail > span:last-child { height: 0; width: 50px; border-left: 0; border-top: 1px dashed #8f789b; }.sharedRail > span:nth-child(2) br { display: none; }.chatBubble { margin-top: 20px; }.accountBottom { flex-direction: column; align-items: start; padding: 18px 24px; gap: 14px; }
   .featureGrid { grid-template-columns: 1fr; gap: 12px; margin-top: 24px; }.featureGrid article { padding: 24px; }.cardHeading h3 { font-size: 23px; }.researchVisual, .strategyVisual { height: 200px; }.activityVisual { padding-top: 28px; }.activityVisual > div { margin-bottom: 26px; }.questionSlip { font-size: 13px; }.strategyVisual > span { font-size: 12px; }.activityVisual p { font-size: 13px; }

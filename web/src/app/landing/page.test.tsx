@@ -6,6 +6,12 @@ import LandingPage, { metadata } from "./landing-page";
 import { HERO_MEDIA, canPlayHero, MarketMotion, MotionVideo } from "./landing-interactions";
 
 describe("Orcus landing page", () => {
+  it("keeps the hero free of decorative caption badges", () => {
+    const markup = renderToStaticMarkup(<LandingPage/>);
+    expect(markup).not.toContain("A little more perspective.");
+    expect(markup).not.toContain("Testnet preview");
+  });
+
   it("explains shared control without overstating readiness or privacy", () => {
     const markup = renderToStaticMarkup(<LandingPage/>);
     for (const text of ["same supported trading accounts", "separate trading portfolio", "operating wallet and agent keys are separate", "Scoped permissions", "Spending limits", "Manual takeover", "testnet prototype", "Hyperliquid testnet", "Arbitrum Sepolia", "no sponsorship", "disabled by default", "does not claim independently verified strict TEE guarantees", "does not claim a live decentralized CRE deployment"]) expect(markup).toContain(text);

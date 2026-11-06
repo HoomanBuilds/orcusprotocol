@@ -86,7 +86,7 @@ export default function LandingPage() {
     <LandingHeader><Brand/></LandingHeader>
     <section className={styles.heroSection} aria-labelledby="hero-title">
       <div className={styles.heroHeading}><h1 id="hero-title">Your markets,<br/><em>with a second mind.</em></h1><div className={styles.heroAction}><span>Trade yourself. Delegate when you want.</span><OpenApp/></div></div>
-      <div className={styles.heroScene}><MotionVideo/><div className={styles.heroShade}/><div className={styles.sceneNote}><span className={styles.sceneDot}/><span>A little more perspective.</span></div><a className={styles.testnetBadge} href="#scope">Testnet preview</a></div>
+      <div className={styles.heroScene}><MotionVideo/><div className={styles.heroShade}/></div>
       <div className={styles.heroCaption}><span>YOUR WORKSPACE. YOUR AGENT. YOUR CALL.</span><a href="#about">Meet Orcus <Plus size={14}/></a></div>
     </section>
 
