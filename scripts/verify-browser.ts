@@ -13,6 +13,7 @@ const profile = mkdtempSync(join(tmpdir(), "orcus-browser-proof-"));
 const browser = spawn(process.env.CHROMIUM_PATH ?? "/usr/sbin/chromium", ["--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 let socket: WebSocket | undefined;
+let closeBrowser: (() => Promise<unknown>) | undefined;
 const checks: string[] = [];
 try {
   const activePort = join(profile, "DevToolsActivePort");
@@ -27,6 +28,7 @@ try {
   const owners = [Wallet.createRandom(), Wallet.createRandom()];
   const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   const rpc = (method: string, params: Record<string, unknown> = {}): Promise<any> => new Promise((resolve, reject) => { const id = ++sequence, timer = setTimeout(() => { pending.delete(id); reject(new Error(`Browser command timed out: ${method}`)); }, 30_000); pending.set(id, { resolve, reject, timer }); socket!.send(JSON.stringify({ id, method, params })); });
+  closeBrowser = () => rpc("Browser.close");
   socket.addEventListener("message", event => {
     const value = JSON.parse(String(event.data));
     if (value.id) { const task = pending.get(value.id); pending.delete(value.id); clearTimeout(task?.timer); if (value.error) task?.reject(new Error(value.error.message)); else task?.resolve(value.result); }
@@ -111,6 +113,7 @@ try {
   assert.equal(exchangeRequests, 0); assert.equal(tradeSignatureAttempts, 0);
   console.log(JSON.stringify({ scope: "local Chromium with injected disposable wallet and real HTTP/SQLite", checks, publicTradingWrites: 0, paidInferenceCalls: 0, notProven: ["real browser-extension behavior", "funded or public venue execution", "sponsor deployment"] }, null, 2));
 } finally {
+  await closeBrowser?.().catch(() => undefined);
   socket?.close(); browser.kill("SIGTERM");
   await new Promise(resolve => { if (browser.exitCode !== null) resolve(undefined); else { browser.once("exit", resolve); setTimeout(resolve, 3000); } });
   rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
