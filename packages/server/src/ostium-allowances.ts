@@ -10,7 +10,7 @@ import type { StoredAccount, StoredAction, StoredRecord } from "./types";
 type Intent=OstiumAllowanceIntent&StoredRecord&{fingerprint:string};
 const amountSchema=z.string().regex(/^(?:0|[1-9]\d{0,6})(?:\.\d{1,6})?$/).refine(value=>parseUnits(value,6)>0n&&parseUnits(value,6)<=2_000_000_000_000n,"Approve an exact positive USDC amount no greater than 2,000,000");
 const transactionSchema=z.object({to:addressSchema,data:z.string().regex(/^0x(?:[\da-fA-F]{2})+$/),value:z.literal("0"),chainId:z.literal(421614),label:z.string().optional()}).strict();
-const planSchema=z.object({trader:addressSchema,chainId:z.literal(421614),token:addressSchema,spender:addressSchema,amountUsd:z.string(),amountRaw:z.string().regex(/^\d+$/),transaction:transactionSchema,expiresAt:z.number().int().positive(),minimumBlock:z.string().regex(/^\d+$/).optional()}).passthrough();
+const planSchema=z.object({trader:addressSchema,chainId:z.literal(421614),token:addressSchema,spender:addressSchema,amountUsd:z.string(),amountRaw:z.string().regex(/^\d+$/),transaction:transactionSchema,expiresAt:z.number().int().positive(),minimumBlock:z.string().regex(/^[1-9]\d*$/)}).passthrough();
 const hashSchema=z.string().regex(/^0x[\da-fA-F]{64}$/);
 const same=(first:string,second:string)=>getAddress(first)===getAddress(second);
 

@@ -129,6 +129,12 @@ describe("Ostium owner approval and transaction recovery",()=>{
   it.each(["0","-1","2000000.000001","10.0000001","999999999999999999999999"])("rejects ambiguous or out-of-bounds exact allowance %s before provider reads",async amountUsd=>{
     const h=harness();await expect(prepareOstiumAllowance(h.store,h.user,{accountId:h.account.id,amountUsd,requestId:"invalid"})).rejects.toThrow();expect(h.engine).not.toHaveBeenCalled();
   });
+  it.each([undefined,"0","1.5"])("requires a positive observed block anchor before accepting a new allowance plan %s",async minimumBlock=>{
+    const h=harness(),previous=h.engine.getMockImplementation()!;
+    h.engine.mockImplementation(async(name,...args)=>{const result=await previous(name,...args);return name==="getOstiumApprovalTransaction"?{...result as Record<string,unknown>,minimumBlock}:result;});
+    await expect(prepareOstiumAllowance(h.store,h.user,{accountId:h.account.id,amountUsd:"10",requestId:"missing-block"})).rejects.toMatchObject({code:"ALLOWANCE_PLAN_INVALID"});
+    expect(listOstiumAllowances(h.store,h.user).intents).toHaveLength(0);
+  });
   it("persists exact allowance intent before the wallet, prevents duplicate popup claims and reconciles late receipts once",async()=>{
     const h=harness(true),input={accountId:h.account.id,amountUsd:"10",requestId:"exact-allowance"},first=await prepareOstiumAllowance(h.store,h.user,input);
     expect(first.intent).toMatchObject({amountRaw:"10000000",minimumBlock:"100",status:"prepared"});expect(first.intent.notBefore).toBeGreaterThan(1_000_000_000_000);
