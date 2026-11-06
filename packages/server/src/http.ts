@@ -171,6 +171,16 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
       const input = z.object({ limitUsd: decimal.optional(), capUsd: decimal.optional(), lowBalanceUsd: decimal.optional(), autoReplenish: z.boolean().optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.setBudget(user, input) });
     }
+    if(path==="budget/funding"&&method==="GET")return json({data:platform.computeFunding(user)});
+    if(path==="budget/funding/policy"&&method==="POST")return json({data:await platform.setComputeFunding(user,await readBody(request))});
+    if(path==="budget/funding/prepare"&&method==="POST"){
+      const input=z.object({requestId:z.string().min(1).max(150)}).strict().parse(await readBody(request));
+      return json({data:await platform.prepareFunding(user,input.requestId)});
+    }
+    if(["budget/funding/submit","budget/funding/reconcile","budget/funding/cancel"].includes(path)&&method==="POST"){
+      const input=z.object({intentId:z.string().min(1).max(100)}).strict().parse(await readBody(request));
+      return json({data:path.endsWith("/submit")?await platform.submitFunding(user,input.intentId):path.endsWith("/reconcile")?await platform.reconcileFunding(user,input.intentId):platform.cancelFunding(user,input.intentId)});
+    }
     if(path==="memory"&&method==="GET")return json({data:platform.memories(user,url.searchParams.get("query")??undefined)});
     if(path==="memory/notes"&&method==="POST")return json({data:platform.remember(user,await readBody(request))},201);
     const memoryMatch=path.match(/^memory\/notes\/([^/]+)$/);

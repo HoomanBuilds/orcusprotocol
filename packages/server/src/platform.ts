@@ -4,6 +4,8 @@ import type { KernelGrantPolicy } from "@orcus/wallets/kernel";
 import { tradeRequestSchema,type PreparedAction,type TradeRequest,type User,type Portfolio,type Market,type HealthStatus } from "@orcus/core";
 import { z } from "zod";
 import { getBudget,setBudget } from "./budget";
+import { assertComputeFundingAuthority,cancelComputeFunding,configureComputeFunding,getComputeFundingPolicy,prepareComputeFunding,recordComputeFundingSubmission,settleComputeFunding } from "./compute-funding";
+import type { ComputeFundingResult } from "@orcus/engine/budget";
 import { callEngine } from "./engine";
 import { ApiError,errorMessage } from "./errors";
 import { createSigner,memoryKey,readSigner } from "./keystore";
@@ -91,6 +93,81 @@ export class Platform {
   }
   async setBudget(user:User,input:{limitUsd?:string;capUsd?:string;lowBalanceUsd?:string;autoReplenish?:boolean}){
     const previous=getBudget(this.store,user.id);setBudget(this.store,user.id,input.limitUsd??input.capUsd??previous.limitUsd,input.lowBalanceUsd??previous.lowBalanceUsd,input.autoReplenish??previous.autoReplenish);return this.budget(user);
+  }
+  computeFunding(user:User){return getComputeFundingPolicy(this.store,user);}
+  async setComputeFunding(user:User,input:unknown){
+    const disabled=z.object({enabled:z.literal(false)}).strict().safeParse(input).success;
+    return configureComputeFunding(this.store,user,input,{operatingAddress:this.agent(user).operatingAddress,providerBalance:disabled?undefined:await callEngine("getComputeBalance")});
+  }
+  async prepareFunding(user:User,requestId:string){
+    const policy=this.computeFunding(user).policy;
+    const context={operatingAddress:this.agent(user).operatingAddress,providerBalance:await callEngine("getComputeBalance"),paymentVaultBalance:policy?await callEngine("readComputeVaultBalance",policy.computeAccountAddress):undefined};
+    return prepareComputeFunding(this.store,user,requestId,context);
+  }
+  fundingIntent(user:User,intentId:string){
+    const intent=this.store.get<ReturnType<typeof getComputeFundingPolicy>["intents"][number]>(user.id,"compute-funding",intentId);
+    if(!intent)throw new ApiError("NOT_FOUND","The compute funding intent does not exist.",404);
+    return intent;
+  }
+  async reconcileFunding(user:User,intentId:string){
+    return this.withAccountLease(`operating:${user.id}`,async()=>{
+      const intent=this.fundingIntent(user,intentId);
+      if(["confirmed","failed","cancelled"].includes(intent.status))return intent;
+      if(!intent.transactionHash)throw new ApiError("FUNDING_NOT_SUBMITTED","This deposit has no signed transaction to reconcile.",409);
+      return settleComputeFunding(this.store,user,intentId,await callEngine<ComputeFundingResult>("reconcileComputeFunding",intent,intent.transactionHash));
+    });
+  }
+  cancelFunding(user:User,intentId:string){return cancelComputeFunding(this.store,user,intentId);}
+  async submitFunding(user:User,intentId:string){
+    return this.withAccountLease(`operating:${user.id}`,async assertLease=>{
+      const intent=this.fundingIntent(user,intentId);
+      if(["confirmed","failed","cancelled"].includes(intent.status))return intent;
+      if(intent.transactionHash)return settleComputeFunding(this.store,user,intentId,await callEngine<ComputeFundingResult>("reconcileComputeFunding",intent,intent.transactionHash));
+      const agent=this.agent(user),assertAuthority=()=>{
+        assertLease();assertComputeFundingAuthority(this.store,user,intentId);
+        const current=this.agent(user);
+        if(current.paused||current.controlRevision!==agent.controlRevision||current.operatingAddress.toLowerCase()!==intent.payerAddress.toLowerCase())throw new ApiError("FUNDING_CONTROL_CHANGED","Agent control or its operating signer changed. No new deposit is authorized.",409);
+      };
+      assertAuthority();
+      try{
+        const result=await callEngine<ComputeFundingResult>("submitComputeFunding",intent,readSigner(this.store,user.id,"operating"),{assertAuthority,onSubmissionIntent:(hash:string)=>{assertAuthority();recordComputeFundingSubmission(this.store,user,intentId,hash);}});
+        return settleComputeFunding(this.store,user,intentId,result);
+      }catch(error){
+        if(error&&typeof error==="object"&&"phase"in error&&error.phase==="not-submitted"){
+          const evidence="evidence"in error&&error.evidence&&typeof error.evidence==="object"?error.evidence as {transactionHash?:string}:{};
+          cancelComputeFunding(this.store,user,intentId,{phase:"not-submitted",transactionHash:evidence.transactionHash});
+        }
+        throw error;
+      }
+    });
+  }
+  async tickComputeFunding(assertTick:()=>void){
+    const results:Document[]=[],processedUsers=new Set<string>();
+    const pending=this.store.db.prepare("SELECT user_id,id FROM records WHERE kind='compute-funding' AND json_extract(body,'$.status') IN ('prepared','submitting','submitted-unknown') ORDER BY updated_at,id LIMIT 3").all()as{user_id:string;id:string}[];
+    for(const row of pending){
+      assertTick();const user=this.storedUser(row.user_id);if(!user)continue;processedUsers.add(user.id);
+      try{
+        let intent=this.fundingIntent(user,row.id);
+        if(intent.status==="prepared"){
+          try{assertComputeFundingAuthority(this.store,user,intent.id);}catch{intent=this.cancelFunding(user,intent.id);}
+          if(intent.status==="prepared"){if(this.agent(user).paused)continue;intent=await this.submitFunding(user,intent.id);}
+        }else intent=await this.reconcileFunding(user,intent.id);
+        results.push({kind:"compute-funding",intentId:intent.id,status:intent.status});
+      }catch(error){results.push({kind:"compute-funding",intentId:row.id,status:"reconciliation-pending",error:errorMessage(error)});}
+    }
+    const policies=this.store.db.prepare("SELECT p.user_id FROM records p LEFT JOIN records c ON c.user_id=p.user_id AND c.kind='compute-funding-check' WHERE p.kind='compute-funding-policy' AND json_extract(p.body,'$.enabled')=1 AND json_extract(p.body,'$.expiresAt')>? AND (c.id IS NULL OR json_extract(c.body,'$.nextCheckAt')<=?) ORDER BY COALESCE(c.updated_at,0),p.id LIMIT 3").all(Date.now(),Date.now())as{user_id:string}[];
+    for(const row of policies){
+      assertTick();const user=this.storedUser(row.user_id);if(!user)continue;
+      const now=Date.now();this.store.put("compute-funding-check",{id:`compute-funding-check:${user.id}`,userId:user.id,nextCheckAt:now+60_000,createdAt:now,updatedAt:now});
+      if(processedUsers.has(user.id)||this.agent(user).paused||!getBudget(this.store,user.id).autoReplenish)continue;
+      try{
+        const prepared=await this.prepareFunding(user,`worker:${Math.floor(now/60_000)}`);
+        assertTick();
+        if(prepared.status==="prepared"){const intent=await this.submitFunding(user,prepared.intent.id);results.push({kind:"compute-funding",intentId:intent.id,status:intent.status});}
+        else results.push({kind:"compute-funding",status:"no-action",reason:prepared.reason});
+      }catch(error){results.push({kind:"compute-funding",userId:user.id,status:"blocked",error:errorMessage(error)});}
+    }
+    return results;
   }
   async permission(user:User,input:{accountId:string;action:string;permissionId?:string;expiresAt?:number;maxTradeUsd?:string;allowedSymbols?:string[];allowedActions?:TradeRequest["type"][];authorization?:unknown}){
     this.expirePermissions(user);
@@ -390,7 +467,7 @@ export class Platform {
         const content={version:2,agent:{preferences:this.agent(user).preferences},messages:this.store.list<StoredMessage>(user.id,"message",16).map(({role,content,createdAt})=>({role,content:content.slice(0,4000),createdAt})),longTerm,capturedAt:Date.now()};
         while(Buffer.byteLength(JSON.stringify(content))>750_000&&content.longTerm.notes.length)content.longTerm.notes.pop();
         if(Buffer.byteLength(JSON.stringify(content))>750_000)throw new ApiError("MEMORY_TOO_LARGE","Compact the active checkpoint before backing up this memory.",413);
-        const result=await callEngine<Document>("uploadMemory",content,key,readSigner(this.store,user.id,"operating"));
+        const result=await this.withAccountLease(`operating:${user.id}`,async assertLease=>{assertLease();return callEngine<Document>("uploadMemory",content,key,readSigner(this.store,user.id,"operating"));});
         const rootHash=result.rootHash??result.root;
         if(typeof rootHash!=="string")throw new ApiError("STORAGE_UNCONFIRMED","Storage did not confirm an uploaded root. No backup was marked successful.",502);
         return this.store.put("memory",{id:id(),userId:user.id,rootHash,status:"confirmed",evidence:result,noteCount:longTerm.notes.length,messageCount:content.messages.length,createdAt:Date.now(),updatedAt:Date.now()});
@@ -415,6 +492,7 @@ export class Platform {
     const assertTick=()=>{if(!this.store.renewLease(tickScope,tickHolder,leaseMs))throw new ApiError("WORKER_LEASE_LOST","Another worker now owns reconciliation. This tick cannot authorize new actions.",409);};
     const tickTimer=setInterval(()=>{this.store.renewLease(tickScope,tickHolder,leaseMs);},30_000);tickTimer.unref();
     try{
+    results.push(...await this.tickComputeFunding(assertTick));
     for(const interrupted of this.store.interruptedAutomations<StoredAutomation>(10)){
       assertTick();
       const reason="The previous worker stopped during evaluation. Review the job and reconcile any submitted action before resuming; no trade was retried.";
