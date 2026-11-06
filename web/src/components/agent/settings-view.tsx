@@ -684,7 +684,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
       <div className="page-heading settings-content-heading">
         <div>
           <span className="eyebrow">OWNERSHIP BEFORE AUTOMATION</span>
-          <h2>{{ accounts: "Trading accounts", budget: "Operating budget", agent: "Agent preferences & memory", services: "Service status" }[section]}</h2>
+          <h2>{{ accounts: "Accounts & permissions", budget: "Operating budget", agent: "Agent preferences & memory", services: "Service status" }[section]}</h2>
           <p>
             {{ accounts: "Trade yourself or grant limited access to the same accounts. Your owner private key is never shared.", budget: "Trading capital, application expense limits, service credits and native 0G are separate balances.", agent: "Control how your agent works and what it remembers. Preferences never grant trading authority.", services: "Inspect configuration and availability before relying on an integration." }[section]}
           </p>
@@ -712,13 +712,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
       ) : w.session.user ? (
         <>
           {section === "accounts" && <>
-          <div className="settings-section-heading">
-            <div>
-              <h2>Trading accounts</h2>
-              <p>
-                Trade manually first. Delegate only the authority you choose.
-              </p>
-            </div>
+          <div className="settings-section-heading settings-account-actions">
             <div className="account-add-buttons">
               {!w.session.accounts.some(
                 (account) => account.venue === "hyperliquid",

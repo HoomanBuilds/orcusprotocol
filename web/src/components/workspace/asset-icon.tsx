@@ -18,5 +18,5 @@ export function AssetIcon({ symbol, size = 32 }: { symbol: string; size?: number
 }
 
 export function ProtocolIcon({ name, size = 28 }: { name: Venue | "0g" | "chainlink"; size?: number }) {
-  return <span className={`workspace-protocol-icon ${name}`} style={{ width: size, height: size }}><img src={`/landing/brands/${name}.svg`} alt="" width={size} height={size} decoding="async"/></span>;
+  return <span className={`workspace-protocol-icon ${name}`} style={{ width: size, height: size }}><img src={name === "ostium" ? "/workspace/ostium.png" : `/landing/brands/${name}.svg`} alt="" width={size} height={size} decoding="async"/></span>;
 }

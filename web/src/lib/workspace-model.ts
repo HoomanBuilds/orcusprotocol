@@ -1,5 +1,6 @@
-import type { ActionRecord, AgentRequest, OperatingBudget, Portfolio, TradingAccount } from "@orcus/core";
+import type { ActionRecord, AgentRequest, Market, OperatingBudget, Portfolio, TradingAccount, Venue } from "@orcus/core";
 import type { ServicePaymentQuote } from "@orcus/wallets/service-payment";
+import { venueNetwork } from "./venue-presentation";
 
 export type AgentRequestSummary = AgentRequest;
 
@@ -23,6 +24,12 @@ export interface TradingDeposit {
 
 export const pendingActionStatuses = new Set(["prepared", "awaiting-approval", "submitting", "submitted-unknown", "pending", "partially-filled"]);
 
+export function venueSymbol(venue: Venue, markets: Market[], current: string, saved?: string, now = Date.now()) {
+  if (saved) return saved;
+  const fresh = markets.find(market => market.tradable === true && Boolean(market.midPrice) && market.observedAt > 0 && now - market.observedAt < 30_000 && market.observedAt <= now + 5000);
+  return (venue === "ostium" ? fresh?.symbol : markets.find(market => market.symbol === current)?.symbol) ?? markets[0]?.symbol ?? current;
+}
+
 export function actionReviewIssue(action: ActionRecord, userId: string | undefined, accounts: TradingAccount[], now = Date.now()): string | null {
   if (!userId || action.userId !== userId) return "Sign in as this action's owner before reviewing it.";
   if (!["prepared", "awaiting-approval"].includes(action.status)) return "This action was already submitted or closed. Check its existing record instead of submitting it again.";
@@ -38,7 +45,7 @@ export function portfolioSummary(portfolio: Portfolio, connected: boolean, unava
   const parsed = (value?: string) => value !== undefined && /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value) ? Number(value) : NaN;
   const finiteSum = (values: number[]) => { const sum = values.reduce((total, value) => total + value, 0); return complete && values.every(Number.isFinite) && Number.isFinite(sum) ? sum : undefined; };
   const pnl = finiteSum(portfolio.positions.map(position => parsed(position.unrealizedPnl)));
-  const exposure = finiteSum(portfolio.positions.map(position => Math.abs(parsed(position.size) * parsed(position.markPrice))));
+  const exposure = finiteSum(portfolio.positions.map(position => Math.abs(position.notionalUsd === undefined ? parsed(position.size) * parsed(position.markPrice) : parsed(position.notionalUsd))));
   const equity = complete && Number.isFinite(parsed(portfolio.totalEquityUsd)) ? portfolio.totalEquityUsd : undefined;
   return { observed, complete, pnl, exposure, equity };
 }
@@ -67,7 +74,7 @@ export interface ActivityEntry {
 }
 
 export function activityEntries(input: { actions: ActionRecord[]; requests: AgentRequestSummary[]; budget: OperatingBudget | null; payments: PaymentSnapshot | null; funding: FundingSnapshot | null; deposits?: TradingDeposit[] }): ActivityEntry[] {
-  const actions = input.actions.map(action => ({ id: `action:${action.id}`, kind: "trade" as const, title: `${action.request.side === "buy" ? "Buy" : "Sell"} ${action.request.symbol}`, description: `${action.request.type} / ${action.request.venue === "uniswap" ? "Uniswap Sepolia" : "Hyperliquid testnet"}`, status: action.status, initiator: action.initiator, createdAt: action.createdAt, pending: pendingActionStatuses.has(action.status), action }));
+  const actions = input.actions.map(action => ({ id: `action:${action.id}`, kind: "trade" as const, title: `${action.request.side === "buy" ? "Buy" : "Sell"} ${action.request.symbol}`, description: `${action.request.type} / ${venueNetwork(action.request.venue)}`, status: action.status, initiator: action.initiator, createdAt: action.createdAt, pending: pendingActionStatuses.has(action.status), action }));
   const requests = input.requests.map(request => ({ id: `request:${request.id}`, kind: "agent" as const, title: "Agent instruction", description: request.message, status: request.status, initiator: "owner", createdAt: request.createdAt, pending: request.status === "queued" || request.status === "running", request }));
   const payments = (input.payments?.intents ?? []).map(payment => ({ id: `payment:${payment.id}`, kind: "funding" as const, title: "Testnet service payment", description: "Sepolia USDC / test-only service credits", status: payment.status, initiator: "owner", createdAt: payment.createdAt, pending: ["prepared", "awaiting-wallet", "submitted"].includes(payment.status), payment }));
   const funding = (input.funding?.intents ?? []).map(item => ({ id: `funding:${item.id}`, kind: "funding" as const, title: "Native compute deposit", description: "Galileo 0G / separate from trading capital", status: item.status === "confirmed" && !item.creditObservedAt ? "awaiting-provider-sync" : item.status, initiator: "agent", createdAt: item.createdAt, pending: ["prepared", "submitting", "submitted-unknown"].includes(item.status) || (item.status === "confirmed" && !item.creditObservedAt), funding: item }));

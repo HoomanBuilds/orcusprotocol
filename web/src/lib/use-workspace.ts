@@ -20,7 +20,7 @@ import type {
 import { api, ApiError, displayError, post } from "./api";
 import { tradingGasStatus, type WalletExecutionConfig } from "./trade-ux";
 import { readDepositRecovery } from "./deposit-recovery";
-import { actionReviewIssue, type AgentRequestSummary, type FundingSnapshot, type PaymentSnapshot, type TradingDeposit } from "./workspace-model";
+import { actionReviewIssue, venueSymbol, type AgentRequestSummary, type FundingSnapshot, type PaymentSnapshot, type TradingDeposit } from "./workspace-model";
 import { createLogoutQueue } from "./session-state";
 import {
   connectWallet,
@@ -60,6 +60,7 @@ const emptyPortfolio: Portfolio = {
 
 function useWorkspaceState() {
   const [session, setSession] = useState<Session>(emptySession);
+  const selectedSymbols = useRef<Partial<Record<Venue, string>>>({});
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [portfolio, setPortfolio] = useState<Portfolio>(emptyPortfolio);
   const [actions, setActions] = useState<ActionRecord[]>([]);
@@ -75,6 +76,7 @@ function useWorkspaceState() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [venue, setVenue] = useState<Venue>("hyperliquid");
   const [symbol, setSymbol] = useState("BTC");
+  const selectSymbol = useCallback((value: string) => { selectedSymbols.current[venue] = value; setSymbol(value); }, [venue]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -213,12 +215,11 @@ function useWorkspaceState() {
         const next = results[1].value.markets ?? [];
         setMarkets(next);
         setMarketError(null);
-        setSymbol((current) =>
-          next.some((market) => market.symbol === current)
-            ? current
-            : (next[0]?.symbol ??
-              (venue === "hyperliquid" ? "BTC" : "WETH/USDC")),
-        );
+        setSymbol(current => {
+          const choice = venueSymbol(venue, next, current, selectedSymbols.current[venue]);
+          if (next.length) selectedSymbols.current[venue] = choice;
+          return choice;
+        });
       } else {
         setMarkets([]);
         setMarketError(displayError(results[1].reason));
@@ -409,7 +410,7 @@ function useWorkspaceState() {
     venue,
     setVenue,
     symbol,
-    setSymbol,
+    setSymbol: selectSymbol,
     activeMarket,
     account,
     loading,

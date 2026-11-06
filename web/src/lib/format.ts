@@ -7,8 +7,11 @@ export function number(value: string | number | undefined | null, digits = 2): s
 }
 
 export function usd(value: string | number | undefined | null): string {
-  if (value !== undefined && value !== null && value !== "" && Number(value) > 0 && Number(value) < 0.01) return "<$0.01";
-  return value === undefined || value === null || value === "" ? "--" : `$${number(value)}`;
+  if (value === undefined || value === null || typeof value === "string" && !value.trim()) return "--";
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "--";
+  if (parsed !== 0 && Math.abs(parsed) < 0.01) return `${parsed < 0 ? "-" : ""}<$0.01`;
+  return `${parsed < 0 ? "-" : ""}$${number(Math.abs(parsed))}`;
 }
 
 export function shortAddress(value: string): string {
@@ -40,4 +43,10 @@ export function assetAmount(value: string | undefined, symbol: string): string {
   if (parsed === 0) return `0 ${symbol}`;
   if (Math.abs(parsed) < 0.0001) return `${parsed < 0 ? ">-" : "<"}0.0001 ${symbol}`;
   return `${parsed.toLocaleString("en-US", { maximumFractionDigits: Math.abs(parsed) < 1 ? 6 : Math.abs(parsed) < 1000 ? 4 : 2 })} ${symbol}`;
+}
+
+export function quotePrice(value: string | number | undefined, quoteAsset = "USDC"): string {
+  if (value === undefined || value === "" || !Number.isFinite(Number(value))) return "Unavailable";
+  const amount = Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
+  return quoteAsset === "USD" || quoteAsset === "USDC" ? `$${amount}` : `${amount} ${quoteAsset}`;
 }

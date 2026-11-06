@@ -8,6 +8,7 @@ export interface WalletExecutionConfig {
 }
 
 export function tradingGasStatus(config: WalletExecutionConfig | null, venue: Venue) {
+  if (venue === "ostium") return { ready: true, label: "Arbitrum Sepolia gas paid by signer", detail: "Owner actions use the owner's Arbitrum Sepolia ETH. Authorized agent actions use that account's agent signer ETH. USDC collateral and oracle fees are separate; the Uniswap gas sponsor does not apply." };
   if (venue === "hyperliquid") return { ready: true, label: "Venue trading fees apply", detail: "Hyperliquid testnet orders are signed for your existing venue account. Ethereum gas sponsorship does not apply." };
   const ready = config?.chainId === 11155111 && config.smartAccountsConfigured && config.gasSponsorship?.required === true && config.gasSponsorship.configured === true && config.gasSponsorship.status === "configured";
   return ready
