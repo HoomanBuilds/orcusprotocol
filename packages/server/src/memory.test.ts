@@ -64,14 +64,27 @@ describe("durable personal agent memory",()=>{
       run=new AgentRun(store,user.id,"run","Remember I prefer ETH");run.start();
       const context=run.context();
       await context.modelBudget.beforeCall({callId:"run:model:0",maxTokens:1000});
-      await context.modelBudget.afterCall({callId:"run:model:0",outcome:"completed",requestId:"actual-provider-request"});
+      await context.modelBudget.afterCall({callId:"run:model:0",outcome:"completed",requestId:"actual-provider-request",billing:{currency:"usd",input_cost:"1",output_cost:"1",total_cost:"2",total_cost_usd_micro:"2"}});
       await context.modelBudget.beforeCall({callId:"run:model:1",maxTokens:1000});
       await context.onProgress({stage:"tool",tool:"read_portfolio",message:"This private text must not be stored"});
-      expect(getBudget(store,user.id).reservedUsd).toBe("0.020000");
+      expect(getBudget(store,user.id).reservedUsd).toBe("0.010000");
       await expect(context.modelBudget.beforeCall({callId:"run:model:0",maxTokens:1000})).rejects.toThrow("duplicate");
       expect(JSON.stringify(readAgentRunStatus(store,user.id,"run"))).not.toContain("private text");
       await context.memoryStore.remember({content:"Prefer ETH",kind:"preference"});
       expect(context.threadId).toBe(`agent:${user.id}`);
+    }finally{run?.close();store.db.close();}
+  });
+  it.each([undefined,{currency:"usd",input_cost:"10000",output_cost:"10000",total_cost:"20000",total_cost_usd_micro:"20000"}])("stops further inference when billing is missing or exceeds the reservation",async billing=>{
+    const store=new Store(":memory:");let run:AgentRun|undefined;
+    try{
+      const user=store.ensureUser("0x1111111111111111111111111111111111111111");setBudget(store,user.id,"1","0.1",false);
+      run=new AgentRun(store,user.id,"uncertain","Read market context");run.start();const context=run.context();
+      await context.modelBudget.beforeCall({callId:"uncertain:model:0",maxTokens:100});
+      await expect(context.modelBudget.afterCall({callId:"uncertain:model:0",outcome:"completed",requestId:"fixture-provider-request",billing})).rejects.toMatchObject({code:"INFERENCE_OUTCOME_UNKNOWN"});
+      await expect(context.modelBudget.beforeCall({callId:"uncertain:model:1",maxTokens:100})).rejects.toMatchObject({code:"INFERENCE_OUTCOME_UNKNOWN"});
+      run.fail(new Error("stop"));
+      expect(getBudget(store,user.id)).toMatchObject({reservedUsd:"0.010000",spentUsd:"0.000000",expenses:[{status:"unknown"}]});
+      expect(run.modelCalls).toBe(1);
     }finally{run?.close();store.db.close();}
   });
 });

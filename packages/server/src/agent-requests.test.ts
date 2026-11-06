@@ -191,7 +191,7 @@ describe("durable owner-scoped agent requests", () => {
       throw new ApiError("INFERENCE_REJECTED", "private provider error", 502);
     });
     await platform.tickAgentRequests(() => {});
-    expect(platform.agentRequest(user, input.requestId).request).toMatchObject({ status: "interrupted", errorCode: "INFERENCE_REJECTED", modelCalls: 2 });
+    expect(platform.agentRequest(user, input.requestId).request).toMatchObject({ status: "interrupted", errorCode: "INFERENCE_OUTCOME_UNKNOWN", modelCalls: 2 });
     expect(getBudget(store, user.id)).toMatchObject({ spentUsd: "0.000002", reservedUsd: "0.010000" });
     await platform.tickAgentRequests(() => {});
     expect(engine.mock.calls.filter(([name]) => name === "planWith0G")).toHaveLength(1);

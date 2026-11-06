@@ -19,6 +19,7 @@ export class AgentRun{
   readonly reservation=process.env.ORCUS_COMPUTE_RESERVATION_USD??"0.01";
   modelCalls=0;
   private initialReservation=false;
+  private billingUncertain=false;
   private timer?:ReturnType<typeof setInterval>;
   constructor(readonly store:Store,readonly userId:string,readonly runId:string,readonly message:string,readonly onForget?:(memoryId:string)=>boolean){this.memory=new AgentMemoryStore(store,userId);this.scope=`agent-thread:${userId}`;}
   start(){
@@ -53,6 +54,7 @@ export class AgentRun{
       memoryStore:{search:async(query:string,limit?:number)=>this.memory.search(query,limit),remember:async(input:unknown)=>{if(!explicitRemember)throw new ApiError("MEMORY_CONSENT_REQUIRED","Save memory only when the user explicitly asks to remember a preference or note.",403);const value=memoryInputSchema.parse(input);return this.memory.remember(value,"user-request",this.runId);},forget:async(memoryId:string)=>{if(!explicitForget)throw new ApiError("MEMORY_CONSENT_REQUIRED","Forget memory only when the user explicitly requests it.",403);return this.onForget?this.onForget(memoryId):this.memory.forget(memoryId);}},
       onProgress:async(input:Progress)=>{this.progress(input);},
       modelBudget:{maxCostUsd:this.reservation,beforeCall:async(input:{callId:string;maxTokens:number})=>{
+        if(this.billingUncertain)throw new ApiError("INFERENCE_OUTCOME_UNKNOWN","The previous inference charge is unresolved. Reconcile it before any further model call.",409);
         this.assertLease();if(!Number.isSafeInteger(input.maxTokens)||input.maxTokens<=0||input.maxTokens>6000)throw new ApiError("MODEL_TOKEN_LIMIT","The inference token bound is invalid.",409);
         const reference=this.callReference(input.callId);
         if(reference===this.runId){if(!this.initialReservation)throw new ApiError("EVALUATION_PENDING","This first model call was already attempted. A duplicate billable call is blocked.",409);this.initialReservation=false;}
@@ -61,6 +63,11 @@ export class AgentRun{
       },afterCall:async(input:{callId:string;outcome:"completed"|"rejected"|"unknown";requestId?:string;usage?:unknown;billing?:unknown;billingOrigin?:string;billingApiKeyId?:string;model?:string})=>{
         const reference=this.callReference(input.callId);
         settleComputeReservation(this.store,this.userId,reference,input);
+        const expense=this.store.db.prepare("SELECT status FROM expenses WHERE user_id=? AND reference=?").get(this.userId,reference)as{status:string}|undefined;
+        if(!expense||!["settled","released"].includes(expense.status)){
+          this.billingUncertain=true;
+          throw new ApiError("INFERENCE_OUTCOME_UNKNOWN","The inference charge could not be verified within its reservation. The agent stopped without retrying or requesting another model call.",409);
+        }
       }},
     };
   }
