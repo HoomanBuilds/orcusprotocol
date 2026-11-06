@@ -53,6 +53,17 @@ describe("AWS systemd installer", () => {
     expect(result.stderr).toContain("absolute app directory");
   });
 
+  it("bounds the web process, its child workflows and the worker on shared hosts", () => {
+    const result = run("--dry-run", appDirectory, "orcus");
+    expect(result.status).toBe(0);
+    const [web, worker] = result.stdout.split("# orcus-worker.service");
+    expect(web).toContain("Environment=NODE_OPTIONS=--max-old-space-size=1536");
+    expect(web).toContain("MemoryHigh=2048M\nMemoryMax=2560M\nMemorySwapMax=128M\nCPUQuota=80%\nTasksMax=256");
+    expect(worker).toContain("Environment=NODE_OPTIONS=--max-old-space-size=256");
+    expect(worker).toContain("MemoryHigh=256M\nMemoryMax=512M\nMemorySwapMax=128M\nCPUQuota=20%\nTasksMax=128");
+    expect(result.stdout.match(/Restart=on-failure/g)).toHaveLength(2);
+  });
+
   it("rejects a missing directory and a directory without the app manifest", () => {
     expect(run("--dry-run", join(directory, "missing"), "orcus").status).not.toBe(0);
     const result = run("--dry-run", directory, "orcus");

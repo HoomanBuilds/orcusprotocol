@@ -8,11 +8,17 @@ Type=simple
 User=@SERVICE_USER@
 WorkingDirectory=@APP_DIR@
 Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=1536
 Environment=PATH=@SERVICE_HOME@/.bun/bin:@SERVICE_HOME@/.cre/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/env npm start -- --hostname 127.0.0.1 --port 3000
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
+MemoryHigh=2048M
+MemoryMax=2560M
+MemorySwapMax=128M
+CPUQuota=80%
+TasksMax=256
 UMask=0077
 
 [Install]
