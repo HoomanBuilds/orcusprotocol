@@ -76,9 +76,14 @@ async function browserKernelConfig(scope?: { actionId?: string; accountAddress?:
   const result = await response.json();
   if (!response.ok || !result.data?.rpcUrl) throw new Error(result.error?.message ?? "The testnet wallet configuration is unavailable.");
   const gas = result.data.gasSponsorship;
-  const paymasterUrl = new URL(gas?.paymasterUrl ?? "/api/paymaster", window.location.origin);
+  const proxy = (value: string) => {
+    const url = new URL(value, window.location.origin);
+    if (url.origin !== window.location.origin || url.username || url.password) throw new WalletActionError("SPONSORSHIP_UNCONFIGURED", "Wallet execution requires the authenticated platform proxies. Nothing was submitted.");
+    return url;
+  };
+  const paymasterUrl = proxy(gas?.paymasterUrl ?? "/api/paymaster");
   for (const [key, value] of Object.entries(scope ?? {})) if (value) paymasterUrl.searchParams.set(key, value);
-  return { rpcUrl: new URL(result.data.rpcUrl, window.location.origin).href, bundlerUrl: new URL(result.data.bundlerUrl ?? "/api/bundler", window.location.origin).href, sponsorship: scope && gas?.configured ? browserGasSponsorship(paymasterUrl.href, gas.maxOperationGasWei) : undefined };
+  return { rpcUrl: proxy(result.data.rpcUrl).href, bundlerUrl: proxy(result.data.bundlerUrl ?? "/api/bundler").href, sponsorship: scope && gas?.configured ? browserGasSponsorship(paymasterUrl.href, gas.maxOperationGasWei) : undefined };
 }
 
 export async function createTradingSmartAccount() {

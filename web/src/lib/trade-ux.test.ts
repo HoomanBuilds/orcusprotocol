@@ -14,6 +14,13 @@ describe("honest trading gas readiness", () => {
     expect(tradingGasStatus(configured, "uniswap").detail).toMatch(/no owner-paid gas fallback/);
     expect(tradingGasStatus(null, "hyperliquid")).toMatchObject({ ready: true, label: "Venue trading fees apply" });
   });
+  it("identifies the selected sponsor without claiming configuration proves a paid operation", () => {
+    expect(tradingGasStatus({ ...configured, gasSponsorship: { ...configured.gasSponsorship!, provider: "operator" } }, "uniswap").detail).toMatch(/platform-funded sponsor/);
+    const secondary = tradingGasStatus({ ...configured, gasSponsorship: { ...configured.gasSponsorship!, provider: "zerodev" } }, "uniswap");
+    expect(secondary.detail).toMatch(/explicitly selected hosted sponsor/);
+    expect(secondary.label).toMatch(/after sponsor approval/);
+    expect(secondary.detail).toMatch(/do not need a gas-provider account/);
+  });
 });
 
 describe("funding transfer recovery", () => {

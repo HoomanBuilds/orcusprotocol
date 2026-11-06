@@ -6,14 +6,13 @@ import { getAddress, http, isHex, verifyTypedData, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { formatUserOperationRequest, getUserOperationHash } from "viem/account-abstraction";
-import { createOwnerKernel, createPermissionPlugin, entryPoint, kernelVersion, kernelPublicClient, kernelGrantPolicySchema, type KernelAuthorization, type KernelConfig } from "./kernel";
+import { createOwnerKernel, createPermissionPlugin, entryPoint, kernelVersion, kernelPublicClient, kernelGrantPolicySchema, resolveKernelBundlerUrl, type KernelAuthorization, type KernelConfig } from "./kernel";
 import { assertKernelPolicyCompatible, WalletActionError } from "./preflight";
 import { broadcastPreparedOperation } from "./execution";
 import { assertSponsoredOperation, requiredKernelPaymaster, type KernelGasSponsorship } from "./gas";
 
 function config(): KernelConfig {
-  if (!process.env.ZERODEV_RPC_URL) throw new Error("Set ZERODEV_RPC_URL for the Sepolia bundler.");
-  return { rpcUrl: process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com", bundlerUrl: process.env.ZERODEV_RPC_URL };
+  return { rpcUrl: process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com", bundlerUrl: resolveKernelBundlerUrl(process.env) };
 }
 
 const canonical = (value: unknown) => JSON.stringify(value, (_, item) => typeof item === "bigint" ? item.toString() : item);

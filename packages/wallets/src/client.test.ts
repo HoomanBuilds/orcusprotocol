@@ -84,6 +84,12 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("owner account binding", () => {
+  it.each(["rpcUrl", "bundlerUrl", "paymasterUrl"])("refuses external %s metadata instead of exposing wallet traffic", async field => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ data: { rpcUrl: field === "rpcUrl" ? "https://external.example/rpc" : "/api/rpc", bundlerUrl: field === "bundlerUrl" ? "https://external.example/bundler" : "/api/bundler", gasSponsorship: { paymasterUrl: field === "paymasterUrl" ? "https://external.example/paymaster" : "/api/paymaster" } } }) })));
+    await expect(createTradingSmartAccount()).rejects.toMatchObject({ code: "SPONSORSHIP_UNCONFIGURED", phase: "not-submitted" });
+    expect(mocks.sign).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
   it("rechecks the owner when switching networks changes the selected wallet", async () => {
     mocks.chainId = 1;
     mocks.switchAccount = true;

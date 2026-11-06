@@ -4,14 +4,14 @@ import { parseUnits } from "viem";
 export interface WalletExecutionConfig {
   chainId: number;
   smartAccountsConfigured: boolean;
-  gasSponsorship?: { required: boolean; configured: boolean; status: "configured" | "unconfigured"; maxOperationGasWei?: string; dailyUserGasWei?: string };
+  gasSponsorship?: { required: boolean; configured: boolean; status: "configured" | "unconfigured"; provider?: "operator" | "zerodev"; maxOperationGasWei?: string; dailyUserGasWei?: string };
 }
 
 export function tradingGasStatus(config: WalletExecutionConfig | null, venue: Venue) {
   if (venue === "hyperliquid") return { ready: true, label: "Venue trading fees apply", detail: "Hyperliquid testnet orders are signed for your existing venue account. Ethereum gas sponsorship does not apply." };
   const ready = config?.chainId === 11155111 && config.smartAccountsConfigured && config.gasSponsorship?.required === true && config.gasSponsorship.configured === true && config.gasSponsorship.status === "configured";
   return ready
-    ? { ready: true, label: "Trading gas covered after sponsor approval", detail: "The platform checks sponsorship before signing. A declined request stops; there is no owner-paid gas fallback." }
+    ? { ready: true, label: "Trading gas covered after sponsor approval", detail: `${config.gasSponsorship?.provider === "zerodev" ? "The explicitly selected hosted sponsor" : "The platform-funded sponsor"} checks gas approval before signing. A declined request stops; there is no owner-paid gas fallback. Users do not need a gas-provider account.` }
     : { ready: false, label: "Gas sponsorship unavailable", detail: "Sepolia smart-account execution is disabled until the platform bundler and gas sponsor are ready. Viewing a balance does not prove execution readiness." };
 }
 

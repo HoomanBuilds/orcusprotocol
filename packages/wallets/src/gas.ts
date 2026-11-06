@@ -1,7 +1,6 @@
-import { createZeroDevPaymasterClient } from "@zerodev/sdk";
-import { getAddress, http, zeroAddress, type Hex } from "viem";
+import { createClient, getAddress, http, rpcSchema, zeroAddress, type Address, type Hex } from "viem";
 import { sepolia } from "viem/chains";
-import type { PaymasterActions } from "viem/account-abstraction";
+import { formatUserOperationRequest, type PaymasterActions } from "viem/account-abstraction";
 import { WalletActionError } from "./preflight";
 
 export type KernelGasSponsorship = { getPaymasterData: PaymasterActions["getPaymasterData"]; getPaymasterStubData?: PaymasterActions["getPaymasterData"]; maxOperationGasWei: string; onSignedOperation?: (operation: Record<string, unknown>, hash: Hex) => void | Promise<void>; onReceipt?: (receipt: unknown) => void | Promise<void> };
@@ -32,6 +31,18 @@ export function requiredKernelPaymaster(sponsorship?: KernelGasSponsorship) {
 }
 
 export function browserGasSponsorship(url: string, maxOperationGasWei: string): KernelGasSponsorship {
-  const client = createZeroDevPaymasterClient({ chain: sepolia, transport: http(url, { retryCount: 0, timeout: 30_000 }) });
-  return { maxOperationGasWei, getPaymasterData: input => client.sponsorUserOperation({ userOperation: input, shouldOverrideFee: false, shouldConsume: true }), getPaymasterStubData: input => client.sponsorUserOperation({ userOperation: input, shouldOverrideFee: false, shouldConsume: false }) };
+  const endpoint = new URL(url, window.location.origin);
+  if (endpoint.origin !== window.location.origin || endpoint.username || endpoint.password) throw new WalletActionError("SPONSORSHIP_UNCONFIGURED", "Gas sponsorship requires the authenticated platform proxy. Nothing was submitted.");
+  const client = createClient({ transport: http(endpoint.href, { retryCount: 0, timeout: 30_000, fetchOptions: { credentials: "same-origin", redirect: "error" } }), rpcSchema: rpcSchema<[{ Method: "orcus_sponsorUserOperation"; Parameters: [{ chainId: number; entryPointAddress: Address; userOp: ReturnType<typeof formatUserOperationRequest>; shouldOverrideFee: false; shouldConsume: boolean }]; ReturnType: Record<string, Hex> }]>() });
+  const sponsor = (shouldConsume: boolean): PaymasterActions["getPaymasterData"] => async input => {
+    const response = await client.request({ method: "orcus_sponsorUserOperation", params: [{ chainId: sepolia.id, entryPointAddress: input.entryPointAddress, userOp: formatUserOperationRequest(input), shouldOverrideFee: false, shouldConsume }] });
+    return {
+      paymaster: response.paymaster as Address, paymasterData: response.paymasterData,
+      callGasLimit: BigInt(response.callGasLimit), verificationGasLimit: BigInt(response.verificationGasLimit), preVerificationGas: BigInt(response.preVerificationGas),
+      paymasterVerificationGasLimit: BigInt(response.paymasterVerificationGasLimit), paymasterPostOpGasLimit: BigInt(response.paymasterPostOpGasLimit),
+      maxFeePerGas: response.maxFeePerGas ? BigInt(response.maxFeePerGas) : input.maxFeePerGas,
+      maxPriorityFeePerGas: response.maxPriorityFeePerGas ? BigInt(response.maxPriorityFeePerGas) : input.maxPriorityFeePerGas,
+    };
+  };
+  return { maxOperationGasWei, getPaymasterData: sponsor(true), getPaymasterStubData: sponsor(false) };
 }

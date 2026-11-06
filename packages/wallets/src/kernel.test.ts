@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { encodeFunctionData, parseAbi, slice, type Hex } from "viem";
-import { buildKernelPolicies, kernelGrantPolicySchema, type KernelGrantPolicy } from "./kernel";
+import { buildKernelPolicies, kernelGrantPolicySchema, resolveKernelBundlerUrl, type KernelGrantPolicy } from "./kernel";
 
 const policy: KernelGrantPolicy = {
   accountAddress: "0x1111111111111111111111111111111111111111",
@@ -10,6 +10,18 @@ const policy: KernelGrantPolicy = {
   issuedAt: 1_800_000_000_000, expiresAt: 1_800_003_600_000, maxGasWei: "3000000000000000",
 };
 const abi = parseAbi(["function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96) params) returns (uint256)", "function multicall(uint256 deadline,bytes[] data) returns (bytes[])"]);
+
+describe("explicit bundler provider selection", () => {
+  it("defaults to the generic operator bundler and never silently selects ZeroDev", () => {
+    expect(resolveKernelBundlerUrl({ BUNDLER_RPC_URL: "http://localhost:4337", ZERODEV_RPC_URL: "https://rpc.zerodev.app/secondary" })).toBe("http://localhost:4337");
+    expect(() => resolveKernelBundlerUrl({ ZERODEV_RPC_URL: "https://rpc.zerodev.app/secondary" })).toThrow("BUNDLER_RPC_URL");
+  });
+  it("selects the hosted secondary only by explicit configuration", () => {
+    expect(resolveKernelBundlerUrl({ ORCUS_GAS_SPONSOR_PROVIDER: "zerodev", BUNDLER_RPC_URL: "http://localhost:4337", ZERODEV_RPC_URL: "https://rpc.zerodev.app/secondary" })).toBe("https://rpc.zerodev.app/secondary");
+    expect(() => resolveKernelBundlerUrl({ ORCUS_GAS_SPONSOR_PROVIDER: "zerodev", BUNDLER_RPC_URL: "http://localhost:4337" })).toThrow("ZERODEV_RPC_URL");
+    expect(() => resolveKernelBundlerUrl({ ORCUS_GAS_SPONSOR_PROVIDER: "unknown", BUNDLER_RPC_URL: "http://localhost:4337" })).toThrow("Select operator or zerodev");
+  });
+});
 
 describe("bounded Kernel swap policy", () => {
   it("matches exact ABI fields inside a single-call deadline multicall", () => {

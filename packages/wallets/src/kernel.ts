@@ -26,6 +26,14 @@ export type KernelGrantPolicy = z.infer<typeof kernelGrantPolicySchema>;
 export interface KernelAuthorization { approval: string; policy: KernelGrantPolicy }
 export interface KernelConfig { rpcUrl: string; bundlerUrl: string; sponsorship?: KernelGasSponsorship }
 
+export function resolveKernelBundlerUrl(environment: { ORCUS_GAS_SPONSOR_PROVIDER?: string; BUNDLER_RPC_URL?: string; ZERODEV_RPC_URL?: string }): string {
+  const provider = environment.ORCUS_GAS_SPONSOR_PROVIDER ?? "operator";
+  if (provider !== "operator" && provider !== "zerodev") throw new Error("Select operator or zerodev explicitly for gas sponsorship.");
+  const url = provider === "operator" ? environment.BUNDLER_RPC_URL : environment.ZERODEV_RPC_URL;
+  if (!url) throw new Error(provider === "operator" ? "Set BUNDLER_RPC_URL for the Sepolia bundler." : "Set ZERODEV_RPC_URL for the explicitly selected secondary provider.");
+  return url;
+}
+
 export const entryPoint = getEntryPoint("0.7");
 export const kernelVersion = KERNEL_V3_1;
 export const swapSelector = toFunctionSelector("exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))");
