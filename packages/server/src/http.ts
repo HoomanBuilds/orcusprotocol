@@ -146,14 +146,14 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
       const input = z.object({ message: z.string().min(1).max(10_000), accountId: z.string().max(100).optional(), autonomous: z.boolean().optional(), requestId: z.string().min(1).max(100).optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.chat(user, input) });
     }
-    if (path === "actions/prepare" && method === "POST") return json({ data: await platform.prepare(user, await readBody(request), request.headers.get("idempotency-key") ?? undefined,request.headers.get("x-orcus-initiator")==="agent"?"agent":"manual") });
+    if (path === "actions/prepare" && method === "POST") return json({ data: await platform.prepare(user, await readBody(request), request.headers.get("idempotency-key") ?? undefined,request.headers.get("x-orcus-initiator")==="agent"?"agent":"manual",{messageId:z.string().min(1).max(200).optional().parse(request.headers.get("x-orcus-message-id")??undefined)}) });
     if (path === "actions/submit" && method === "POST") {
       const input = z.object({ actionId: z.string().min(1).max(100), transactionHash: z.string().optional(), txHash: z.string().optional(), userOperationHash: z.string().optional(), orderId: z.string().max(100).optional(), response: z.unknown().optional(), result: z.unknown().optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.submit(user, input) });
     }
     if (path === "permissions" && method === "GET") return json({ data: { permissions: platform.agentState(user).permissions } });
     if (path === "permissions" && method === "POST") {
-      const input = z.object({ accountId: z.string().min(1).max(100), action: z.enum(["prepare", "activate", "revoke", "rotate"]), expiresAt: z.number().int().optional(), maxTradeUsd: decimal.optional(), allowedSymbols: z.array(z.string().max(50)).max(30).optional(), allowedActions: z.array(actionTypes).max(10).optional(), authorization: z.unknown().optional() }).strict().parse(await readBody(request));
+      const input = z.object({ accountId: z.string().min(1).max(100), action: z.enum(["prepare", "activate", "revoke", "rotate"]), permissionId:z.string().min(1).max(100).optional(),expiresAt: z.number().int().optional(), maxTradeUsd: decimal.optional(), allowedSymbols: z.array(z.string().max(50)).max(30).optional(), allowedActions: z.array(actionTypes).max(10).optional(), authorization: z.unknown().optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.permission(user, input) });
     }
     if (path === "automations" && method === "GET") return json({ data: platform.automations(user) });

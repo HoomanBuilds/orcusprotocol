@@ -27,8 +27,15 @@ export class Platform {
   }
   accounts(user:User){return this.store.list<StoredAccount>(user.id,"account");}
   account(user:User,accountId:string){const account=this.store.get<StoredAccount>(user.id,"account",accountId);if(!account)throw new ApiError("ACCOUNT_NOT_FOUND","Connect this trading account first.",404);return account;}
-  session(user:User){return {user,agent:this.agent(user),accounts:this.accounts(user)};}
-  agentState(user:User){return {agent:this.agent(user),messages:this.store.list<StoredMessage>(user.id,"message").reverse(),permissions:this.store.list<StoredPermission>(user.id,"permission").map(({authorization,...permission})=>permission)};}
+  expirePermissions(user:User){
+    this.store.db.transaction(()=>{
+      const permissions=this.store.list<StoredPermission>(user.id,"permission"),expired=new Set<string>();
+      for(const permission of permissions)if(["pending","active"].includes(permission.status)&&permission.expiresAt<=Date.now()){this.store.update<StoredPermission>(user.id,"permission",permission.id,{status:"expired"});expired.add(permission.accountId);}
+      for(const accountId of expired){const account=this.account(user,accountId);if(account.status==="authorized"&&!permissions.some(permission=>permission.accountId===accountId&&permission.status==="active"&&permission.expiresAt>Date.now()))this.store.update<StoredAccount>(user.id,"account",accountId,{status:"connected"});}
+    }).immediate();
+  }
+  session(user:User){this.expirePermissions(user);return {user,agent:this.agent(user),accounts:this.accounts(user)};}
+  agentState(user:User){this.expirePermissions(user);return {agent:this.agent(user),messages:this.store.list<StoredMessage>(user.id,"message").reverse(),permissions:this.store.list<StoredPermission>(user.id,"permission").map(({authorization,...permission})=>permission)};}
   createAccount(user:User,input:unknown){
     const data=accountSchema.parse(input),address=getAddress(data.smartAccountAddress??data.address??user.address),chainId=data.chainId??(data.venue==="uniswap"?11155111:421614);
     if(chainId!==(data.venue==="uniswap"?11155111:421614))throw new ApiError("UNSUPPORTED_NETWORK","Only configured Sepolia and Hyperliquid testnet accounts are supported.");
@@ -77,7 +84,8 @@ export class Platform {
   async setBudget(user:User,input:{limitUsd?:string;capUsd?:string;lowBalanceUsd?:string;autoReplenish?:boolean}){
     const previous=getBudget(this.store,user.id);setBudget(this.store,user.id,input.limitUsd??input.capUsd??previous.limitUsd,input.lowBalanceUsd??previous.lowBalanceUsd,input.autoReplenish??previous.autoReplenish);return this.budget(user);
   }
-  async permission(user:User,input:{accountId:string;action:string;expiresAt?:number;maxTradeUsd?:string;allowedSymbols?:string[];allowedActions?:TradeRequest["type"][];authorization?:unknown}){
+  async permission(user:User,input:{accountId:string;action:string;permissionId?:string;expiresAt?:number;maxTradeUsd?:string;allowedSymbols?:string[];allowedActions?:TradeRequest["type"][];authorization?:unknown}){
+    this.expirePermissions(user);
     let account=this.account(user,input.accountId);
     if(input.action==="revoke"||input.action==="rotate"){
       for(const permission of this.store.list<StoredPermission>(user.id,"permission"))if(permission.accountId===account.id&&permission.status!=="revoked")this.store.update<StoredPermission>(user.id,"permission",permission.id,{status:"revoked"});
@@ -92,17 +100,20 @@ export class Platform {
       if(decimalProductMicros(maxTradeUsd,"1")<=0n)throw new ApiError("INVALID_TRADE_CAP","Set a positive trade cap.");
       const policy=account.venue==="uniswap"?await this.kernelPolicy(account,signer.address,maxTradeUsd,expiresAt):undefined;
       const permission=this.store.put("permission",{id:id(),userId:user.id,accountId:account.id,agentAddress:signer.address,allowedSymbols:input.allowedSymbols??[],allowedActions:input.allowedActions??(account.venue==="uniswap"?["swap"]:["market","limit","cancel","reduce","close","stop-loss","take-profit"]),maxTradeUsd,expiresAt,status:"pending",enforcement:account.venue==="hyperliquid"?"application":"account",controlRevision:account.controlRevision,policy,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredPermission);
+      for(const previous of this.store.list<StoredPermission>(user.id,"permission"))if(previous.accountId===account.id&&previous.id!==permission.id&&previous.status==="pending")this.store.update<StoredPermission>(user.id,"permission",previous.id,{status:"revoked",supersededBy:permission.id});
       return {permission,agentAddress:signer.address,agentName:"Orcus Agent",policy,authorization:account.venue==="hyperliquid"?{agentAddress:signer.address,agentName:"Orcus Agent",expiresAfter:expiresAt}:undefined};
     }
     if(input.action!=="activate")throw new ApiError("INVALID_PERMISSION_ACTION","Use prepare, activate, revoke or rotate.");
-    const permission=this.store.list<StoredPermission>(user.id,"permission").find(item=>item.accountId===account.id&&item.status==="pending");
+    const permissions=this.store.list<StoredPermission>(user.id,"permission"),permission=permissions.find(item=>item.accountId===account.id&&item.status==="pending"&&(!input.permissionId||item.id===input.permissionId));
+    if(!permission){const active=permissions.find(item=>item.accountId===account.id&&item.status==="active"&&item.expiresAt>Date.now()&&(!input.permissionId||item.id===input.permissionId));if(active&&account.status==="authorized"&&(account.venue==="hyperliquid"||canonicalJson(active.authorization)===canonicalJson(input.authorization)))return{permission:{...active,authorization:undefined},account};}
     if(!permission||permission.expiresAt<=Date.now())throw new ApiError("PERMISSION_EXPIRED","Prepare a new authorization first.");
     if(account.venue==="hyperliquid")await this.verifyHyperliquidApproval(account,permission.agentAddress);
     else await this.verifyKernelApproval(account,permission,input.authorization);
     if(this.account(user,account.id).controlRevision!==permission.controlRevision)throw new ApiError("CONTROL_CHANGED","Account control changed during authorization. Prepare a new grant.",409);
     const active=this.store.update<StoredPermission>(user.id,"permission",permission.id,{status:"active",authorization:input.authorization});
+    for(const previous of permissions)if(previous.accountId===account.id&&previous.id!==active.id&&previous.status==="active")this.store.update<StoredPermission>(user.id,"permission",previous.id,{status:"revoked",supersededBy:active.id});
     this.store.update<StoredAccount>(user.id,"account",account.id,{status:"authorized"});
-    return {permission:{...active,authorization:undefined},account:this.account(user,account.id)};
+    return {permission:{...active,authorization:undefined},account:this.account(user,account.id),message:"The new application grant supersedes earlier grants. Previously signed native authority must be revoked by the owner at the venue when no longer needed."};
   }
   async verifyHyperliquidApproval(account:StoredAccount,agentAddress:string){
     const response=await fetch("https://api.hyperliquid-testnet.xyz/info",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"extraAgents",user:account.ownerAddress}),signal:AbortSignal.timeout(12_000)});
@@ -164,24 +175,35 @@ export class Platform {
     if(account.venue==="hyperliquid")await this.verifyHyperliquidApproval(account,permission.agentAddress);
     return permission;
   }
-  async prepare(user:User,input:unknown,idempotencyKey?:string,initiator:"manual"|"agent"|"automation"="manual"){
+  async prepare(user:User,input:unknown,idempotencyKey?:string,initiator:"manual"|"agent"|"automation"="manual",context?:{messageId?:string;instruction?:string;providerRequestId?:string;evaluationId?:string}){
     const request=tradeRequestSchema.parse(input),account=this.account(user,request.accountId);
+    let instruction=context?.instruction??(initiator==="manual"?"Manual trade request":"Agent trade request"),providerRequestId=context?.providerRequestId;
+    if(context?.messageId){
+      const message=this.store.get<StoredMessage>(user.id,"message",context.messageId);
+      if(message?.role!=="assistant"||!message.proposedAction||canonicalJson(tradeRequestSchema.parse({...message.proposedAction,mode:request.mode}))!==canonicalJson(request))throw new ApiError("PROPOSAL_MISMATCH","This trade does not match the selected assistant proposal.",409);
+      const original=this.store.get<StoredMessage>(user.id,"message",message.id.replace(/:assistant$/u,":user"));
+      if(!original||original.role!=="user")throw new ApiError("PROPOSAL_SOURCE_MISSING","The original owner instruction is not available for this proposal.",409);
+      instruction=original.content;providerRequestId=message.requestId;initiator="agent";
+    }
+    rejectMemorySecrets(instruction,{allowPublicHashes:true,code:"CREDENTIAL_INPUT_REJECTED"});
     if(request.venue!==account.venue)throw new ApiError("VENUE_MISMATCH","Action venue does not match the selected account.");
     const actionId=idempotencyKey?createHash("sha256").update(`${user.id}|${idempotencyKey}`).digest("hex"):id();
     const previous=this.store.get<StoredAction>(user.id,"action",actionId);
     if(previous){if(JSON.stringify(previous.request)!==JSON.stringify(request))throw new ApiError("IDEMPOTENCY_CONFLICT","This action ID was already used for a different request.",409);return {action:previous,execution:previous.prepared,preview:previous.prepared.quote};}
     return this.withAccountLease(account.id,async()=>{
+      const replay=this.store.get<StoredAction>(user.id,"action",actionId);if(replay){if(canonicalJson(replay.request)!==canonicalJson(request))throw new ApiError("IDEMPOTENCY_CONFLICT","This action ID was already used for a different request.",409);return{action:replay,execution:replay.prepared,preview:replay.prepared.quote};}
+      let permission:StoredPermission|undefined;
       if(request.mode==="agent"){
         for(const uncertain of this.store.list<StoredAction>(user.id,"action").filter(item=>item.accountId===account.id&&["submitting","submitted-unknown"].includes(item.status))){
           const reconciled=await this.reconcile(user,uncertain);
           if(["submitting","submitted-unknown"].includes(reconciled.status))throw new ApiError("ACCOUNT_RECONCILING","A previous action still has an unknown venue outcome. Reconcile it before another autonomous trade.",409);
         }
-        await this.checkAgentPolicy(user,request,account);
+        permission=await this.checkAgentPolicy(user,request,account);
       }
       const prepared=await callEngine<PreparedAction>("prepareAction",request,account);
       prepared.id=actionId;prepared.request=tradeRequestSchema.parse({...prepared.request,accountId:account.id,venue:account.venue,mode:request.mode});prepared.account=account;prepared.controlRevision=account.controlRevision;
       if(!prepared.expiresAt||prepared.expiresAt<=Date.now())throw new ApiError("QUOTE_EXPIRED","The prepared action expired. Request a new quote.",409);
-      const agent=this.agent(user),action=this.store.put("action",{id:actionId,userId:user.id,accountId:account.id,request,status:"awaiting-approval",initiator:initiator!=="manual"?initiator:request.mode==="agent"?"agent":"manual",prepared,controlRevision:account.controlRevision,agentRevision:agent.controlRevision,expiresAt:prepared.expiresAt,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAction);
+      const agent=this.agent(user),action=this.store.put("action",{id:actionId,userId:user.id,accountId:account.id,request,status:"awaiting-approval",initiator:initiator!=="manual"?initiator:request.mode==="agent"?"agent":"manual",prepared,controlRevision:account.controlRevision,agentRevision:agent.controlRevision,expiresAt:prepared.expiresAt,providerRequestId,audit:{instruction:instruction.slice(0,10_000),sourceMessageId:context?.messageId,providerRequestId,evaluationId:context?.evaluationId,permission:{decision:permission?"allowed":"owner-signature-required",checkedAt:Date.now(),permissionId:permission?.id,enforcement:permission?.enforcement??"owner",controlRevision:account.controlRevision,agentRevision:agent.controlRevision}},createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAction);
       return {action,execution:prepared,preview:prepared.quote};
     });
   }
@@ -193,6 +215,7 @@ export class Platform {
     const account=this.account(user,action.accountId);
     return this.withAccountLease(account.id,async assertLease=>{
       action=this.store.get<StoredAction>(user.id,"action",input.actionId)!;
+      if(terminalStates.has(action.status)&&!(action.status==="cancelled"&&lateOwnerEvidence))return{action};
       const transactionHash=input.transactionHash??input.txHash;
       if(transactionHash&&!/^0x[\da-fA-F]{64}$/.test(transactionHash))throw new ApiError("INVALID_TRANSACTION","Invalid transaction hash.");
       if(input.userOperationHash&&!/^0x[\da-fA-F]{64}$/.test(input.userOperationHash))throw new ApiError("INVALID_USER_OPERATION","Invalid user operation hash.");
@@ -313,7 +336,7 @@ export class Platform {
     let message:StoredMessage=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,createdAt:priorAssistant?.createdAt??Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     let action:StoredAction|undefined;
     if(result.proposal&&input.autonomous&&agent.mode==="autonomous"&&!agent.paused){
-      const prepared=await this.prepare(user,result.proposal,`chat:${reference}`,"agent");
+      const prepared=await this.prepare(user,result.proposal,`chat:${reference}`,"agent",{instruction:input.message,providerRequestId:result.requestId,messageId:message.id});
       message=this.store.update<StoredMessage>(user.id,"message",message.id,{actionId:prepared.action.id});
       action=(await this.submit(user,{actionId:prepared.action.id})).action;
     }
@@ -446,7 +469,7 @@ export class Platform {
           results.push({automationId:current.id,evaluationId,decision:evaluation.decision,kind:"alert"});
         }else if(evaluation.decision==="allow"){
           if(!proposal)throw new ApiError("MISSING_PROPOSAL","Workflow allowed no executable proposal.",502);
-          const prepared=await this.prepare(user,{...proposal,mode:"agent"},`evaluation:${evaluationId}`,"automation");
+          const prepared=await this.prepare(user,{...proposal,mode:"agent"},`evaluation:${evaluationId}`,"automation",{instruction:current.instruction,providerRequestId:planned.requestId,evaluationId});
           this.store.update<StoredAction>(user.id,"action",prepared.action.id,{automationId:current.id,automationPolicyVersion:current.policyVersion,evaluationExpiresAt:evaluation.expiresAt});
           const submitted=await this.submit(user,{actionId:prepared.action.id});
           results.push({automationId:current.id,evaluationId,decision:evaluation.decision,actionId:submitted.action.id,status:submitted.action.status});
