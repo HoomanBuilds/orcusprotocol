@@ -6,6 +6,7 @@ import { tradeRequestSchema, type Market, type MarketCandle, type PreparedAction
 import { EngineError, requestJson } from "../../errors";
 import type { AccountPortfolio, SubmissionResult } from "../../types";
 import { decimalToAtoms, formatPrice, formatSize } from "./wire-format";
+import { classifyOrderStatus, sizeProgress, summarizeOrderFills } from "./lifecycle";
 
 const API = "https://api.hyperliquid-testnet.xyz";
 interface Asset { name: string; szDecimals: number; maxLeverage: number; isDelisted?: boolean }
@@ -159,15 +160,23 @@ export async function reconcileHyperliquidAction(action: { orderId?: string; id?
   const cancellation = (operation?.params.cancels as Array<{ o?: unknown }> | undefined)?.[0];
   const cancelOrderId = operation?.method === "cancel" && typeof cancellation?.o === "number" && Number.isSafeInteger(cancellation.o) && cancellation.o >= 0 ? cancellation.o : undefined;
   const reportedOrderId = action.orderId && /^\d+$/.test(action.orderId) && Number.isSafeInteger(Number(action.orderId)) ? Number(action.orderId) : undefined;
-  const oid = reportedOrderId ?? cancelOrderId ?? cloid;
-  if (!oid) return { status: "submitted-unknown", evidence: { message: "No venue or client order ID is available." } };
-  const result = await hyperliquidInfo<{ status: string; order?: { status: string; order: { oid: number; sz: string; origSz: string } } }>({ type: "orderStatus", user: account.address, oid });
-  if (result.status === "unknownOid" || !result.order) return { status: "submitted-unknown" };
-  const status = result.order.status;
-  const orderId = String(result.order.order.oid);
-  if (status === "filled") return { status: operation?.method === "cancel" ? "rejected" : "confirmed", orderId, evidence: { venueStatus: status, ...(operation?.method === "cancel" ? { message: "The order filled before cancellation was confirmed." } : {}) } };
-  if (status.toLowerCase().includes("cancel")) return { status: "cancelled", orderId, evidence: { venueStatus: status } };
-  if (status.toLowerCase().includes("reject")) return { status: "rejected", orderId, evidence: { venueStatus: status } };
-  const partial = result.order.order.sz !== result.order.order.origSz;
-  return { status: partial ? "partially-filled" : "pending", orderId, evidence: { venueStatus: status } };
+  const oid = cancelOrderId ?? cloid ?? reportedOrderId;
+  if (oid === undefined) return { status: "submitted-unknown", evidence: { message: "No venue or client order ID is available." } };
+  const result = await hyperliquidInfo<{ status: string; order?: { status: string; order: { oid: number; sz: string; origSz: string; timestamp?: number; coin?: string } } }>({ type: "orderStatus", user: account.address, oid });
+  if (!result || result.status !== "order" || !result.order?.order) return { status: "submitted-unknown" };
+  const status = result.order.status, venueOrder = result.order.order;
+  if (!Number.isSafeInteger(venueOrder.oid) || venueOrder.oid < 0 || typeof oid === "number" && venueOrder.oid !== oid || reportedOrderId !== undefined && venueOrder.oid !== reportedOrderId || typeof status !== "string") return { status: "submitted-unknown", evidence: { message: "The venue returned inconsistent order identity." } };
+  const orderId = String(venueOrder.oid), classified = classifyOrderStatus(status), progress = sizeProgress(venueOrder.sz, venueOrder.origSz);
+  if (classified === "submitted-unknown") return { status: classified, orderId, evidence: { venueStatus: status, message: "Unsupported venue status. Reconciliation is required before retrying." } };
+  const evidence: Record<string, unknown> = { venueStatus: status, ...(classified === "pending" && progress ? progress : {}) };
+  if (classified !== "pending" || progress?.partial) {
+    try {
+      const now = Date.now(), timestamp = Number.isSafeInteger(venueOrder.timestamp) && venueOrder.timestamp! >= 0 ? venueOrder.timestamp! : (action.prepared?.expiresAt ?? now) - 120_000;
+      const fills = await hyperliquidInfo<unknown>({ type: "userFillsByTime", user: account.address, startTime: Math.max(0, Math.min(timestamp, now)), endTime: now, aggregateByTime: false });
+      Object.assign(evidence, summarizeOrderFills(fills, venueOrder.oid, venueOrder.coin ?? (action.prepared?.request.symbol ? coinName(action.prepared.request.symbol) : undefined), venueOrder.origSz));
+      if (evidence.observedExecutedSize !== "0" && (classified === "cancelled" || classified === "rejected")) evidence.executionOutcome = evidence.fillsComplete ? `filled-before-${classified}` : `partially-filled-${classified}`;
+    } catch { evidence.fillEvidenceStatus = "unavailable"; evidence.fillsComplete = false; }
+  }
+  if (classified === "confirmed" && operation?.method === "cancel") return { status: "rejected", orderId, evidence: { ...evidence, message: "The order filled before cancellation was confirmed." } };
+  return { status: classified === "pending" && progress?.partial ? "partially-filled" : classified, orderId, evidence };
 }
