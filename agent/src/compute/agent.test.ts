@@ -77,6 +77,9 @@ describe("personal LangGraph agent", () => {
     const prompt = JSON.parse(String(provider.fetch.mock.calls[0][1]?.body)).messages[0].content;
     expect(prompt).toContain("explicit native-wrap grant");
     expect(prompt).toContain("does not pay Ethereum gas");
+    expect(prompt).toContain("no paymasters, platform gas sponsorship or automatic gas top-ups");
+    expect(prompt).toContain("same Sepolia trading smart account, not the agent session signing key");
+    expect(prompt).toContain("funded agent wallet pays for delegated actions on Arbitrum Sepolia");
     expect(prompt).toContain("Buying WETH returns WETH, not native ETH");
   });
   it("repairs a completed malformed response once without repeating its request or losing billing evidence", async () => {

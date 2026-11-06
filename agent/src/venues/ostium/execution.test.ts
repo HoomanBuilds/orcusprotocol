@@ -66,6 +66,8 @@ describe("Ostium official SDK build-only preparation", () => {
     expect(decoded.functionName).toBe("delegatedAction");
     expect(decoded.args?.[0]).toBe(owner);
     expect(prepared.transactions).toHaveLength(1);
+    expect(prepared.warnings?.join(" ")).toContain("Fund your agent wallet with Arbitrum Sepolia ETH");
+    expect(prepared.warnings?.join(" ")).toContain("Orcus does not top it up");
   });
   it("refuses disabled markets, stale/native authority and unsupported asset units", async () => {
     state.maxLeverage = 0;

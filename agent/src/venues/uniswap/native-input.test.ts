@@ -37,6 +37,8 @@ describe("atomic native ETH swap planning",()=>{
     expect(prepared.kind).toBe("user-operation");expect(prepared.transactions).toHaveLength(3);
     expect(prepared.transactions![0]).toMatchObject({data:"0xd0e30db0",value:"1000000000000000",chainId:11155111});expect(prepared.transactions![0].to.toLowerCase()).toBe(cfg.weth.toLowerCase());
     expect(prepared.transactions!.slice(1).every(call=>call.value==="0")).toBe(true);expect(prepared.quote?.minimumOut).toBe("1.99");
+    expect(prepared.warnings?.join(" ")).toContain("Keep additional Sepolia ETH in the trading account for gas");
+    expect(prepared.warnings?.join(" ")).toContain("session signing key does not pay gas");
   });
   it("rejects insufficient native balance before presenting an executable quote",async()=>{
     rpc.getBalance.mockResolvedValue(999_999_999_999_999n);
