@@ -3,6 +3,32 @@
 The visual reference for this requested local prototype is https://www.suzi.trade/.
 Orcus is an independent project and is not affiliated with Suzi or SendAI.
 
+## Original garden hero
+
+The active hero uses `garden-hero-v1.webm` (VP9), `garden-hero-v1.mp4`
+(H.264 fallback), and `garden-hero-v1-poster.webp`. Both video exports are
+1920 x 1080, 24 fps, 240 frames, and ten seconds long. The WebP is an unchanged
+1920 x 1080 still from the exported poster, encoded locally with libwebp at
+quality 82 and compression level 6, without resizing or art transformation.
+
+The scenery was created on November 6, 2026 from three original generated still
+layers: a 1672 x 941 opaque garden base, a 1451 x 1084 transparent flowering tree,
+and a 2172 x 724 transparent cloud. The latter two used only the new garden as
+their style and lighting reference. No downloaded reference-site imagery or
+third-party artwork was an input to this garden.
+
+The built-in image-generation tool produced still artwork, not temporal video.
+Deterministic native WebGL code then animated the coherent layered scene with
+cloud motion, anchored canopy wind, subtle ground/parallax motion, and drifting
+petals over a periodic ten-second loop. This is 2.5D compositing, not full 3D
+foliage physics or a temporal video model. The base is modestly upsampled in the
+1920 x 1080 export. The website serves only the resulting local videos and poster;
+it does not ship or run that WebGL renderer.
+
+This original garden provenance does not change or relicense any of the separate
+reference artwork, fonts, or third-party marks below. The old hero media remain
+in the repository for rollback but are not sources of the active hero.
+
 ## Reference artwork
 
 Downloaded on November 6, 2026 from the public reference website:
