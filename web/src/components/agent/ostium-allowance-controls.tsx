@@ -103,7 +103,7 @@ export function OstiumAllowanceControls({ account, workspace: w, initialAmount =
   if (account.venue !== "ostium") return null;
   return <section className="ostium-allowance-controls" aria-label="Ostium USDC allowance">
     <div className="card-heading"><div><h3>USDC trading allowance</h3><p>Approve an exact amount, separate from agent access.</p></div></div>
-    <p className="fine-print">Owner-paid Arbitrum Sepolia ETH. This venue's test USDC has no monetary value; the Uniswap gas sponsor does not apply.</p>
+    <p className="fine-print">Owner-paid Arbitrum Sepolia ETH. Fund the owner wallet on Arbitrum Sepolia before approving. This venue's test USDC has no monetary value.</p>
     {!ownIntents && <p className="fine-print">{signedInOwner ? "Loading saved allowance requests..." : "Sign in with this account's owner wallet."}</p>}
     <Field label="Exact allowance (USDC)" hint="Up to 2,000,000 USDC with six decimal places. No unlimited approval."><input inputMode="decimal" value={loadedScope === scopeKey ? amount : initialAmount} disabled={!!pending || unresolved} onChange={event => { setAmount(event.target.value.trim()); requestId.current = null; }}/></Field>
     <button className="button secondary small" type="button" disabled={!signedInOwner || !!pending || !ownIntents || unresolved || !validOstiumAllowanceAmount(amount)} onClick={() => void perform("prepare")}>{pending === "prepare" && <Spinner/>}Review exact allowance</button>

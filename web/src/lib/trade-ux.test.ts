@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PreparedAction } from "@orcus/core";
 import { actionRecovery, actionReviewLabel, fundingRecovery, hasAtomicNativeInput, tradingGasStatus, withFundingRecoveryIntent, type WalletExecutionConfig } from "./trade-ux";
 
-const configured: WalletExecutionConfig = { chainId: 11155111, smartAccountsConfigured: true, gasSponsorship: { required: true, configured: true, status: "configured" } };
+const configured: WalletExecutionConfig = { chainId: 11155111, smartAccountsConfigured: true, gasPayment: { mode: "self-funded", payer: "smart-account", maxOperationGasWei: "3000000000000000", chainId: 11155111 } };
 
 describe("explicit control-operation reviews", () => {
   it.each([["cancel", "Cancel order"], ["edit-order", "Update order"], ["stop-loss", "Update stop-loss"], ["take-profit", "Update take-profit"], ["close", "Close position"], ["reduce", "Reduce position"], ["add-collateral", "Add collateral"], ["remove-collateral", "Remove collateral"]] as const)("labels %s by its actual operation rather than its incidental side", (type, label) => {
@@ -12,21 +12,23 @@ describe("explicit control-operation reviews", () => {
 });
 
 describe("honest trading gas readiness", () => {
-  it("requires Sepolia, bundler, and sponsor metadata, not just readable RPC or an account", () => {
+  it("requires Sepolia bundler and self-funded mode, not a paymaster", () => {
     expect(tradingGasStatus(configured, "uniswap").ready).toBe(true);
-    for (const value of [null, { ...configured, chainId: 1 }, { ...configured, smartAccountsConfigured: false }, { ...configured, gasSponsorship: undefined }, { ...configured, gasSponsorship: { required: true, configured: false, status: "unconfigured" as const } }]) expect(tradingGasStatus(value, "uniswap").ready).toBe(false);
+    for (const value of [null, { ...configured, chainId: 1 }, { ...configured, smartAccountsConfigured: false }, { ...configured, gasPayment: undefined }, { ...configured, gasPayment: { ...configured.gasPayment!, chainId: 1 } }]) expect(tradingGasStatus(value, "uniswap").ready).toBe(false);
   });
-  it("never silently offers owner-paid gas when sponsorship is unavailable", () => {
-    expect(tradingGasStatus(null, "uniswap").label).toBe("Gas sponsorship unavailable");
-    expect(tradingGasStatus(configured, "uniswap").detail).toMatch(/no owner-paid gas fallback/);
+  it("identifies the shared smart account as the payer without claiming a funded balance", () => {
+    expect(tradingGasStatus(null, "uniswap").label).toBe("Smart-account execution unavailable");
+    const ready = tradingGasStatus(configured, "uniswap");
+    expect(ready.label).toBe("Trading account pays Sepolia ETH");
+    expect(ready.detail).toMatch(/same account, not the session signer/);
+    expect(ready.detail).toMatch(/Gas is checked before signing/);
+    expect(ready.detail).toMatch(/no automatic top-ups/);
+  });
+  it("keeps each venue's native gas and fee model distinct", () => {
     expect(tradingGasStatus(null, "hyperliquid")).toMatchObject({ ready: true, label: "Venue trading fees apply" });
-  });
-  it("identifies the selected sponsor without claiming configuration proves a paid operation", () => {
-    expect(tradingGasStatus({ ...configured, gasSponsorship: { ...configured.gasSponsorship!, provider: "operator" } }, "uniswap").detail).toMatch(/platform-funded sponsor/);
-    const secondary = tradingGasStatus({ ...configured, gasSponsorship: { ...configured.gasSponsorship!, provider: "zerodev" } }, "uniswap");
-    expect(secondary.detail).toMatch(/explicitly selected hosted sponsor/);
-    expect(secondary.label).toMatch(/after sponsor approval/);
-    expect(secondary.detail).toMatch(/do not need a gas-provider account/);
+    expect(tradingGasStatus(null, "hyperliquid").detail).toMatch(/signed API requests/);
+    expect(tradingGasStatus(null, "ostium").detail).toMatch(/Owner actions use the owner's Arbitrum Sepolia ETH/);
+    expect(tradingGasStatus(null, "ostium").detail).toMatch(/agent signer ETH/);
   });
 });
 

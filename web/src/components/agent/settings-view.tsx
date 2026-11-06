@@ -26,7 +26,7 @@ import {
   fundTradingAccount,
   fundOperatingWallet,
 } from "@/lib/wallets";
-import { tokenUnits, usd } from "@/lib/format";
+import { assetAmount, tokenUnits, usd } from "@/lib/format";
 import { tradingGasStatus, withFundingRecoveryIntent } from "@/lib/trade-ux";
 import { clearDepositRecovery, depositRecoveryKey, readDepositRecovery } from "@/lib/deposit-recovery";
 import { ProtocolIcon } from "../workspace/asset-icon";
@@ -286,7 +286,7 @@ function AccountCard({
           <h2>{spot ? "Uniswap" : "Hyperliquid"}</h2>
           <p>
             {spot
-              ? "Sepolia / user-owned smart account"
+              ? "Ethereum Sepolia / user-owned smart account"
               : "Testnet / existing owner account"}
           </p>
         </div>
@@ -317,10 +317,11 @@ function AccountCard({
       </dl>
       <p className="fine-print">
         {spot
-          ? "Your owner wallet controls this Sepolia trading account. Deposit only the assets you want to trade; connecting does not move funds. Manual trades and your approved agent use this same account."
+          ? "Your owner wallet controls this Sepolia trading account. Fund it with trading assets and ETH for network fees; connecting does not move funds. Manual trades and your approved agent use this same account."
           : "Existing supported positions stay in your account. The same positions can be managed manually or by your approved agent."}
       </p>
       {spot && <p className={gas.ready ? "fine-print" : "warning-note"}><strong>{gas.label}.</strong> {gas.detail} No 0G is required for normal trading.</p>}
+      {spot && <p className="fine-print">Trading account balance: {assetAmount(w.portfolio.balances.find(balance => balance.accountId === account.id && balance.symbol === "ETH")?.amount, "ETH")}. This balance also covers any native ETH swap input; gas is checked separately before signing.</p>}
       {spot && (
         <details className="technical-limits">
           <summary>Deposit Sepolia assets from your owner wallet</summary>
@@ -336,8 +337,8 @@ function AccountCard({
               <input inputMode="decimal" value={fundingAmount} onChange={event => setFundingAmount(event.target.value)} placeholder="0.00" />
             </Field>
           </div>
-          <p className="fine-print">Your owner wallet signs this initial transfer and pays its Sepolia network fee. Smart-account trading gas is a separate platform-sponsored flow. This does not bridge mainnet funds or fund 0G compute.</p>
-          <p className="fine-print">Deposit destination: <code style={{ overflowWrap: "anywhere" }}>{account.address}</code></p>
+          <p className="fine-print">Your owner wallet pays this transfer's Sepolia fee. Deposited ETH then pays network fees for both manual and agent trading from this smart account. Keep enough ETH for gas beyond any ETH swap amount. No automatic top-ups, mainnet bridging or 0G compute funding.</p>
+          <p className="fine-print">Funding address on Ethereum Sepolia: <Address value={account.smartAccountAddress ?? account.address} explorer="https://sepolia.etherscan.io" /></p>
           <button className="button secondary small" type="button" disabled={!!busy || !fundingLoaded || !!fundingHash || fundingState === "unknown" || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(fundingAmount) || Number(fundingAmount) <= 0} onClick={() => void fund()}>
             {busy === "fund" ? <><Spinner />Confirm transfer and await receipt</> : <><Wallet size={13} />Review transfer in owner wallet</>}
           </button>
@@ -386,7 +387,7 @@ function AccountCard({
               agent access
             </button>
           </div>
-          {spot && !gas.ready && <p className="warning-note">Native session revocation needs an executable sponsored operation. <button className="text-button" type="button" onClick={() => void w.control("pause")} disabled={w.agentData?.agent.paused || w.controlling}>Pause new agent actions now</button>; existing onchain authority remains until it is revoked.</p>}
+          {spot && !gas.ready && <p className="warning-note">Native session revocation needs the execution service and enough Sepolia ETH in your trading smart account. <button className="text-button" type="button" onClick={() => void w.control("pause")} disabled={w.agentData?.agent.paused || w.controlling}>Pause new agent actions now</button>; existing onchain authority remains until it is revoked.</p>}
         </>
       ) : prepared ? (
         <div className="permission-review">
@@ -412,6 +413,7 @@ function AccountCard({
             </div>
           </dl>
           {prepared.policy?.nativeWrap && <p className="warning-note">This grant also permits bounded native ETH wrapping up to {formatUnits(BigInt(prepared.policy.nativeWrap.maxAmountWei), 18)} ETH per call. The approved swap pair, output bounds, recipient, and expiry still apply.</p>}
+          {spot && <p className="fine-print">Agent operations pay gas from this trading smart account's Sepolia ETH, not the agent signer. {w.walletConfig?.gasPayment?.maxOperationGasWei ? `The network fee cap is ${tokenUnits(w.walletConfig.gasPayment.maxOperationGasWei, 18, "ETH")} per operation, not an exact fee estimate.` : "The execution service must provide its gas cap before trading."} No automatic top-ups.</p>}
           {prepared.policy && (
             <details className="technical-limits">
               <summary>Advanced onchain call constraints</summary>
@@ -929,7 +931,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
           </div>
           <p className="fine-print">
             Back up encrypted preferences and conversation context with the
-            {w.budget?.storagePayer?.costBearer === "operator" ? "platform's capped Galileo payer. You do not need 0G in your wallet for these sponsored backups." : "authorized Galileo operating wallet."} Each backup can spend up to the gas and storage-fee caps below. These native 0G costs are separate from the USD inference allowance. A
+            {w.budget?.storagePayer?.costBearer === "operator" ? "configured Galileo payer. Backups are disabled unless a payer is explicitly configured." : "authorized Galileo operating wallet."} Each backup can spend up to the gas and storage-fee caps below. These native 0G costs are separate from the USD inference allowance. A
             failed upload is never shown as a persisted backup.
           </p>
           {w.budget?.storagePayer && <p className="fine-print">{w.budget.storagePayer.message}{w.budget.storagePayer.dailyCap0G ? ` Shared platform daily limit: ${w.budget.storagePayer.dailyCap0G} 0G.` : ""}</p>}

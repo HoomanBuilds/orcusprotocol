@@ -128,7 +128,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
       {atomicNative && <p className="fine-print">Wrap exactly {number(request.amount, 6)} native Sepolia ETH, then swap WETH for USDC in one atomic operation. If the operation reverts, neither step completes.</p>}
       {invalidNative && <p className="warning-note">The native ETH wrapping plan could not be verified. Prepare a new supported smart-account quote; this action cannot be submitted.</p>}
       {request.venue === "uniswap" && request.side === "buy" && <p className="fine-print">Output is WETH. Native ETH output and automatic unwrapping are not included.</p>}
-      {request.venue === "uniswap" && <p className={gas.ready ? "fine-print" : "warning-note"}>{gas.detail}{w.walletConfig?.gasSponsorship?.maxOperationGasWei ? ` Maximum sponsored network fee: ${tokenUnits(w.walletConfig.gasSponsorship.maxOperationGasWei, 18, "ETH")}.` : ""}{w.walletConfig?.gasSponsorship?.dailyUserGasWei ? ` Daily platform gas allowance cap: ${tokenUnits(w.walletConfig.gasSponsorship.dailyUserGasWei, 18, "ETH")} (not a remaining balance).` : ""} Sponsorship does not supply the tokens you trade.</p>}
+      {request.venue === "uniswap" && <div className={gas.ready ? "fine-print" : "warning-note"}><p>{gas.detail}{w.walletConfig?.gasPayment?.maxOperationGasWei ? ` Maximum network fee cap: ${tokenUnits(w.walletConfig.gasPayment.maxOperationGasWei, 18, "ETH")} (not a fee estimate).` : ""}</p><p>Gas funding address on Ethereum Sepolia: <Address value={prepared.account.smartAccountAddress ?? prepared.account.address} explorer="https://sepolia.etherscan.io" /></p></div>}
       {prepared.warnings?.map((warning) => (
         <p className="warning-note" key={warning}>
           {warning}
@@ -164,7 +164,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
           ) : invalidNative ? (
             "Native input plan unavailable"
           ) : !gas.ready ? (
-            "Gas sponsorship unavailable"
+            "Smart-account execution unavailable"
           ) : !expiresIn ? (
             "Quote expired"
           ) : (

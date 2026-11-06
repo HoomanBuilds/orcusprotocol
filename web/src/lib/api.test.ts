@@ -11,7 +11,7 @@ describe("safe actionable wallet and API errors", () => {
     expect(displayError({ phase: "submitted-unknown", cause: { code: 4001, message: "user rejected" } })).toMatch(/do not submit a replacement/);
     expect(displayError({ code: "QUOTE_EXPIRED" })).toMatch(/fresh quote/);
   });
-  it("separates the owner-paid initial deposit fee from sponsored trading", () => {
+  it("distinguishes the deposit owner from the trading gas payer", () => {
     expect(displayError({ code: "INSUFFICIENT_GAS" })).toMatch(/external-wallet deposits/);
   });
   it.each([
@@ -25,28 +25,27 @@ describe("safe actionable wallet and API errors", () => {
     expect(displayError(error)).not.toMatch(/diagnostics|0xdeadbeef|retry|bypass/);
     expect(displayError({ phase: "submitted-unknown", cause: error })).toMatch(/do not submit a replacement/);
   });
-  it.each(["PAYMASTER_UNCONFIGURED", "SPONSORSHIP_UNCONFIGURED", "SPONSORSHIP_REJECTED"]) ("does not offer owner-paid fallback for %s", code => {
-    expect(displayError({ code })).toMatch(/owner-paid/);
+  it("directs an unfunded smart account to its own Sepolia address", () => {
+    expect(displayError({ code: "SMART_ACCOUNT_GAS_INSUFFICIENT" })).toMatch(/Accounts.*trading address, not the agent signer/);
+    expect(displayError({ code: "GAS_LIMIT_EXCEEDED" })).toMatch(/Nothing was submitted/);
+    expect(displayError({ code: "INSUFFICIENT_NATIVE_BALANCE" })).toMatch(/swap input plus enough ETH left for gas/);
   });
-  it.each(["SPONSORSHIP_UNAVAILABLE", "SPONSORSHIP_USER_CAP", "SPONSORSHIP_PROJECT_CAP"]) ("explains sponsor availability or caps safely for %s", code => {
-    expect(displayError({ code, message: "private provider diagnostics" })).toMatch(/owner-paid/);
-    expect(displayError({ code, message: "private provider diagnostics" })).not.toContain("diagnostics");
+  it("keeps failed fee checks and recorded operations actionable without exposing provider data", () => {
+    for (const code of ["INVALID_GAS_ESTIMATE", "GAS_BALANCE_UNAVAILABLE"]) {
+      expect(displayError({ code, message: "private provider credential" })).toMatch(/Refresh/);
+      expect(displayError({ code, message: "private provider credential" })).not.toMatch(/private provider credential/);
+    }
+    expect(displayError({ code: "USER_OPERATION_ALREADY_RECORDED" })).toMatch(/same operation.*do not submit a replacement/);
   });
-  it.each(["SPONSORSHIP_ALREADY_SUBMITTED", "SPONSORSHIP_RECEIPT_PENDING"]) ("keeps recovery monotonic for %s", code => {
-    expect(displayError({ code, message: "private provider details" })).toMatch(/existing/);
+  it.each(["SPONSORSHIP_ALREADY_SUBMITTED", "SPONSORSHIP_RECEIPT_PENDING"])("preserves recovery for legacy %s operations", code => {
+    expect(displayError({ code })).toMatch(/existing activity/);
     expect(displayError({ code })).toMatch(/do not (?:send|submit)/);
-    expect(displayError({ code, phase: "submitted-unknown", cause: { code: 4001 } })).toMatch(/do not submit a replacement/);
+    expect(displayError({ code, phase: "submitted-unknown" })).toMatch(/do not submit a replacement/);
   });
-  it.each(["SPONSORSHIP_USER_CAP", "SPONSORSHIP_PROJECT_CAP"]) ("directs %s to reconciliation or waiting, not buying compute tokens", code => {
-    const message = displayError({ code });
-    expect(message).toMatch(/activity/);
-    expect(message).not.toMatch(/0G|buy|provider/);
-  });
-  it("handles platform configuration and unknown sponsor codes without leaking or asking the customer to configure a provider", () => {
-    expect(displayError({ code: "SPONSORSHIP_CONFIG_INVALID" })).toMatch(/Platform gas coverage/);
+  it("does not request legacy sponsor setup or expose provider diagnostics", () => {
     const message = displayError({ code: "SPONSORSHIP_NEW_UPSTREAM_ERROR", message: "provider credential not-public" });
-    expect(message).toMatch(/platform readiness/);
-    expect(message).not.toMatch(/credential|not-public|0G|configure/);
+    expect(message).toMatch(/legacy.*no longer supported/);
+    expect(message).not.toMatch(/credential|not-public|configure/);
   });
   it("uses safe code-based instructions without reflecting provider messages, credentials, or raw revert data", () => {
     const secret = `Bearer ${"not-a-real-token".repeat(30)}`;

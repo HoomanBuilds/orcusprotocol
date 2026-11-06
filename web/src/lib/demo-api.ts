@@ -20,7 +20,7 @@ export function demoResponse(path: string, method = "GET"): { handled: false } |
     "/api/permissions": { permissions: [] },
     "/api/notifications": { notifications: data.notifications },
     "/api/memory": data.memory,
-    "/api/wallet-config": { chainId: 11155111, smartAccountsConfigured: false, gasSponsorship: { required: true, configured: false, status: "unconfigured" } },
+    "/api/wallet-config": { chainId: 11155111, smartAccountsConfigured: false, gasPayment: { mode: "self-funded", payer: "smart-account", maxOperationGasWei: "3000000000000000", chainId: 11155111 } },
     "/api/agent/models": data.models,
   };
   if (!Object.hasOwn(routes, url.pathname)) throw demoReadOnlyError();

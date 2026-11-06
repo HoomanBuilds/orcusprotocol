@@ -349,7 +349,7 @@ function useWorkspaceState() {
       if (preview.execution.request.venue === "uniswap") {
         const liveConfig = await api<WalletExecutionConfig>("/api/wallet-config");
         setWalletConfig(liveConfig);
-        if (!tradingGasStatus(liveConfig, "uniswap").ready) throw new ApiError("SPONSORSHIP_UNCONFIGURED", "Gas sponsorship unavailable.", 503);
+        if (!tradingGasStatus(liveConfig, "uniswap").ready) throw new ApiError("BUNDLER_UNCONFIGURED", "Smart-account execution unavailable.", 503);
       }
       if (preview.execution.expiresAt <= Date.now())
         throw new Error(

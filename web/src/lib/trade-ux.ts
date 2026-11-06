@@ -4,23 +4,23 @@ import { parseUnits } from "viem";
 export interface WalletExecutionConfig {
   chainId: number;
   smartAccountsConfigured: boolean;
-  gasSponsorship?: { required: boolean; configured: boolean; status: "configured" | "unconfigured"; provider?: "operator" | "zerodev"; maxOperationGasWei?: string; dailyUserGasWei?: string };
+  gasPayment?: { mode: "self-funded"; payer: "smart-account"; maxOperationGasWei: string; chainId: number };
 }
 
 export function tradingGasStatus(config: WalletExecutionConfig | null, venue: Venue) {
-  if (venue === "ostium") return { ready: true, label: "Arbitrum Sepolia gas paid by signer", detail: "Owner actions use the owner's Arbitrum Sepolia ETH. Authorized agent actions use that account's agent signer ETH. USDC collateral and oracle fees are separate; the Uniswap gas sponsor does not apply." };
-  if (venue === "hyperliquid") return { ready: true, label: "Venue trading fees apply", detail: "Hyperliquid testnet orders are signed for your existing venue account. Ethereum gas sponsorship does not apply." };
-  const ready = config?.chainId === 11155111 && config.smartAccountsConfigured && config.gasSponsorship?.required === true && config.gasSponsorship.configured === true && config.gasSponsorship.status === "configured";
+  if (venue === "ostium") return { ready: true, label: "Arbitrum Sepolia gas paid by signer", detail: "Owner actions use the owner's Arbitrum Sepolia ETH. Authorized agent actions use that account's agent signer ETH. USDC collateral and oracle fees are separate. No automatic gas top-ups." };
+  if (venue === "hyperliquid") return { ready: true, label: "Venue trading fees apply", detail: "Hyperliquid testnet orders use signed API requests for your existing venue account, with separate venue trading fees rather than Ethereum transaction gas." };
+  const ready = config?.chainId === 11155111 && config.smartAccountsConfigured && config.gasPayment?.mode === "self-funded" && config.gasPayment.payer === "smart-account" && config.gasPayment.chainId === 11155111;
   return ready
-    ? { ready: true, label: "Trading gas covered after sponsor approval", detail: `${config.gasSponsorship?.provider === "zerodev" ? "The explicitly selected hosted sponsor" : "The platform-funded sponsor"} checks gas approval before signing. A declined request stops; there is no owner-paid gas fallback. Users do not need a gas-provider account.` }
-    : { ready: false, label: "Gas sponsorship unavailable", detail: "Sepolia smart-account execution is disabled until the platform bundler and gas sponsor are ready. Viewing a balance does not prove execution readiness." };
+    ? { ready: true, label: "Trading account pays Sepolia ETH", detail: "Fund your trading smart account with Sepolia ETH for gas as well as the assets you trade. Manual and agent actions spend gas from that same account, not the session signer. Gas is checked before signing; no automatic top-ups." }
+    : { ready: false, label: "Smart-account execution unavailable", detail: "The Sepolia execution service is not ready. You can still inspect your account. A configured service does not prove the account has enough ETH for gas." };
 }
 
 export function actionRecovery(status: ActionStatus): string | undefined {
   if (["submitting", "submitted-unknown"].includes(status)) return "Submission is not resolved. Check this same action; do not send a replacement.";
   if (status === "pending") return "Submitted, not confirmed. Check status before placing the same action again.";
   if (status === "partially-filled") return "Only part of this order filled. Check the remaining venue order before changing exposure.";
-  if (status === "rejected") return "The action was rejected. Review account balances, order limits, and gas sponsorship before a new quote.";
+  if (status === "rejected") return "The action was rejected. Review account balances, order limits, and ETH available for gas before a new quote.";
   if (status === "cancelled") return "Cancelled. Check the venue for any fills that happened before cancellation.";
   return undefined;
 }
