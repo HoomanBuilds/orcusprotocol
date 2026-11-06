@@ -223,7 +223,7 @@ export function AgentPanel({
                   }
                 >
                   {message.actionId
-                    ? "Action already submitted"
+                    ? "Action recorded. Check activity for its status."
                     : "Review proposed action"}
                 </button>
               </div>
