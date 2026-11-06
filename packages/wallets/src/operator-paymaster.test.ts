@@ -38,7 +38,7 @@ describe("operator paymaster authorization", () => {
   });
 
   it("binds factory calldata and ignores account signatures", () => {
-    const deployed = { ...operation, factory: sender, factoryData: "0x1234" as Hex };
+    const deployed: OperatorUserOperation = { ...operation, factory: sender, factoryData: "0x1234" };
     expect(operatorSponsorshipHash(deployed, authorization)).not.toBe(operatorSponsorshipHash({ ...deployed, factoryData: "0x5678" }, authorization));
     expect(operatorSponsorshipHash({ ...operation, signature: "0x1234" } as OperatorUserOperation, authorization)).toBe(operatorSponsorshipHash(operation, authorization));
     expect(operatorSponsorshipHash({ ...operation, nonce: "0x1" }, authorization)).toBe(operatorSponsorshipHash(operation, authorization));
@@ -48,7 +48,7 @@ describe("operator paymaster authorization", () => {
     expect(() => operatorSponsorshipHash(operation, { ...authorization, ...change })).toThrow();
   });
 
-  it.each([{ nonce: -1n }, { callGasLimit: 1n << 128n }, { maxFeePerGas: -1n }, { preVerificationGas: 1n << 256n }, { callData: "0x1" as Hex }, { factoryData: "0x1234" as Hex }, { factory: sender }])("rejects malformed account operation: %o", (change) => {
+  it.each<Partial<OperatorUserOperation>>([{ nonce: -1n }, { callGasLimit: 1n << 128n }, { maxFeePerGas: -1n }, { preVerificationGas: 1n << 256n }, { callData: "0x1" }, { factoryData: "0x1234" }, { factory: sender }])("rejects malformed account operation: %o", (change) => {
     expect(() => operatorSponsorshipHash({ ...operation, ...change }, authorization)).toThrow();
   });
 
