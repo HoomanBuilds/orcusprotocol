@@ -8,6 +8,7 @@ import { Platform } from "./platform";
 import { getStore, type Store } from "./store";
 import { listGasSponsorship, noteSponsoredBroadcast, reconcileGasSponsorship, settleSponsoredReceipt, sponsorKernelOperation, sponsoredOperationHash, sponsorshipSummary, validateSponsoredBroadcast } from "./sponsorship";
 import { entryPoint } from "@orcus/wallets/kernel";
+import { gasSponsorConfig } from "./sponsorship-config";
 
 const COOKIE = "orcus_session";
 const address = z.string().regex(/^0x[\da-fA-F]{40}$/);
@@ -77,8 +78,8 @@ const rpcSchema = z.object({ jsonrpc: z.literal("2.0"), id: z.union([z.string().
 async function proxyRpc(request: Request, user: User, platform: Platform, bundler: boolean) {
   const body = rpcSchema.parse(await readBody(request));
   if (!(bundler ? bundlerMethods : rpcMethods).has(body.method)) throw new ApiError("RPC_METHOD_REJECTED", "This RPC method is not supported by the application.", 403);
-  const upstream = bundler ? process.env.ZERODEV_RPC_URL : process.env.SEPOLIA_RPC_URL ?? process.env.SEPOLIA_RPC ?? "https://ethereum-sepolia-rpc.publicnode.com";
-  if (!upstream) throw new ApiError("BUNDLER_UNCONFIGURED", "Configure ZERODEV_RPC_URL for the Sepolia trading account.", 503);
+  const upstream = bundler ? gasSponsorConfig().bundlerUrl : process.env.SEPOLIA_RPC_URL ?? process.env.SEPOLIA_RPC ?? "https://ethereum-sepolia-rpc.publicnode.com";
+  if (!upstream) throw new ApiError("BUNDLER_UNCONFIGURED", "Configure a bundler for the explicitly selected gas sponsorship provider.", 503);
   if (bundler && ["eth_sendUserOperation", "eth_estimateUserOperationGas"].includes(body.method)) {
     const sender = (body.params?.[0] as { sender?: unknown } | undefined)?.sender;
     if (typeof sender !== "string" || !platform.accounts(user).some(account => account.venue === "uniswap" && account.smartAccountAddress?.toLowerCase() === sender.toLowerCase())) throw new ApiError("USER_OPERATION_ACCOUNT_MISMATCH", "This user operation is not for your registered trading account.", 403);
@@ -143,7 +144,7 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if (path === "bundler" && method === "POST") return proxyRpc(request, user, platform, true);
     if (path === "paymaster" && method === "POST") {
       const body = rpcSchema.parse(await readBody(request, 262_144));
-      if (body.method !== "zd_sponsorUserOperation" || body.params?.length !== 1) throw new ApiError("RPC_METHOD_REJECTED", "Only scoped gas sponsorship requests are supported.", 403);
+      if (body.method !== "orcus_sponsorUserOperation" || body.params?.length !== 1) throw new ApiError("RPC_METHOD_REJECTED", "Only scoped gas sponsorship requests are supported.", 403);
       const scope = z.object({ actionId: z.string().min(1).max(100).optional(), accountAddress: address.optional(), purpose: z.literal("permission-management").optional() }).strict().parse(Object.fromEntries(url.searchParams));
       return json({ jsonrpc: "2.0", id: body.id, result: await sponsorKernelOperation(store, user, scope, body.params[0]) });
     }

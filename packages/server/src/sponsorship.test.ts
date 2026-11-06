@@ -8,14 +8,17 @@ import { Store } from "./store";
 import type { StoredAccount } from "./types";
 import { handleRequest } from "./http";
 
-const mocks = vi.hoisted(() => ({ address: `0x${"1".repeat(40)}`, factory: undefined as string | undefined, factoryData: undefined as string | undefined }));
+const mocks = vi.hoisted(() => ({ address: `0x${"1".repeat(40)}`, factory: undefined as string | undefined, factoryData: undefined as string | undefined, operator: vi.fn() }));
 vi.mock("@orcus/wallets/kernel", async original => ({ ...await original<typeof import("@orcus/wallets/kernel")>(), createOwnerKernel: async () => ({ account: { address: mocks.address, getFactoryArgs: async () => ({ factory: mocks.factory, factoryData: mocks.factoryData }) } }) }));
+vi.mock("./operator-sponsor", () => ({ sponsorWithOperator: mocks.operator }));
 const abi = parseAbi(["function approve(address spender,uint256 amount) returns(bool)", "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96) params) returns(uint256)", "function multicall(uint256 deadline,bytes[] data) returns(bytes[])"]);
 const tokenIn = `0x${"3".repeat(40)}` as Hex, tokenOut = `0x${"4".repeat(40)}` as Hex, router = `0x${"5".repeat(40)}` as Hex, paymaster = `0x${"6".repeat(40)}`;
 const responseData = () => ({ paymaster, paymasterData: "0x1234", callGasLimit: "0x64", verificationGasLimit: "0x64", preVerificationGas: "0x64", paymasterVerificationGasLimit: "0x64", paymasterPostOpGasLimit: "0x64", maxFeePerGas: "0x2", maxPriorityFeePerGas: "0x1" });
 let store: Store;
 beforeEach(() => {
   store = new Store(":memory:"); mocks.factory = undefined; mocks.factoryData = undefined;
+  mocks.operator.mockReset(); mocks.operator.mockImplementation(async () => ({ result: responseData(), depositWei: 1500n, paymaster, validUntil: Math.floor(Date.now() / 1000) + 120 }));
+  vi.stubEnv("ORCUS_GAS_SPONSOR_PROVIDER", "zerodev");
   vi.stubEnv("ZERODEV_RPC_URL", "https://rpc.zerodev.app/api/test-bundler-secret"); vi.stubEnv("ZERODEV_PAYMASTER_RPC_URL", "https://rpc.zerodev.app/api/test-paymaster-secret");
   vi.stubEnv("ZERODEV_SPONSOR_USER_DAILY_ETH", "0.02"); vi.stubEnv("ZERODEV_SPONSOR_PROJECT_DAILY_ETH", "0.2"); vi.stubEnv("ZERODEV_SPONSOR_MAX_OPERATION_ETH", "0.003"); vi.stubEnv("ZERODEV_SPONSOR_USER_DAILY_OPERATIONS", "20");
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: responseData() }))));
@@ -33,10 +36,14 @@ async function fixture(ownerDigit = "2", nonce = "0x0") {
   const input = { chainId: 11155111, entryPointAddress: entryPoint.address, userOp: operation, shouldOverrideFee: false, shouldConsume: true };
   return { user, account, prepared, operation, input, scope: { actionId: prepared.id } };
 }
+function selectOperator() {
+  vi.stubEnv("ORCUS_GAS_SPONSOR_PROVIDER", "operator"); vi.stubEnv("BUNDLER_RPC_URL", "https://bundler.example/private-bundler");
+  vi.stubEnv("ORCUS_PAYMASTER_ADDRESS", paymaster); vi.stubEnv("ORCUS_GAS_SPONSOR_PRIVATE_KEY", `0x${"11".repeat(32)}`);
+}
 
 describe("scoped Kernel sponsorship", () => {
   it("requires an authenticated owner and never exposes provider URLs in public configuration", async () => {
-    const request = new Request("http://localhost:3000/api/paymaster", { method: "POST", headers: { Origin: "http://localhost:3000", "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "zd_sponsorUserOperation", params: [] }) });
+    const request = new Request("http://localhost:3000/api/paymaster", { method: "POST", headers: { Origin: "http://localhost:3000", "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "orcus_sponsorUserOperation", params: [] }) });
     expect((await handleRequest(request, store)).status).toBe(401);
     expect(fetch).not.toHaveBeenCalled();
     const config = await handleRequest(new Request("http://localhost:3000/api/wallet-config"), store);
@@ -50,9 +57,9 @@ describe("scoped Kernel sponsorship", () => {
     const challenge = store.createChallenge(h.user.address, origin), session = store.createSession(challenge.id, h.user.address);
     const send = (method: string, actionId = h.prepared.id, extraHeaders: Record<string, string> = {}) => handleRequest(new Request(`${origin}/api/paymaster?actionId=${actionId}`, { method: "POST", headers: { Origin: origin, Cookie: `orcus_session=${session.token}`, "Content-Type": "application/json", ...extraHeaders }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: [h.input] }) }), store);
     expect((await send("eth_sendTransaction")).status).toBe(403);
-    expect((await send("zd_sponsorUserOperation", "not-this-users-action")).status).toBe(403);
-    expect((await send("zd_sponsorUserOperation", h.prepared.id, { Origin: "https://different-origin.invalid" })).status).toBe(403);
-    const response = await send("zd_sponsorUserOperation");
+    expect((await send("orcus_sponsorUserOperation", "not-this-users-action")).status).toBe(403);
+    expect((await send("orcus_sponsorUserOperation", h.prepared.id, { Origin: "https://different-origin.invalid" })).status).toBe(403);
+    const response = await send("orcus_sponsorUserOperation");
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ jsonrpc: "2.0", id: 1, result: { paymaster } });
     expect(fetch).toHaveBeenCalledOnce();
@@ -130,5 +137,39 @@ describe("scoped Kernel sponsorship", () => {
     const h = await fixture(); vi.stubEnv("ZERODEV_PAYMASTER_RPC_URL", "");
     expect(() => createSessionSponsorship(store, h.user, h.prepared)).toThrow(/Nothing was submitted/);
     try { createSessionSponsorship(store, h.user, h.prepared); } catch (error) { expect(error).toMatchObject({ phase: "not-submitted" }); }
+  });
+  it("defaults to operator without treating a configured secondary as a ready primary", async () => {
+    vi.stubEnv("ORCUS_GAS_SPONSOR_PROVIDER", undefined); vi.stubEnv("BUNDLER_RPC_URL", "");
+    expect(sponsorshipSummary()).toMatchObject({ provider: "operator", configured: false });
+    const h = await fixture();
+    await expect(sponsorKernelOperation(store, h.user, h.scope, h.input)).rejects.toMatchObject({ code: "SPONSORSHIP_UNCONFIGURED" });
+    expect(fetch).not.toHaveBeenCalled(); expect(mocks.operator).not.toHaveBeenCalled();
+  });
+  it("routes the authenticated neutral paymaster method to the operator and omits signature payloads from its public ledger", async () => {
+    selectOperator(); const h = await fixture(), origin = "http://localhost:3000";
+    const challenge = store.createChallenge(h.user.address, origin), session = store.createSession(challenge.id, h.user.address);
+    const response = await handleRequest(new Request(`${origin}/api/paymaster?actionId=${h.prepared.id}`, { method: "POST", headers: { Origin: origin, Cookie: `orcus_session=${session.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "orcus_sponsorUserOperation", params: [h.input] }) }), store);
+    expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ result: { paymaster } });
+    expect(mocks.operator).toHaveBeenCalledWith(h.operation, "3000000000000000", true); expect(fetch).not.toHaveBeenCalled();
+    expect(listGasSponsorship(store, h.user)[0]).toMatchObject({ provider: "operator", paymaster, reserveWei: "1000" });
+    expect(JSON.stringify(listGasSponsorship(store, h.user))).not.toContain("paymasterData");
+    expect(JSON.stringify(sponsorshipSummary())).not.toContain("private-bundler");
+  });
+  it("atomically reserves the actual operator deposit against unresolved approvals across users", async () => {
+    selectOperator(); const first = await fixture("2"); await sponsorKernelOperation(store, first.user, first.scope, first.input);
+    const second = await fixture("7");
+    await expect(sponsorKernelOperation(store, second.user, second.scope, second.input)).rejects.toMatchObject({ code: "SPONSORSHIP_UNFUNDED" });
+    expect(listGasSponsorship(store, second.user)).toHaveLength(0);
+    expect(listGasSponsorship(store, first.user)[0].reserveWei).toBe("1000");
+  });
+  it("binds a grant to its provider and paymaster instead of switching an operation mid-flight", async () => {
+    const h = await fixture(), approval = await sponsorKernelOperation(store, h.user, h.scope, h.input);
+    selectOperator();
+    await expect(validateSponsoredBroadcast(store, h.user, { ...h.operation, ...approval })).rejects.toMatchObject({ code: "SPONSORSHIP_PROVIDER_CHANGED" });
+    await expect(sponsorKernelOperation(store, h.user, h.scope, h.input)).rejects.toMatchObject({ code: "SPONSORSHIP_PROVIDER_CHANGED" });
+    vi.stubEnv("ORCUS_GAS_SPONSOR_PROVIDER", "zerodev");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ result: { ...responseData(), paymaster: tokenIn } }))));
+    await expect(sponsorKernelOperation(store, h.user, h.scope, h.input)).rejects.toMatchObject({ code: "SPONSORSHIP_PROVIDER_CHANGED" });
+    expect(listGasSponsorship(store, h.user)[0]).toMatchObject({ provider: "zerodev", paymaster });
   });
 });
