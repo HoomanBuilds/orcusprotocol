@@ -41,7 +41,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   const navigation = <>{workspacePages.map(item => <Link key={item.href} href={item.href} prefetch={false} className={pathname === item.href ? "selected" : ""} aria-current={pathname === item.href ? "page" : undefined} onClick={() => setMenuOpen(false)}><item.icon size={19}/><span>{item.title}</span>{item.href === "/activity" && pending > 0 && <span className="nav-count">{pending}</span>}</Link>)}</>;
 
-  return <div className={`product-workspace ${pathname === "/trade" ? "trade-route" : ""}`}>
+  return <div className={`product-workspace ${pathname === "/trade" ? "trade-route" : pathname === "/agent" ? "agent-route" : ""}`}>
     <a className="workspace-skip" href="#workspace-content">Skip to content</a>
     <aside className="workspace-sidebar">
       <Link className="workspace-brand" href="/" prefetch={false} aria-label="Orcus overview"><img src="/workspace/orcus.svg" width="31" height="31" alt=""/><span>orcus<span>.</span></span></Link>
@@ -54,9 +54,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       <nav id="mobile-workspace-navigation" className="mobile-workspace-navigation" aria-label="Mobile navigation" hidden={!menuOpen}>{navigation}</nav>
       <div className="workspace-content-wrap">
         {(w.error || w.notice) && <div className="workspace-notices"><InlineError message={w.error} onDismiss={() => w.setError(null)}/>{w.notice && <div className="notice" role="status"><ShieldCheck size={17}/><span>{w.notice}</span><button className="icon-button" type="button" aria-label="Dismiss notification" onClick={() => w.setNotice(null)}><X size={16}/></button></div>}</div>}
-        {pending > 0 && pathname !== "/activity" && <Link className="workspace-pending-banner" href="/activity?status=pending"><Activity size={16}/><span>{pending} {pending === 1 ? "item needs" : "items need"} your attention</span><span>View pending work <ArrowUpRight size={14}/></span></Link>}
+        {pending > 0 && pathname !== "/activity" && pathname !== "/agent" && <Link className="workspace-pending-banner" href="/activity?status=pending"><Activity size={16}/><span>{pending} {pending === 1 ? "item needs" : "items need"} your attention</span><span>View pending work <ArrowUpRight size={14}/></span></Link>}
         <main id="workspace-content" className="workspace-content" key={w.session.user?.id ?? "disconnected"}>{children}</main>
-        <footer className="workspace-footer"><span><i className="dot warn"/>Testnet assets have no monetary value.</span><Link href="/settings?section=services">Service status<ArrowUpRight size={12}/></Link></footer>
+        {pathname !== "/agent" && <footer className="workspace-footer"><span><i className="dot warn"/>Testnet assets have no monetary value.</span><Link href="/settings?section=services">Service status<ArrowUpRight size={12}/></Link></footer>}
       </div>
     </div>
     <ActionPreview workspace={w}/>

@@ -2770,9 +2770,6 @@ td > small.negative {
 .product-workspace .automation-top > div > span, .product-workspace .automation-card > p { font-size: 12px; }
 .product-workspace .evaluation { font-size: 12px; padding: 14px; border-radius: 7px; }
 .product-workspace .evaluation small { font-size: 10px; }
-.agent-workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; align-items: start; }
-.agent-conversation-container { min-width: 0; position: sticky; top: 24px; }
-.product-workspace .agent-panel { border: 1px solid var(--border); border-radius: 12px; min-height: 720px; height: calc(100dvh - 230px); max-height: 980px; width: 100%; background: var(--surface); overflow: hidden; }
 .product-workspace .agent-heading { padding: 22px; }
 .product-workspace .agent-heading h2 { font-size: 16px; }
 .product-workspace .agent-heading > div > span { font-size: 10px; }
@@ -2803,14 +2800,10 @@ td > small.negative {
 .agent-context-section .technical-limits { margin: 15px 0; }
 .agent-context-section .form-grid { grid-template-columns: minmax(0, 1fr); }
 .product-workspace .agent-controls { padding: 12px 22px; gap: 10px; }
-.agent-workspace-sidebar { display: grid; gap: 20px; min-width: 0; }
-.agent-workspace-sidebar .workspace-panel { padding: 20px; }
-.agent-workspace-sidebar h2 { font-size: 15px; }
 .agent-control-state { display: flex; gap: 9px; align-items: center; padding: 0 0 18px; }
 .agent-control-state > div { min-width: 0; flex: 1; }
 .agent-control-state strong { display: block; font-size: 12px; }
 .agent-control-state small { display: block; color: var(--muted); font-size: 10px; margin-top: 4px; }
-.agent-workspace-sidebar .button.full { margin-top: 18px; }
 .agent-saved-requests > a { display: block; border-top: 1px solid var(--border-soft); padding: 13px 0; }
 .agent-saved-requests > a > strong { font-size: 12px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 9px; }
 .agent-saved-requests > a > span { display: flex; align-items: center; justify-content: space-between; }
@@ -2901,7 +2894,6 @@ td > small.negative {
 .trade-route .trade-network-note { margin: 10px 8px; }
 .product-workspace .agent-mode { background: #202224; color: #b7bbc4; border-color: var(--border); }
 .product-workspace .suggestions button { background: #202224; border-color: #393b40; color: #c3c6cd; }
-.product-workspace .agent-panel { min-height: 680px; height: calc(100dvh - 175px); }
 .product-workspace .chat-compose { background: #111214; border-color: #454850; }
 .product-workspace .agent-avatar, .product-workspace .welcome-icon { background: #252a22; border-color: #46513c; }
 .product-workspace .chat-compose textarea { min-height: 64px; }
@@ -2909,7 +2901,6 @@ td > small.negative {
 @media (min-width: 1700px) {
   .workspace-content-wrap { padding: 40px 48px 0; }
   .trade-execution-grid { grid-template-columns: minmax(0, 1fr) 370px; }
-  .agent-workspace-grid { grid-template-columns: minmax(0, 1fr) 350px; }
 }
 @media (max-width: 1240px) {
   .workspace-sidebar { width: 194px; padding-inline: 12px; }
@@ -2924,7 +2915,6 @@ td > small.negative {
   .trade-market-heading .market-price { margin-left: 0; }
   .trade-market-heading > .market-stat:not(.feed-state) { display: none; }
   .trade-execution-grid { grid-template-columns: minmax(0, 1fr) 310px; }
-  .agent-workspace-grid { grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; }
   .product-workspace .chat-scroll { padding: 22px; }
   .activity-workspace-grid.with-detail { grid-template-columns: minmax(0, 1fr); }
   .activity-detail { position: static; order: -1; }
@@ -2942,10 +2932,6 @@ td > small.negative {
   .workspace-panel-heading .text-link { font-size: 10px; }
   .trade-execution-grid { grid-template-columns: minmax(0, 1fr); }
   .trade-execution-grid > .order-ticket { max-width: none; }
-  .agent-workspace-grid { grid-template-columns: minmax(0, 1fr); }
-  .agent-conversation-container { position: static; }
-  .agent-workspace-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .product-workspace .agent-panel { height: 780px; min-height: 620px; max-height: none; }
 }
 @media (max-width: 760px) {
   .workspace-sidebar { display: none; }
@@ -3034,8 +3020,6 @@ td > small.negative {
   .product-workspace .automation-top > div { flex-basis: calc(100% - 60px); }
   .product-workspace .automation-top > .badge { margin-left: 50px; }
   .product-workspace .automation-card { padding: 20px; }
-  .agent-workspace-sidebar { grid-template-columns: minmax(0, 1fr); }
-  .product-workspace .agent-panel { min-height: 680px; height: calc(100dvh - 180px); max-height: 850px; }
   .product-workspace .agent-heading { padding: 18px; }
   .product-workspace .agent-heading h2 { font-size: 14px; }
   .product-workspace .agent-mode { font-size: 10px; padding: 12px 18px; }
@@ -3135,7 +3119,6 @@ td > small.negative {
 .product-workspace .side-toggle button.selected.buy { background: #19382d; color: #70e2b9; }
 .product-workspace .side-toggle button.selected.sell { background: #40222c; color: #ff93aa; }
 .workspace-pending-banner { background: #27262b; border-color: #49444e; color: #e8dce4; }
-.product-workspace .agent-panel { min-height: 660px; height: calc(100dvh - 170px); }
 .product-workspace .agent-welcome .eyebrow { display: none; }
 .product-workspace .agent-welcome h3 { font-family: "Orcus Product Serif", Georgia, serif; font-style: italic; font-size: 38px; font-weight: 400; }
 .product-workspace .agent-welcome p { color: var(--muted); }
@@ -3287,13 +3270,6 @@ td > small.negative {
 .product-workspace .trade-depth-column table td[colspan] { padding: 10px 7px; }
 .product-workspace .settings-account-actions + .settings-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 350px), 1fr)); }
 .mobile-settings-selector { display: none; }
-.product-workspace .empty-conversation .chat-scroll { overflow: visible; flex: 0 0 auto; min-height: 0; }
-.product-workspace .empty-conversation { height: auto; min-height: 0; }
-.product-workspace .empty-conversation .agent-welcome { padding: 5px 0 12px; }
-.product-workspace .empty-conversation .agent-welcome h3 { font-size: 32px; margin: 6px 0 14px; }
-.product-workspace .empty-conversation .welcome-icon { margin-bottom: 14px; }
-.product-workspace .empty-conversation .suggestions { margin-top: 18px; }
-.product-workspace .empty-conversation .chat-compose { margin-top: 5px; }
 .trade-depth-column table td { overflow: visible; text-overflow: clip; }
 @media (min-width: 1001px) {
   .workspace-sidebar { width: 184px; }
@@ -3334,7 +3310,6 @@ td > small.negative {
   .automation-starter { padding: 24px; }
   .automation-rule-preview { padding: 16px; }
   .agent-context-panel { padding: 22px; }
-  .product-workspace .agent-panel { min-height: 640px; height: calc(100dvh - 160px); }
   .trade-route .workspace-topbar { min-height: 62px; padding: 9px 12px; }
   .trade-route .workspace-content-wrap { padding: 5px; }
   .trade-market-heading { padding: 10px; gap: 14px; min-height: 90px; }
@@ -3361,15 +3336,6 @@ td > small.negative {
   .mobile-settings-selector { display: grid; gap: 8px; margin-bottom: 24px; }
   .mobile-settings-selector > span { font-size: 11px; color: var(--muted); }
   .mobile-settings-selector select { min-height: 48px; border-color: #705566; background: #211b22; }
-  .product-workspace .empty-conversation { min-height: 0; height: auto; max-height: none; }
-  .product-workspace .empty-conversation .chat-scroll { overflow: visible; padding: 24px 18px 18px; }
-  .product-workspace .empty-conversation .agent-welcome { padding: 0; }
-  .product-workspace .empty-conversation .agent-welcome h3 { font-size: 30px; }
-  .product-workspace .empty-conversation .agent-welcome p { font-size: 12px; }
-  .product-workspace .empty-conversation .suggestions { margin-top: 18px; }
-  .product-workspace .empty-conversation .chat-compose { position: static; flex-shrink: 0; min-height: 104px; margin: 0 18px; padding: 10px 12px; }
-  .product-workspace .empty-conversation .chat-compose textarea { min-height: 44px; padding: 5px 0; font-size: 13px; }
-  .product-workspace .empty-conversation .chat-compose > div { padding: 0; }
   .trade-ticket-column { position: static; }
   .reference-copy { min-height: 44px; }
   .native-market-context dl > div { font-size: 12px; }
@@ -3378,12 +3344,6 @@ td > small.negative {
   .product-workspace .icon-button { width: 44px; min-width: 44px; height: 44px; }
 }
 
-.agent-workspace-page .agent-panel { min-height: 440px; height: min(740px, calc(100dvh - 270px)); max-height: 740px; }
-.agent-workspace-page .agent-panel .chat-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-.agent-workspace-page .agent-panel .chat-compose { flex: 0 0 auto; margin: 0 20px; padding: 10px 14px; min-height: 88px; }
-.agent-workspace-page .agent-panel .chat-compose textarea { min-height: 36px; max-height: 96px; padding: 5px 0; font-size: 13px; }
-.agent-workspace-page .agent-panel .chat-compose > div { padding: 0; }
-.agent-workspace-page .agent-panel .autonomous-toggle { padding: 12px 20px; flex-shrink: 0; }
 .agent-model-selector { flex: 0 0 auto; padding: 10px 20px; border-top: 1px solid var(--border-soft); font-size: 11px; }
 .agent-model-selector label { display: flex; align-items: center; gap: 10px; color: var(--muted); }
 .agent-model-selector select { width: auto; max-width: 240px; min-width: 0; min-height: 34px; padding: 6px 10px; font-size: 12px; background: transparent; }
@@ -3392,11 +3352,75 @@ td > small.negative {
 .model-details p { margin: 8px 0; line-height: 1.5; }
 .model-error { color: var(--negative); margin: 8px 0 0; }
 .message-model { display: block; color: var(--muted); font-size: 10px; margin-top: 8px; }
+.agent-route { height: var(--agent-viewport-height, 100dvh); min-height: 0; overflow: hidden; }
+.agent-route .workspace-body { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.agent-route .workspace-topbar { flex: 0 0 auto; }
+.agent-route .workspace-content-wrap { flex: 1 1 auto; min-height: 0; width: 100%; max-width: none; margin: 0; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+.agent-route .workspace-content { flex: 1 1 auto; min-height: 0; display: flex; width: 100%; max-width: none; margin: 0; }
+.agent-route .workspace-notices { flex: 0 0 auto; padding: 8px 20px 0; }
+.agent-workspace-page { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.agent-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1 1 auto; }
+.agent-chat-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 28px; border-bottom: 1px solid var(--border-soft); flex: 0 0 auto; }
+.agent-chat-identity { min-width: 0; }
+.agent-chat-identity h1 { margin: 0; font: 500 15px/1.4 var(--font-sans, sans-serif); letter-spacing: -.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-chat-identity > span { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+.agent-chat-toolbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.agent-chat-toolbar-actions .button { min-height: 36px; padding: 7px 12px; }
+.agent-chat-toolbar-actions .text-link { font-size: 11px; }
+.conversation-stage { position: relative; flex: 1 1 auto; min-height: 0; }
+.agent-route .agent-conversation-scroll { height: 100%; min-height: 0; max-height: none; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 0; scroll-padding: 24px; scrollbar-gutter: stable; overflow-anchor: none; }
+.conversation-content { width: min(100%, 808px); margin: 0 auto; padding: 28px 24px 32px; }
+.agent-route .chat-message { margin-bottom: 28px; }
+.agent-route .chat-message.user { width: fit-content; max-width: 88%; margin-left: auto; background: #2c232b; }
+.agent-route .agent-welcome { padding: 36px 0; max-width: 590px; }
+.agent-route .agent-welcome h3 { font-size: clamp(28px, 3vw, 40px); }
+.agent-route .agent-welcome .suggestions { max-width: 420px; }
+.jump-to-latest { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: 24px; padding: 10px 16px; background: #302630; color: var(--text); font-size: 12px; box-shadow: 0 4px 18px #0005; }
+.agent-composer-dock { flex: 0 0 auto; padding: 0 24px max(12px, env(safe-area-inset-bottom)); }
+.agent-composer-inner { max-width: 760px; margin: 0 auto; }
+.agent-route .agent-message-composer { margin: 0; padding: 8px 12px; min-height: 0; background: #252126; border: 1px solid #49404a; border-radius: 16px; }
+.agent-route .agent-message-composer:focus-within { border-color: #94728c; }
+.agent-route .agent-message-composer > .agent-input-row { display: flex; align-items: flex-end; gap: 12px; padding: 0; }
+.agent-route .agent-message-composer textarea { flex: 1; min-width: 0; min-height: 44px; max-height: 132px; padding: 10px 0; font-size: 14px; line-height: 24px; resize: none; overflow-y: auto; }
+.agent-route .agent-message-composer .agent-send-button { width: 36px; height: 36px; min-width: 36px; border-radius: 50%; margin-bottom: 4px; }
+.agent-route .agent-message-composer > .agent-composer-controls { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 0 0; }
+.agent-autonomy-control { flex-shrink: 0; font-size: 11px; min-height: 34px; gap: 6px; }
+.agent-composer-caption { display: flex; justify-content: space-between; gap: 12px; padding: 7px 3px 0; color: var(--muted); font-size: 10px; }
+.agent-composer-caption .text-button { font-size: 10px; }
+.agent-model-selector.compact { padding: 0; border: 0; display: flex; align-items: center; gap: 8px; position: relative; min-width: 0; }
+.agent-model-selector.compact label { min-width: 0; gap: 4px; }
+.agent-model-selector.compact label > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.agent-model-selector.compact select { min-height: 34px; max-width: 190px; width: 100%; padding: 4px 22px 4px 7px; border: 0; font-size: 11px; }
+.agent-model-selector.compact .model-details { margin: 0; }
+.agent-model-selector.compact .model-details summary { font-size: 11px; padding: 9px 0; white-space: nowrap; }
+.agent-model-selector.compact .model-details-content { position: absolute; bottom: calc(100% + 12px); left: 0; width: min(420px, calc(100vw - 48px)); max-height: min(360px, 50dvh); overflow-y: auto; padding: 14px 18px; border: 1px solid #645260; border-radius: 12px; background: #282129; box-shadow: 0 12px 40px #0008; z-index: 15; color: #c5bdc5; font-size: 12px; }
+.agent-model-selector.compact .model-error { position: absolute; bottom: 100%; width: min(290px, calc(100vw - 48px)); background: var(--surface); padding: 10px; }
+.agent-workspace-page > .agent-context-panel { flex: 0 0 320px; min-width: 0; overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid var(--border); background: #211e23; padding: 22px; }
+.agent-context-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 24px; }
+.agent-context-heading h2 { margin: 0; font-size: 16px; }
+.agent-context-dialog { border: 0; padding: 0; color: var(--text); background: #211e23; width: min(360px, 92vw); max-width: 92vw; height: 100dvh; max-height: 100dvh; margin: 0 0 0 auto; }
+.agent-context-dialog::backdrop { background: #0009; }
+.agent-context-dialog .agent-context-panel { min-height: 100%; padding: 20px; }
+@media (max-width: 767px) {
+  .agent-chat-toolbar { padding: 8px 14px; min-height: 64px; }
+  .agent-chat-identity h1 { font-size: 13px; }
+  .agent-chat-identity > span { font-size: 10px; }
+  .agent-chat-toolbar-actions { gap: 5px; }
+  .agent-chat-toolbar-actions .button { min-height: 44px; padding: 6px 9px; font-size: 11px; }
+  .agent-chat-toolbar-actions .text-link { display: none; }
+  .conversation-content { padding: 22px 16px 28px; }
+  .agent-route .agent-welcome { padding-top: 16px; }
+  .agent-route .chat-message p { font-size: 14px; line-height: 1.7; }
+  .agent-composer-dock { padding: 0 12px max(10px, env(safe-area-inset-bottom)); }
+  .agent-route .agent-message-composer { padding: 6px 10px; }
+  .agent-route .agent-message-composer textarea { font-size: 16px; }
+  .agent-model-selector.compact select { max-width: 160px; min-height: 36px; padding-left: 0; }
+  .agent-autonomy-control { font-size: 10px; min-height: 44px; }
+  .agent-model-selector.compact .model-details summary { font-size: 10px; min-height: 44px; display: flex; align-items: center; }
+  .agent-composer-caption { font-size: 9px; }
+  .agent-composer-caption .text-button { font-size: 9px; }
+}
 @media (max-width: 760px) {
-  .agent-workspace-page .agent-panel { min-height: 440px; height: calc(100dvh - 235px); max-height: 700px; }
-  .agent-workspace-page .agent-panel .chat-scroll { padding: 18px; }
-  .agent-workspace-page .agent-panel .chat-compose { margin: 0 14px; }
-  .agent-workspace-page .agent-panel .autonomous-toggle { padding: 12px 14px max(12px, env(safe-area-inset-bottom)); flex-wrap: wrap; gap: 12px; }
   .automation-approval-card { padding: 16px; }
   .automation-policy-summary > div { grid-template-columns: 76px minmax(0, 1fr); gap: 12px; }
   .agent-response { font-size: 13px; }
