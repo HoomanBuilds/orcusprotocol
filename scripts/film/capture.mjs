@@ -175,6 +175,7 @@ try {
     account = session.accounts.find(item => item.venue === "hyperliquid"); assert.ok(account);
     await nav("Overview"); await changeAccountMode(true);
     await until("!!document.getElementById('overview-accounts')", "Connected account overview");
+    await until("document.querySelectorAll('.overview-market-cards button, .overview-market-cards a').length>0", "Loaded venue market watch cards");
     const overview = await rpc("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
     writeFileSync(join(directory, "overview-demo-top.png"), Buffer.from(overview.data, "base64"));
     await assertDemoVisible(); await delay(1800);
