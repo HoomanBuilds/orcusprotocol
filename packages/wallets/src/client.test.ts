@@ -6,8 +6,10 @@ import { zeroAddress } from "viem";
 const mocks = vi.hoisted(() => ({
   ownerAddress: `0x${"6".repeat(40)}`,
   accountAddress: `0x${"1".repeat(40)}`,
+  operatingAddress: `0x${"8".repeat(40)}`,
   currentAddress: `0x${"6".repeat(40)}`,
   chainId: 11155111,
+  rpcChainId: 16602,
   switchAccount: false,
   ownerCode: "0x",
   sign: vi.fn(),
@@ -25,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("viem", async importOriginal => ({
   ...await importOriginal<typeof import("viem")>(),
+  createPublicClient: () => ({ getChainId: async () => mocks.rpcChainId, estimateGas: mocks.estimateGas, estimateFeesPerGas: mocks.estimateFees, getBalance: mocks.getBalance, waitForTransactionReceipt: mocks.waitTransaction }),
   createWalletClient: () => ({ account: { address: mocks.currentAddress }, getChainId: async () => mocks.chainId, switchChain: async ({ id }: { id: number }) => { mocks.chainId = id; if (mocks.switchAccount) mocks.currentAddress = mocks.accountAddress; }, sendTransaction: mocks.sendTransaction }),
 }));
 
@@ -39,7 +42,7 @@ vi.mock("./kernel", async importOriginal => ({
   createPermissionPlugin: async () => ({ getIdentifier: () => "0x12345678", getEnableData: async () => "0x" }),
 }));
 
-import { createTradingSmartAccount, executePreparedAction, fundTradingAccount, invalidateKernelPendingApprovals, revokeKernelPermission } from "./client";
+import { createTradingSmartAccount, executePreparedAction, fundTradingAccount, fundOperatingWallet, invalidateKernelPendingApprovals, revokeKernelPermission } from "./client";
 
 const account: TradingAccount = { id: "account", userId: "user", venue: "uniswap", address: mocks.accountAddress, ownerAddress: mocks.ownerAddress, chainId: 11155111, status: "authorized", controlRevision: 1 };
 const policy: KernelGrantPolicy = { accountAddress: mocks.accountAddress, agentAddress: `0x${"2".repeat(40)}`, router: `0x${"3".repeat(40)}`, swaps: [{ tokenIn: `0x${"4".repeat(40)}`, tokenOut: `0x${"5".repeat(40)}`, feeTier: 500, maxAmountIn: "1000", minAmountOut: "900" }], issuedAt: Date.now(), expiresAt: Date.now() + 60_000, maxGasWei: "1000" };
@@ -49,6 +52,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.currentAddress = mocks.ownerAddress;
   mocks.chainId = 11155111;
+  mocks.rpcChainId = 16602;
   mocks.switchAccount = false;
   mocks.ownerCode = "0x";
   mocks.getCode.mockResolvedValue("0x1234");
@@ -67,7 +71,7 @@ beforeEach(() => {
   mocks.sendTransaction.mockResolvedValue(txHash);
   mocks.waitTransaction.mockResolvedValue({ status: "success", transactionHash: txHash });
   vi.stubGlobal("window", { location: { origin: "http://localhost:3000" }, ethereum: { request: async ({ method }: { method: string }) => method === "eth_accounts" ? [mocks.currentAddress] : `0x${mocks.chainId.toString(16)}` } });
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => ({ data: url === "/api/session" ? { user: { address: mocks.ownerAddress }, accounts: [account] } : { smartAccountsConfigured: true, rpcUrl: "/api/rpc", bundlerUrl: "/api/bundler", chainId: 11155111 } }) })));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => ({ data: url === "/api/session" ? { user: { address: mocks.ownerAddress }, agent: { operatingAddress: mocks.operatingAddress }, accounts: [account] } : { smartAccountsConfigured: true, rpcUrl: "/api/rpc", bundlerUrl: "/api/bundler", chainId: 11155111 } }) })));
 });
 
 afterEach(() => { vi.unstubAllGlobals(); });
@@ -133,5 +137,29 @@ describe("owner-signed account funding", () => {
     await expect(fundTradingAccount({ account, asset: "ETH", amount: "0.01" })).rejects.toMatchObject({ code: "OWNER_REJECTED", phase: "not-submitted" });
     mocks.sendTransaction.mockRejectedValueOnce(new Error("transport timeout"));
     await expect(fundTradingAccount({ account, asset: "ETH", amount: "0.01" })).rejects.toMatchObject({ code: "SUBMISSION_UNKNOWN", phase: "submitted-unknown" });
+  });
+});
+
+describe("separate operating-wallet funding", () => {
+  const input = { ownerAddress: mocks.ownerAddress, operatingAddress: mocks.operatingAddress, amount: "0.01" };
+  it("funds only the current session operating wallet on Galileo and never calls it compute credits", async () => {
+    await expect(fundOperatingWallet(input)).resolves.toMatchObject({ recipient: mocks.operatingAddress, chainId: 16602, asset: "0G", computeCredits: false });
+    expect(mocks.sendTransaction).toHaveBeenCalledWith(expect.objectContaining({ to: mocks.operatingAddress, value: 10n ** 16n }));
+  });
+  it("rejects another wallet destination before asking for a signature", async () => {
+    await expect(fundOperatingWallet({ ...input, operatingAddress: mocks.accountAddress })).rejects.toMatchObject({ code: "ACCOUNT_CHANGED" });
+    expect(mocks.sendTransaction).not.toHaveBeenCalled();
+  });
+  it("rejects a mismatched RPC chain and leaves gas in the owner's wallet", async () => {
+    mocks.rpcChainId = 16661;
+    await expect(fundOperatingWallet(input)).rejects.toMatchObject({ code: "WRONG_NETWORK" });
+    mocks.rpcChainId = 16602;
+    mocks.getBalance.mockResolvedValue(10n ** 16n);
+    await expect(fundOperatingWallet(input)).rejects.toMatchObject({ code: "INSUFFICIENT_FUNDS" });
+    expect(mocks.sendTransaction).not.toHaveBeenCalled();
+  });
+  it("preserves transaction evidence on an unknown receipt", async () => {
+    mocks.waitTransaction.mockRejectedValue(new Error("timeout"));
+    await expect(fundOperatingWallet(input)).rejects.toMatchObject({ code: "RECEIPT_UNKNOWN", phase: "submitted-unknown", evidence: { transactionHash: txHash } });
   });
 });

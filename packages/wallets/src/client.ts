@@ -2,7 +2,7 @@ import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
 import { serializePermissionAccount } from "@zerodev/permissions";
 import { createKernelAccount, KernelV3_1AccountAbi } from "@zerodev/sdk";
 import type { PreparedAction, TradingAccount } from "@orcus/core";
-import { concatHex, createWalletClient, custom, encodeFunctionData, erc20Abi, getAddress, padHex, zeroAddress, type Address, type Chain, type EIP1193Provider, type Hex } from "viem";
+import { BaseError, concatHex, createPublicClient, createWalletClient, custom, defineChain, encodeFunctionData, erc20Abi, getAddress, http, padHex, zeroAddress, type Address, type Chain, type EIP1193Provider, type Hex } from "viem";
 import { formatUserOperationRequest, getUserOperationHash } from "viem/account-abstraction";
 import { arbitrumSepolia, sepolia } from "viem/chains";
 import { createOwnerKernel, createPermissionPlugin, entryPoint, kernelVersion, kernelPublicClient, kernelGrantPolicySchema, type KernelAuthorization, type KernelConfig, type KernelGrantPolicy } from "./kernel";
@@ -10,6 +10,8 @@ import { exactTokenAmount, inspectPreparedSwap, isOwnerRejection, WalletActionEr
 import { broadcastPreparedOperation } from "./execution";
 
 export { WalletActionError } from "./preflight";
+
+const galileo = defineChain({ id: 16602, name: "0G Galileo Testnet", nativeCurrency: { name: "0G", symbol: "0G", decimals: 18 }, rpcUrls: { default: { http: ["https://evmrpc-testnet.0g.ai"] } }, blockExplorers: { default: { name: "0G ChainScan", url: "https://chainscan-galileo.0g.ai" } }, testnet: true });
 
 function provider(): EIP1193Provider {
   if (typeof window === "undefined") throw new Error("Connect a wallet in your browser.");
@@ -39,7 +41,16 @@ async function ownerWallet(chain: Chain = sepolia, expected?: string) {
   const account = await currentWalletAddress();
   if (expected && account !== getAddress(expected)) throw new WalletActionError("OWNER_CHANGED", "Reconnect the account owner before continuing.");
   const wallet = createWalletClient({ account, chain, transport: custom(provider()) });
-  if (await wallet.getChainId() !== chain.id) await wallet.switchChain({ id: chain.id });
+  if (await wallet.getChainId() !== chain.id) {
+    try { await wallet.switchChain({ id: chain.id }); }
+    catch (error) {
+      const missingChain = error instanceof BaseError ? error.walk(cause => cause !== null && typeof cause === "object" && "code" in cause && cause.code === 4902) : error && typeof error === "object" && "code" in error && error.code === 4902;
+      if (!missingChain) throw error;
+      await assertOwner(account);
+      await wallet.addChain({ chain });
+      await wallet.switchChain({ id: chain.id });
+    }
+  }
   if (await wallet.getChainId() !== chain.id) throw new Error(`Switch your wallet to ${chain.name}.`);
   await assertOwner(account, chain);
   return wallet;
@@ -249,6 +260,35 @@ export async function fundTradingAccount(input: { account: TradingAccount; asset
   catch { throw new WalletActionError("RECEIPT_UNKNOWN", "Your funding transfer was sent. Check its transaction before retrying.", "submitted-unknown", { transactionHash: hash }); }
   if (receipt.status !== "success") throw new WalletActionError("FUNDING_REVERTED", "The funding transfer reverted onchain.", "reverted", { transactionHash: hash });
   return { transactionHash: receipt.transactionHash, recipient, chainId: sepolia.id, asset: input.asset, amount: input.amount };
+}
+
+export async function fundOperatingWallet(input: { ownerAddress: string; operatingAddress: string; amount: string }) {
+  const ownerAddress = getAddress(input.ownerAddress), recipient = getAddress(input.operatingAddress);
+  const assertSession = async () => {
+    await assertOwner(ownerAddress);
+    const response = await fetch("/api/session", { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok || !result.data?.user?.address || !result.data?.agent?.operatingAddress || getAddress(result.data.user.address) !== ownerAddress || getAddress(result.data.agent.operatingAddress) !== recipient || recipient === ownerAddress) throw new WalletActionError("ACCOUNT_CHANGED", "The owner or operating wallet changed. Refresh before funding.");
+  };
+  await assertSession();
+  const value = exactTokenAmount(input.amount, 18);
+  const wallet = await ownerWallet(galileo, ownerAddress);
+  const client = createPublicClient({ chain: galileo, transport: http(undefined, { timeout: 10_000, retryCount: 1 }) });
+  if (await client.getChainId() !== galileo.id) throw new WalletActionError("WRONG_NETWORK", "The operating-wallet RPC is not 0G Galileo testnet.");
+  const gas = await client.estimateGas({ account: wallet.account, to: recipient, value });
+  const fees = await client.estimateFeesPerGas();
+  const gasLimit = gas * 120n / 100n;
+  if (await client.getBalance({ address: ownerAddress }) < value + gasLimit * fees.maxFeePerGas) throw new WalletActionError("INSUFFICIENT_FUNDS", "Keep enough testnet 0G in your owner wallet for the funding amount and gas.");
+  await assertSession();
+  await assertOwner(ownerAddress, galileo);
+  let hash: Hex;
+  try { hash = await wallet.sendTransaction({ to: recipient, value, gas: gasLimit, ...fees }); }
+  catch (error) { throw fundingSendError(error); }
+  let receipt;
+  try { receipt = await client.waitForTransactionReceipt({ hash, timeout: 120_000 }); }
+  catch { throw new WalletActionError("RECEIPT_UNKNOWN", "Operating-wallet funding was sent. Inspect its transaction before retrying.", "submitted-unknown", { transactionHash: hash }); }
+  if (receipt.status !== "success") throw new WalletActionError("FUNDING_REVERTED", "Operating-wallet funding reverted onchain.", "reverted", { transactionHash: hash });
+  return { transactionHash: receipt.transactionHash, recipient, chainId: galileo.id, asset: "0G" as const, amount: input.amount, purpose: "operating-wallet-funding" as const, computeCredits: false };
 }
 
 function fundingSendError(error: unknown) {

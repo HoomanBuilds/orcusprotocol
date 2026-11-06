@@ -22,6 +22,7 @@ import {
   revokeKernelPermission,
   invalidateKernelPendingApprovals,
   fundTradingAccount,
+  fundOperatingWallet,
 } from "@/lib/wallets";
 import { usd } from "@/lib/format";
 import { MemoryControls } from "./memory-controls";
@@ -440,6 +441,8 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cap, setCap] = useState("");
+  const [operatingAmount, setOperatingAmount] = useState("");
+  const [operatingHash, setOperatingHash] = useState<string | null>(null);
   const [preferences, setPreferences] = useState("");
   const [privateOnly, setPrivateOnly] = useState(false);
   const [memoryStatus, setMemoryStatus] = useState<string | null>(null);
@@ -505,6 +508,25 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
     } finally {
       setBusy(null);
     }
+  }
+
+  async function fundOperating() {
+    if (!w.session.user || !agent) return;
+    setBusy("fund-operating");
+    setError(null);
+    try {
+      const result = await fundOperatingWallet({ ownerAddress: w.session.user.address, operatingAddress: agent.operatingAddress, amount: operatingAmount });
+      setOperatingHash(result.transactionHash);
+      setOperatingAmount("");
+      w.setNotice("Testnet 0G funding confirmed for the operating wallet. It can pay for memory storage; it is not a compute-account top-up.");
+      await w.refresh();
+    } catch (cause) {
+      if (cause && typeof cause === "object" && "evidence" in cause) {
+        const evidence = cause.evidence as { transactionHash?: string } | undefined;
+        if (evidence?.transactionHash) setOperatingHash(evidence.transactionHash);
+      }
+      setError(displayError(cause));
+    } finally { setBusy(null); }
   }
 
   async function saveAgent() {
@@ -705,6 +727,13 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
                   </dd>
                 </div>
               </dl>
+              <details className="technical-limits">
+                <summary>Fund the operating wallet for testnet storage gas</summary>
+                <p className="fine-print">Transfer testnet 0G on Galileo to the separate operating address above. Your owner wallet signs the amount and pays gas. This neither funds trading nor deposits into the compute provider.</p>
+                <Field label="Testnet 0G amount"><input inputMode="decimal" value={operatingAmount} onChange={event => setOperatingAmount(event.target.value)} placeholder="0.01" /></Field>
+                <button className="button secondary small" type="button" disabled={!!busy || !!operatingHash || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(operatingAmount) || Number(operatingAmount) <= 0} onClick={() => void fundOperating()}>{busy === "fund-operating" ? <Spinner /> : <Wallet size={13} />}Fund in owner wallet</button>
+                {operatingHash && <><a className="text-link" href={`https://chainscan-galileo.0g.ai/tx/${operatingHash}`} target="_blank" rel="noreferrer">Inspect operating transfer<ExternalLink size={12} /></a><button className="button secondary small" type="button" onClick={() => setOperatingHash(null)}>I checked this transfer; enter another</button></>}
+              </details>
               {w.budget?.providerBalance?.accountAddress && <p className="fine-print">Configured provider account: <Address value={w.budget.providerBalance.accountAddress} />. This is not a separate per-user credit pool.</p>}
               <p className="fine-print">Pending expense reservations: {usd(w.budget?.reservedUsd)}. Requests with unknown billing retain their reservation instead of reporting an invented cost.</p>
               {!!w.budget?.expenses?.length && <details className="technical-limits"><summary>Operating expense evidence</summary>{w.budget.expenses.slice(0, 20).map(expense => <div className="evaluation" key={expense.id}><small>{expense.status} / {usd(expense.amountUsd)}</small><code>{expense.reference}</code></div>)}</details>}
