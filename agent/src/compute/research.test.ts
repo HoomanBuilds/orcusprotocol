@@ -2,12 +2,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { analyzeCandles, boundedResearchJson, publicSourceUrl, researchSource, searchResearch } from "./research";
 import { parseResearchBook, readResearchMarketContext } from "./market-context";
 import { compactToolObservation, groundFinalAnswer } from "./grounding";
+import { getHyperliquidCandles } from "../venues/hyperliquid";
 
 const now = 1_783_000_800_000;
 const candles = () => Array.from({ length: 21 }, (_, i) => ({ time: now / 1000 - (21 - i) * 3600, open: 100 + i, high: 102 + i, low: 99 + i, close: 101 + i, volume: 10 }));
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("bounded source-grounded market research", () => {
+  it("rejects malformed upstream candles rather than silently filtering them", async () => {
+    const valid = { t: now - 3600_000, o: "100", h: "102", l: "99", c: "101", v: "10" };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([valid, { ...valid, t: now, c: "NaN" }])));
+    await expect(getHyperliquidCandles({ symbol: "ETH", interval: "1h", limit: 20 })).rejects.toThrow("malformed candle");
+  });
   it("sorts and deduplicates identical closed candles before computing indicators", () => {
     const data = candles();
     const result = analyzeCandles([...data.reverse(), data[0]], "1h", now);

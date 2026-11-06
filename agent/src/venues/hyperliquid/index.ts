@@ -56,8 +56,13 @@ export async function getHyperliquidCandles(input: { symbol: string; interval?: 
   if (!allowed[interval]) throw new EngineError("INVALID_INTERVAL", "Unsupported chart interval.");
   const endTime = Date.now();
   const candles = await hyperliquidInfo<Array<{ t: number; o: string; h: string; l: string; c: string; v: string }>>({ type: "candleSnapshot", req: { coin: coinName(input.symbol), interval, startTime: endTime - allowed[interval] * Math.min(input.limit ?? 160, 500), endTime } });
-  if (!Array.isArray(candles)) throw new EngineError("INVALID_UPSTREAM", "The venue returned invalid candle data.", 502);
-  return candles.map(c => ({ time: Math.floor(c.t / 1000), open: Number(c.o), high: Number(c.h), low: Number(c.l), close: Number(c.c), volume: Number(c.v) })).filter(c => [c.time, c.open, c.high, c.low, c.close].every(Number.isFinite));
+  if (!Array.isArray(candles) || candles.length > 501) throw new EngineError("INVALID_UPSTREAM", "The venue returned invalid candle data.", 502);
+  return candles.map(c => {
+    if (!c || typeof c !== "object" || !Number.isSafeInteger(c.t) || c.t <= 0 || ![c.o, c.h, c.l, c.c, c.v].every(value => typeof value === "string" && /^\d+(?:\.\d+)?$/.test(value) && Number.isFinite(Number(value)))) throw new EngineError("INVALID_UPSTREAM", "The venue returned malformed candle data.", 502);
+    const candle = { time: Math.floor(c.t / 1000), open: Number(c.o), high: Number(c.h), low: Number(c.l), close: Number(c.c), volume: Number(c.v) };
+    if ([candle.open, candle.high, candle.low, candle.close].some(value => value <= 0) || candle.high < Math.max(candle.open, candle.close, candle.low) || candle.low > Math.min(candle.open, candle.close, candle.high)) throw new EngineError("INVALID_UPSTREAM", "The venue returned incoherent candle prices.", 502);
+    return candle;
+  });
 }
 
 export async function getHyperliquidBook(symbol: string) {
