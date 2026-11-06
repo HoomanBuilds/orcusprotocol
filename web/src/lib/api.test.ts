@@ -17,6 +17,10 @@ describe("safe actionable wallet and API errors", () => {
   it.each(["PAYMASTER_UNCONFIGURED", "SPONSORSHIP_UNCONFIGURED", "SPONSORSHIP_REJECTED"]) ("does not offer owner-paid fallback for %s", code => {
     expect(displayError({ code })).toMatch(/owner-paid/);
   });
+  it.each(["SPONSORSHIP_UNAVAILABLE", "SPONSORSHIP_USER_CAP", "SPONSORSHIP_PROJECT_CAP"]) ("explains sponsor availability or caps safely for %s", code => {
+    expect(displayError({ code, message: "private provider diagnostics" })).toMatch(/owner-paid/);
+    expect(displayError({ code, message: "private provider diagnostics" })).not.toContain("diagnostics");
+  });
   it("uses safe code-based instructions without reflecting provider messages, credentials, or raw revert data", () => {
     const secret = `Bearer ${"not-a-real-token".repeat(30)}`;
     const raw = new ApiError("VENUE_REJECTED", `${secret} https://rpc.example/key 0xdeadbeef`, 400);

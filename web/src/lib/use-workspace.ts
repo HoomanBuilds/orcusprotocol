@@ -18,6 +18,7 @@ import type {
   Venue,
 } from "@orcus/core";
 import { api, ApiError, displayError, post } from "./api";
+import { tradingGasStatus, type WalletExecutionConfig } from "./trade-ux";
 import {
   connectWallet,
   currentWalletAddress,
@@ -58,6 +59,7 @@ export function useWorkspace() {
   const [agentData, setAgentData] = useState<AgentData | null>(null);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [budget, setBudget] = useState<OperatingBudget | null>(null);
+  const [walletConfig, setWalletConfig] = useState<WalletExecutionConfig | null>(null);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [venue, setVenue] = useState<Venue>("hyperliquid");
   const [symbol, setSymbol] = useState("BTC");
@@ -72,6 +74,9 @@ export function useWorkspace() {
   const [executing, setExecuting] = useState(false);
   const refreshingRef = useRef(false);
   const sessionRevision = useRef(0);
+  const connectingRef = useRef(false);
+  const preparingRef = useRef(false);
+  const executingRef = useRef(false);
 
   const clearPrivate = useCallback(() => {
     sessionRevision.current += 1;
@@ -81,6 +86,7 @@ export function useWorkspace() {
     setAgentData(null);
     setAutomations([]);
     setBudget(null);
+    setWalletConfig(null);
     setPreview(null);
   }, []);
 
@@ -100,6 +106,7 @@ export function useWorkspace() {
           api<AgentData>("/api/agent"),
           api<{ automations: Automation[] }>("/api/automations"),
           api<OperatingBudget>("/api/budget"),
+          api<WalletExecutionConfig>("/api/wallet-config"),
         ]);
         if (revision !== sessionRevision.current) return;
         if (results[0].status === "fulfilled")
@@ -117,6 +124,7 @@ export function useWorkspace() {
           );
         if (results[4].status === "fulfilled")
           setBudget(results[4].value as OperatingBudget);
+        setWalletConfig(results[5].status === "fulfilled" ? results[5].value as WalletExecutionConfig : null);
         const failed = results.find((result) => result.status === "rejected");
         if (failed?.status === "rejected")
           setError(displayError(failed.reason));
@@ -193,7 +201,8 @@ export function useWorkspace() {
   }, [clearPrivate, session.user?.address]);
 
   async function connect() {
-    if (connecting) return;
+    if (connectingRef.current) return;
+    connectingRef.current = true;
     setConnecting(true);
     setError(null);
     try {
@@ -213,6 +222,7 @@ export function useWorkspace() {
     } catch (cause) {
       setError(displayError(cause));
     } finally {
+      connectingRef.current = false;
       setConnecting(false);
     }
   }
@@ -227,7 +237,8 @@ export function useWorkspace() {
   }
 
   async function prepare(request: TradeRequest, initiator: "manual" | "agent" = "manual", messageId?: string) {
-    if (preparing || executing) return;
+    if (preparingRef.current || executingRef.current) return;
+    preparingRef.current = true;
     setPreparing(true);
     setError(null);
     setPreview(null);
@@ -241,17 +252,25 @@ export function useWorkspace() {
     } catch (cause) {
       setError(displayError(cause));
     } finally {
+      preparingRef.current = false;
       setPreparing(false);
     }
   }
 
   async function confirm() {
-    if (!preview || executing) return;
+    if (!preview || executingRef.current) return;
+    executingRef.current = true;
     setExecuting(true);
     setError(null);
     setNotice(null);
     let ownerResult: Awaited<ReturnType<typeof executePreparedAction>> | undefined;
+    const revision = sessionRevision.current;
     try {
+      if (preview.execution.request.venue === "uniswap") {
+        const liveConfig = await api<WalletExecutionConfig>("/api/wallet-config");
+        setWalletConfig(liveConfig);
+        if (!tradingGasStatus(liveConfig, "uniswap").ready) throw new ApiError("SPONSORSHIP_UNCONFIGURED", "Gas sponsorship unavailable.", 503);
+      }
       if (preview.execution.expiresAt <= Date.now())
         throw new Error(
           "This quote has expired. Prepare a new quote before signing.",
@@ -259,19 +278,22 @@ export function useWorkspace() {
       const owner = await currentWalletAddress();
       if (owner.toLowerCase() !== preview.execution.account.ownerAddress.toLowerCase()) throw new Error("Your wallet changed. Reconnect the account owner before approving this action.");
       ownerResult = preview.execution.request.mode === "manual" ? await executePreparedAction(preview.execution) : undefined;
+      if (revision !== sessionRevision.current) return;
       const saved = await post<{ action: ActionRecord }>("/api/actions/submit", {
         actionId: preview.action.id,
         ...(ownerResult ? { txHash: ownerResult.transactionHash, userOperationHash: ownerResult.userOperationHash, orderId: ownerResult.orderId, result: ownerResult.response } : {}),
       });
       setPreview(null);
       await refresh();
-      if (saved.action.status === "rejected") throw new Error(saved.action.error ?? "The venue rejected this action. Check activity before preparing another.");
+      if (saved.action.status === "rejected") throw new ApiError("VENUE_REJECTED", "The venue rejected this action.", 409);
       setNotice(saved.action.status === "confirmed" ? "Action confirmed by the venue." : saved.action.status === "cancelled" ? "Action cancelled. Check activity for any partial fills." : saved.action.status === "submitted-unknown" ? "Submission outcome is unknown. Check activity before retrying." : "Action submitted. Reconciliation will confirm its final status.");
     } catch (cause) {
+      if (revision !== sessionRevision.current) return;
       const phase = cause && typeof cause === "object" && "phase" in cause ? cause.phase : undefined;
       if (ownerResult || phase === "submitted-unknown" || phase === "reverted") { setPreview(null); await refresh(); }
       setError(displayError(cause));
     } finally {
+      executingRef.current = false;
       setExecuting(false);
     }
   }
@@ -301,6 +323,7 @@ export function useWorkspace() {
     agentData,
     automations,
     budget,
+    walletConfig,
     markets,
     venue,
     setVenue,

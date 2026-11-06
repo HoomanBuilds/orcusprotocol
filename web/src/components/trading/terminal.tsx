@@ -375,7 +375,7 @@ export function Terminal() {
                 </div>
                 <Badge>{w.actions.length} actions</Badge>
               </div>
-              <ActivityTable actions={w.actions} />
+              <ActivityTable actions={w.actions} onRefresh={w.refresh} />
             </section>
           )}
         </main>

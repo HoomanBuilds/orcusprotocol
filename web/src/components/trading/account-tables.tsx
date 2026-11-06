@@ -5,7 +5,9 @@ import { ExternalLink } from "lucide-react";
 import type { ActionRecord, Position, TradeRequest } from "@orcus/core";
 import type { Workspace } from "@/lib/use-workspace";
 import { number, time, usd } from "@/lib/format";
-import { Badge, Empty, Status } from "./primitives";
+import { actionRecovery } from "@/lib/trade-ux";
+import { displayError } from "@/lib/api";
+import { Badge, Empty, InlineError, Spinner, Status } from "./primitives";
 
 function half(value: string): string {
   const [whole, decimal = ""] = value.split(".");
@@ -129,7 +131,15 @@ function PositionRow({
   );
 }
 
-export function ActivityTable({ actions }: { actions: ActionRecord[] }) {
+export function ActivityTable({ actions, onRefresh }: { actions: ActionRecord[]; onRefresh?: () => Promise<unknown> }) {
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function checkStatus() {
+    if (checking || !onRefresh) return;
+    setChecking(true); setError(null);
+    try { await onRefresh(); } catch (cause) { setError(displayError(cause)); }
+    finally { setChecking(false); }
+  }
   if (!actions.length)
     return (
       <Empty title="Your execution history starts here">
@@ -139,6 +149,8 @@ export function ActivityTable({ actions }: { actions: ActionRecord[] }) {
     );
   return (
     <div className="table-scroll">
+      {actions.some(action => ["submitting", "submitted-unknown", "pending", "partially-filled"].includes(action.status)) && <div className="warning-note"><p>A submitted action is still resolving. Refresh its existing record instead of placing it again.</p>{onRefresh && <button className="button secondary small" type="button" disabled={checking} onClick={() => void checkStatus()}>{checking ? <Spinner /> : null}Check existing action status</button>}</div>}
+      <InlineError message={error} />
       <table>
         <thead>
           <tr>
@@ -160,9 +172,9 @@ export function ActivityTable({ actions }: { actions: ActionRecord[] }) {
                   {action.request.type} / {action.request.side}{" "}
                   {number(action.request.amount, 6)}
                 </small>
-                {action.error && (
-                  <small className="negative" title={action.error}>
-                    {action.error.slice(0, 100)}
+                {actionRecovery(action.status) && (
+                  <small className={action.status === "rejected" ? "negative" : "muted"}>
+                    {actionRecovery(action.status)}
                   </small>
                 )}
               </td>
@@ -185,10 +197,12 @@ export function ActivityTable({ actions }: { actions: ActionRecord[] }) {
                   >
                     Transaction <ExternalLink size={11} />
                   </a>
+                ) : action.userOperationHash ? (
+                  <span className="muted" title={action.userOperationHash}>Signed operation recorded; awaiting its transaction receipt</span>
                 ) : action.orderId ? (
                   <span className="muted">Order {action.orderId}</span>
                 ) : (
-                  <span className="muted">Awaiting submission</span>
+                  <span className="muted">{["submitting", "submitted-unknown", "pending"].includes(action.status) ? "No confirmed receipt yet" : "No submission receipt"}</span>
                 )}
                 {action.providerRequestId && (
                   <small title={action.providerRequestId}>
@@ -392,7 +406,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
           </Empty>
         )
       ) : (
-        <ActivityTable actions={w.actions} />
+        <ActivityTable actions={w.actions} onRefresh={w.refresh} />
       )}
     </section>
   );

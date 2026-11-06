@@ -11,7 +11,8 @@ import { tradeRequestSchema, type TradeRequest } from "@orcus/core";
 import type { Workspace } from "@/lib/use-workspace";
 import { number, usd } from "@/lib/format";
 import { displayError } from "@/lib/api";
-import { Field, InlineError, Spinner } from "./primitives";
+import { tradingGasStatus } from "@/lib/trade-ux";
+import { Address, Field, InlineError, Spinner } from "./primitives";
 
 export function OrderTicket({
   workspace: w,
@@ -28,6 +29,7 @@ export function OrderTicket({
   const [price, setPrice] = useState("");
   const [slippage, setSlippage] = useState("0.5");
   const [reduceOnly, setReduceOnly] = useState(false);
+  const [nativeInput, setNativeInput] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   useEffect(() => {
     setAmount("");
@@ -35,11 +37,15 @@ export function OrderTicket({
     setFormError(null);
     setOrderType("market");
     setReduceOnly(false);
+    setNativeInput(false);
   }, [w.venue, w.symbol]);
   const spot = w.venue === "uniswap";
+  const gas = tradingGasStatus(w.walletConfig, w.venue);
+  const uncertain = w.actions.some(action => action.accountId === w.account?.id && ["submitting", "submitted-unknown"].includes(action.status));
   const asset = w.activeMarket?.baseAsset ?? w.symbol.split("/")[0];
   const quote = w.activeMarket?.quoteAsset ?? "USDC";
-  const inputAsset = spot && side === "buy" ? quote : asset;
+  const nativeAvailable = spot && side === "sell" && w.symbol === "WETH/USDC" && !!w.account?.smartAccountAddress;
+  const inputAsset = nativeAvailable && nativeInput ? "ETH" : spot && side === "buy" ? quote : asset;
   const balance = w.portfolio.balances.find(
     (item) =>
       item.accountId === w.account?.id &&
@@ -75,6 +81,7 @@ export function OrderTicket({
             orderType === "stop-loss" ||
             orderType === "take-profit"),
         mode: "manual",
+        ...(nativeAvailable && nativeInput ? { nativeInput: true } : {}),
         ...(!spot && orderType === "limit" ? { price } : {}),
         ...(!spot && (orderType === "stop-loss" || orderType === "take-profit")
           ? { triggerPrice: price }
@@ -100,14 +107,14 @@ export function OrderTicket({
         <button
           type="button"
           className={side === "buy" ? "selected buy" : ""}
-          onClick={() => setSide("buy")}
+          onClick={() => { setSide("buy"); setAmount(""); setNativeInput(false); }}
         >
           {spot ? "Buy" : "Long / Buy"}
         </button>
         <button
           type="button"
           className={side === "sell" ? "selected sell" : ""}
-          onClick={() => setSide("sell")}
+          onClick={() => { setSide("sell"); setAmount(""); setNativeInput(false); }}
         >
           {spot ? "Sell" : "Short / Sell"}
         </button>
@@ -135,7 +142,7 @@ export function OrderTicket({
         </div>
       )}
       <div className="ticket-account">
-        <span>{spot ? "Smart account" : "Trading account"}</span>
+        <span>{spot ? "Sepolia trading account" : "Hyperliquid testnet account"}</span>
         <span>
           {w.account ? (
             <>
@@ -147,11 +154,14 @@ export function OrderTicket({
           )}
         </span>
       </div>
+      {w.account && <p className="fine-print">Trades use <Address value={w.account.address} explorer={spot ? "https://sepolia.etherscan.io" : undefined} />. This is the same account your approved agent manages.</p>}
+      {nativeAvailable && <label className="checkbox"><input type="checkbox" checked={nativeInput} disabled={w.preparing || w.executing} onChange={event => { setNativeInput(event.target.checked); setAmount(""); }} />Pay with native Sepolia ETH. Wrap and swap in one atomic account operation.</label>}
+      {spot && side === "buy" && <p className="fine-print">Buying this pair receives WETH, not native ETH. No automatic unwrap or cross-chain transfer is included.</p>}
       <Field
         label={spot ? "You pay" : "Position size"}
         hint={
           spot
-            ? `Input token: ${inputAsset}. Quote uses the selected testnet pool.`
+            ? `Input token: ${inputAsset} from your trading account. ${nativeAvailable && nativeInput ? "ETH is wrapped into WETH inside the same swap operation." : "Quote uses the selected testnet pool."}`
             : estimated !== undefined
               ? `Estimated notional ${usd(estimated)}`
               : "Enter an amount to preview your order."
@@ -240,13 +250,15 @@ export function OrderTicket({
         </div>
         <div>
           <span>Execution</span>
-          <span>{spot ? "Uniswap V3" : "Hyperliquid testnet"}</span>
+          <span>{spot ? "Uniswap V3 / Sepolia" : "Hyperliquid testnet"}</span>
         </div>
         <div>
-          <span>Network fee</span>
-          <span>Shown before signing</span>
+          <span>{spot ? "Trading gas" : "Fees"}</span>
+          <span>{gas.label}</span>
         </div>
       </div>
+      {spot && <p className={gas.ready ? "fine-print" : "warning-note"}>{gas.detail} Your first wallet-to-account deposit is separate and uses owner-paid gas. No 0G is needed to trade.</p>}
+      {uncertain && <p className="warning-note">An earlier submission for this account is unresolved. Check its existing record in Activity before trading again.</p>}
       <InlineError message={formError} />
       {!w.session.user ? (
         <button
@@ -273,7 +285,7 @@ export function OrderTicket({
           className={`button full ${side === "buy" ? "primary" : "sell-button"}`}
           type="button"
           disabled={
-            w.preparing || w.executing || !amount || Number(amount) <= 0
+            w.preparing || w.executing || uncertain || !amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0
           }
           onClick={() => void prepare()}
         >
@@ -292,7 +304,7 @@ export function OrderTicket({
       )}
       <p className="ticket-note">
         <LockKeyhole size={12} />
-        You stay in control. Every manual trade is signed in your wallet.
+        Manual trades need your owner-wallet signature. Agent access is a separate, revocable approval. No private key is shared.
       </p>
     </section>
   );

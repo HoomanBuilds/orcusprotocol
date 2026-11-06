@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
   Database,
@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { AgentPermission, TradingAccount } from "@orcus/core";
 import type { KernelGrantPolicy } from "@orcus/wallets/kernel";
+import { formatUnits } from "viem";
 import type { Workspace } from "@/lib/use-workspace";
 import { api, displayError, post } from "@/lib/api";
 import {
@@ -25,6 +26,7 @@ import {
   fundOperatingWallet,
 } from "@/lib/wallets";
 import { tokenUnits, usd } from "@/lib/format";
+import { fundingRecovery, tradingGasStatus } from "@/lib/trade-ux";
 import { MemoryControls } from "./memory-controls";
 import { ComputeFundingPanel } from "./compute-funding-panel";
 import {
@@ -53,24 +55,43 @@ function AccountCard({
   workspace: Workspace;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [maxTrade, setMaxTrade] = useState("100");
   const [symbols, setSymbols] = useState(
     account.venue === "uniswap" ? "WETH/USDC" : "BTC, ETH",
   );
   const [hours, setHours] = useState("24");
+  const [allowNativeInput, setAllowNativeInput] = useState(false);
   const [prepared, setPrepared] = useState<PreparedPermission | null>(null);
   const [fundingAsset, setFundingAsset] = useState<"ETH" | "USDC" | "WETH">("ETH");
   const [fundingAmount, setFundingAmount] = useState("");
   const [fundingHash, setFundingHash] = useState<string | null>(null);
+  const [fundingState, setFundingState] = useState<"confirmed" | "unknown" | "reverted" | null>(null);
+  const [fundingChecked, setFundingChecked] = useState(false);
+  const [fundingLoaded, setFundingLoaded] = useState(false);
   const [pendingPolicy, setPendingPolicy] = useState<KernelGrantPolicy | null>(null);
   const [confirmInvalidation, setConfirmInvalidation] = useState(false);
   const permission = w.agentData?.permissions.find(
     (item) => item.accountId === account.id && item.status === "active",
   ) as Permission | undefined;
   const spot = account.venue === "uniswap";
+  const gas = tradingGasStatus(w.walletConfig, account.venue);
+  const fundingRecoveryKey = `orcus:trading-deposit:${account.ownerAddress}:${account.id}`;
+  useEffect(() => {
+    try {
+      const saved = fundingRecovery(JSON.parse(sessionStorage.getItem(fundingRecoveryKey) ?? "null"));
+      if (saved) { setFundingHash(saved.transactionHash ?? null); setFundingState(saved.status); }
+    } catch {}
+    setFundingLoaded(true);
+  }, [fundingRecoveryKey]);
+  function saveFundingRecovery(status: "confirmed" | "unknown" | "reverted", transactionHash?: string) {
+    try { sessionStorage.setItem(fundingRecoveryKey, JSON.stringify({ status, ...(transactionHash ? { transactionHash } : {}) })); } catch {}
+  }
 
   async function prepare() {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy("prepare");
     setError(null);
     try {
@@ -79,6 +100,7 @@ function AccountCard({
         action: "prepare",
         expiresAt: Date.now() + Number(hours) * 3_600_000,
         maxTradeUsd: maxTrade,
+        ...(spot ? { allowNativeInput } : {}),
         allowedSymbols: symbols
           .split(",")
           .map((value) => value.trim())
@@ -92,17 +114,23 @@ function AccountCard({
     } catch (cause) {
       setError(displayError(cause));
     } finally {
+      busyRef.current = false;
       setBusy(null);
     }
   }
 
   async function fund() {
+    if (busyRef.current || !fundingLoaded || fundingHash || fundingState === "unknown") return;
+    busyRef.current = true;
     setBusy("fund");
     setError(null);
     setFundingHash(null);
+    setFundingState(null); setFundingChecked(false);
     try {
       const result = await fundTradingAccount({ account, asset: fundingAsset, amount: fundingAmount });
       setFundingHash(result.transactionHash);
+      setFundingState("confirmed");
+      saveFundingRecovery("confirmed", result.transactionHash);
       setFundingAmount("");
       w.setNotice(`Testnet ${result.asset} funding confirmed. This funds your trading account, not the agent operating budget.`);
       await w.refresh();
@@ -111,12 +139,19 @@ function AccountCard({
         const evidence = cause.evidence as { transactionHash?: string } | undefined;
         if (evidence?.transactionHash) setFundingHash(evidence.transactionHash);
       }
+      const phase = cause && typeof cause === "object" && "phase" in cause ? cause.phase : undefined;
+      setFundingState(phase === "reverted" ? "reverted" : phase === "submitted-unknown" ? "unknown" : null);
+      if (phase === "reverted" || phase === "submitted-unknown") {
+        const transactionHash = cause && typeof cause === "object" && "evidence" in cause && cause.evidence && typeof cause.evidence === "object" && "transactionHash" in cause.evidence && typeof cause.evidence.transactionHash === "string" ? cause.evidence.transactionHash : undefined;
+        saveFundingRecovery(phase === "reverted" ? "reverted" : "unknown", transactionHash);
+      }
       setError(displayError(cause));
-    } finally { setBusy(null); }
+    } finally { busyRef.current = false; setBusy(null); }
   }
 
   async function invalidatePending() {
-    if (!pendingPolicy || !confirmInvalidation) return;
+    if (!pendingPolicy || !confirmInvalidation || busyRef.current) return;
+    busyRef.current = true;
     setBusy("invalidate");
     setError(null);
     try {
@@ -128,11 +163,12 @@ function AccountCard({
       w.setNotice("Older session approvals invalidated onchain. Review any other sessions before granting fresh access.");
       await w.refresh();
     } catch (cause) { setError(displayError(cause)); }
-    finally { setBusy(null); }
+    finally { busyRef.current = false; setBusy(null); }
   }
 
   async function authorize() {
-    if (!prepared) return;
+    if (!prepared || busyRef.current) return;
+    busyRef.current = true;
     setBusy("approve");
     setError(null);
     try {
@@ -161,11 +197,14 @@ function AccountCard({
     } catch (cause) {
       setError(displayError(cause));
     } finally {
+      busyRef.current = false;
       setBusy(null);
     }
   }
 
   async function revoke(rotate = false) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(rotate ? "rotate" : "revoke");
     setError(null);
     try {
@@ -203,6 +242,7 @@ function AccountCard({
     } catch (cause) {
       setError(displayError(cause));
     } finally {
+      busyRef.current = false;
       setBusy(null);
     }
   }
@@ -248,16 +288,17 @@ function AccountCard({
       </dl>
       <p className="fine-print">
         {spot
-          ? "Fund this smart account explicitly with Sepolia assets and gas. Connecting your owner wallet does not move its funds."
+          ? "Your owner wallet controls this Sepolia trading account. Deposit only the assets you want to trade; connecting does not move funds. Manual trades and your approved agent use this same account."
           : "Existing supported positions stay in your account. The same positions can be managed manually or by your approved agent."}
       </p>
+      {spot && <p className={gas.ready ? "fine-print" : "warning-note"}><strong>{gas.label}.</strong> {gas.detail} No 0G is required for normal trading.</p>}
       {spot && (
         <details className="technical-limits">
-          <summary>Fund your smart account with testnet assets</summary>
+          <summary>Deposit Sepolia assets from your owner wallet</summary>
           <div className="form-grid">
             <Field label="Asset">
               <select value={fundingAsset} onChange={event => setFundingAsset(event.target.value as typeof fundingAsset)}>
-                <option value="ETH">Sepolia ETH for gas</option>
+                <option value="ETH">Sepolia ETH</option>
                 <option value="USDC">Testnet USDC</option>
                 <option value="WETH">Testnet WETH</option>
               </select>
@@ -266,18 +307,19 @@ function AccountCard({
               <input inputMode="decimal" value={fundingAmount} onChange={event => setFundingAmount(event.target.value)} placeholder="0.00" />
             </Field>
           </div>
-          <p className="fine-print">The owner wallet signs a transfer to this account. No funds move merely by connecting or entering an amount.</p>
-          <button className="button secondary small" type="button" disabled={!!busy || !!fundingHash || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(fundingAmount) || Number(fundingAmount) <= 0} onClick={() => void fund()}>
-            {busy === "fund" ? <Spinner /> : <Wallet size={13} />}Fund in owner wallet
+          <p className="fine-print">Your owner wallet signs this initial transfer and pays its Sepolia network fee. Smart-account trading gas is a separate platform-sponsored flow. This does not bridge mainnet funds or fund 0G compute.</p>
+          <p className="fine-print">Deposit destination: <code style={{ overflowWrap: "anywhere" }}>{account.address}</code></p>
+          <button className="button secondary small" type="button" disabled={!!busy || !fundingLoaded || !!fundingHash || fundingState === "unknown" || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(fundingAmount) || Number(fundingAmount) <= 0} onClick={() => void fund()}>
+            {busy === "fund" ? <><Spinner />Confirm transfer and await receipt</> : <><Wallet size={13} />Review transfer in owner wallet</>}
           </button>
-          {fundingHash && <><a className="text-link" href={`https://sepolia.etherscan.io/tx/${fundingHash}`} target="_blank" rel="noreferrer">Inspect funding transaction<ExternalLink size={12} /></a><button className="button secondary small" type="button" onClick={() => setFundingHash(null)}>I checked this transfer; enter another</button></>}
+          {(fundingHash || fundingState === "unknown") && <div className="warning-note"><p>{fundingState === "confirmed" ? "Deposit confirmed in the trading account." : fundingState === "reverted" ? "The transfer reverted. Check its receipt before another attempt." : "The transfer result is uncertain. Check this same transaction or your wallet history before sending more funds."}</p>{fundingHash && <a className="text-link" href={`https://sepolia.etherscan.io/tx/${fundingHash}`} target="_blank" rel="noreferrer">Inspect funding transaction<ExternalLink size={12} /></a>}{fundingState === "unknown" && <label className="checkbox"><input type="checkbox" checked={fundingChecked} onChange={event => setFundingChecked(event.target.checked)} />I checked the final receipt or wallet history and understand a second transfer is a separate deposit.</label>}<button className="button secondary small" type="button" disabled={!!busy || fundingState === "unknown" && !fundingChecked} onClick={() => { setFundingHash(null); setFundingState(null); setFundingChecked(false); try { sessionStorage.removeItem(fundingRecoveryKey); } catch {} }}>Enter a separate new deposit</button></div>}
         </details>
       )}
       {pendingPolicy && (
         <div className="permission-review">
           <p className="warning-note">This signed approval is not installed, so uninstalling a signer cannot revoke it. Invalidation affects all older session approvals for this smart account, including other apps.</p>
           <label className="checkbox"><input type="checkbox" checked={confirmInvalidation} onChange={event => setConfirmInvalidation(event.target.checked)} />I authorize invalidating all older session approvals</label>
-          <button className="button danger small" type="button" disabled={!!busy || !confirmInvalidation} onClick={() => void invalidatePending()}>{busy === "invalidate" ? <Spinner /> : <KeyRound size={13} />}Invalidate older approvals in owner wallet</button>
+          <button className="button danger small" type="button" disabled={!!busy || !confirmInvalidation || !gas.ready} onClick={() => void invalidatePending()}>{busy === "invalidate" ? <Spinner /> : <KeyRound size={13} />}Invalidate older approvals in owner wallet</button>
         </div>
       )}
       {permission ? (
@@ -294,11 +336,12 @@ function AccountCard({
               </span>
             </div>
           </div>
+          {spot && <p className="fine-print">{permission.policy?.nativeWrap ? `Native ETH wrapping is permitted up to ${formatUnits(BigInt(permission.policy.nativeWrap.maxAmountWei), 18)} ETH per call, within the approved routes and expiry.` : "Native ETH wrapping is not included in this grant. Manual ETH input remains an owner-signed action."}</p>}
           <div className="form-actions">
             <button
               className="button secondary small"
               type="button"
-              disabled={!!busy}
+              disabled={!!busy || spot && !gas.ready}
               onClick={() => void revoke(true)}
             >
               {busy === "rotate" ? <Spinner /> : <RotateCw size={13} />}Rotate
@@ -307,13 +350,14 @@ function AccountCard({
             <button
               className="button danger small"
               type="button"
-              disabled={!!busy}
+              disabled={!!busy || spot && !gas.ready}
               onClick={() => void revoke()}
             >
               {busy === "revoke" ? <Spinner /> : <KeyRound size={13} />}Revoke
               agent access
             </button>
           </div>
+          {spot && !gas.ready && <p className="warning-note">Native session revocation needs an executable sponsored operation. <button className="text-button" type="button" onClick={() => void w.control("pause")} disabled={w.agentData?.agent.paused}>Pause new agent actions now</button>; existing onchain authority remains until it is revoked.</p>}
         </>
       ) : prepared ? (
         <div className="permission-review">
@@ -338,6 +382,7 @@ function AccountCard({
               </dd>
             </div>
           </dl>
+          {prepared.policy?.nativeWrap && <p className="warning-note">This grant also permits bounded native ETH wrapping up to {formatUnits(BigInt(prepared.policy.nativeWrap.maxAmountWei), 18)} ETH per call. The approved swap pair, output bounds, recipient, and expiry still apply.</p>}
           {prepared.policy && (
             <details className="technical-limits">
               <summary>Advanced onchain call constraints</summary>
@@ -401,6 +446,7 @@ function AccountCard({
               placeholder="BTC, ETH"
             />
           </Field>
+          {spot && <label className="checkbox"><input type="checkbox" checked={allowNativeInput} disabled={!!busy} onChange={event => setAllowNativeInput(event.target.checked)} />Also allow bounded native ETH wrapping for WETH/USDC sells. Off by default; no general transfer authority.</label>}
           <button
             className="button secondary full"
             type="button"
@@ -601,8 +647,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
           <span className="eyebrow">OWNERSHIP BEFORE AUTOMATION</span>
           <h1>Accounts & agent controls</h1>
           <p>
-            Separate trading capital, agent expenses and the permissions you
-            grant.
+            Connect an owner wallet, deposit trading assets, then trade yourself or grant limited agent access. No owner private key is shared.
           </p>
         </div>
         <ShieldCheck size={22} />
@@ -623,8 +668,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
             </button>
           }
         >
-          Sign in to add your trading accounts, fund a separate agent budget and
-          review delegated access. We never ask for your private key.
+          Sign in to add your trading accounts and review delegated access. Normal trading does not require 0G or a separate compute deposit.
         </Empty>
       ) : (
         <>

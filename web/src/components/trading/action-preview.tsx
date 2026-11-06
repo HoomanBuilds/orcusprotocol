@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Clock3, ShieldCheck, X } from "lucide-react";
 import type { Workspace } from "@/lib/use-workspace";
-import { number, shortAddress } from "@/lib/format";
-import { InlineError, Spinner } from "./primitives";
+import { number, tokenUnits } from "@/lib/format";
+import { hasAtomicNativeInput, tradingGasStatus } from "@/lib/trade-ux";
+import { Address, InlineError, Spinner } from "./primitives";
 
 export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -20,9 +21,12 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
   if (!w.preview) return null;
   const prepared = w.preview.execution;
   const request = prepared.request;
+  const gas = tradingGasStatus(w.walletConfig, request.venue);
+  const atomicNative = hasAtomicNativeInput(prepared);
+  const invalidNative = !!request.nativeInput && !atomicNative;
   const [baseAsset, quoteAsset = "USDC"] = request.symbol.split("/");
   const inputAsset =
-    request.venue === "uniswap" && request.side === "buy"
+    atomicNative ? "ETH" : request.venue === "uniswap" && request.side === "buy"
       ? quoteAsset
       : baseAsset;
   const outputAsset = request.side === "buy" ? baseAsset : quoteAsset;
@@ -38,7 +42,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
     >
       <div className="dialog-heading">
         <div>
-          <span className="eyebrow">REVIEW BEFORE SIGNING</span>
+          <span className="eyebrow">REVIEW BEFORE EXECUTION</span>
           <h2>
             {request.type === "swap"
               ? "Confirm your swap"
@@ -66,10 +70,16 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
       </div>
       <dl className="preview-details">
         <div>
-          <dt>Account</dt>
-          <dd title={prepared.account.address}>
-            {shortAddress(prepared.account.address)}
-          </dd>
+          <dt>Trading account</dt>
+          <dd><Address value={prepared.account.address} explorer={request.venue === "uniswap" ? "https://sepolia.etherscan.io" : undefined} /></dd>
+        </div>
+        <div>
+          <dt>Owner wallet</dt>
+          <dd><Address value={prepared.account.ownerAddress} /></dd>
+        </div>
+        <div>
+          <dt>Network</dt>
+          <dd>{request.venue === "uniswap" ? "Ethereum Sepolia testnet" : "Hyperliquid testnet"}</dd>
         </div>
         <div>
           <dt>Action</dt>
@@ -102,6 +112,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
           <dt>Permission</dt>
           <dd>{prepared.request.mode === "agent" ? "Existing scoped agent grant" : "Owner wallet signature"}</dd>
         </div>
+        <div><dt>Trading gas / fees</dt><dd>{gas.label}</dd></div>
         <div>
           <dt>Quote expires</dt>
           <dd className={expiresIn ? "" : "negative"}>
@@ -110,6 +121,10 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
           </dd>
         </div>
       </dl>
+      {atomicNative && <p className="fine-print">Wrap exactly {number(request.amount, 6)} native Sepolia ETH, then swap WETH for USDC in one atomic operation. If the operation reverts, neither step completes.</p>}
+      {invalidNative && <p className="warning-note">The native ETH wrapping plan could not be verified. Prepare a new supported smart-account quote; this action cannot be submitted.</p>}
+      {request.venue === "uniswap" && request.side === "buy" && <p className="fine-print">Output is WETH. Native ETH output and automatic unwrapping are not included.</p>}
+      {request.venue === "uniswap" && <p className={gas.ready ? "fine-print" : "warning-note"}>{gas.detail}{w.walletConfig?.gasSponsorship?.maxOperationGasWei ? ` Maximum sponsored network fee: ${tokenUnits(w.walletConfig.gasSponsorship.maxOperationGasWei, 18, "ETH")}.` : ""} Sponsorship does not supply the tokens you trade.</p>}
       {prepared.warnings?.map((warning) => (
         <p className="warning-note" key={warning}>
           {warning}
@@ -134,7 +149,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
         <button
           type="button"
           className="button primary"
-          disabled={w.executing || !expiresIn}
+          disabled={w.executing || !expiresIn || !gas.ready || invalidNative}
           onClick={() => void w.confirm()}
         >
           {w.executing ? (
@@ -142,6 +157,10 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
               <Spinner />
               {prepared.request.mode === "agent" ? "Executing with agent" : "Confirming in wallet"}
             </>
+          ) : invalidNative ? (
+            "Native input plan unavailable"
+          ) : !gas.ready ? (
+            "Gas sponsorship unavailable"
           ) : !expiresIn ? (
             "Quote expired"
           ) : (
