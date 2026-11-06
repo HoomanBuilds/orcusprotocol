@@ -3,6 +3,47 @@
 The visual reference for this requested local prototype is https://www.suzi.trade/.
 Orcus is an independent project and is not affiliated with Suzi or SendAI.
 
+## Original blue garden hero
+
+`garden-hero-v2.webm` (VP9), `garden-hero-v2.mp4` (H.264 fallback), and
+`garden-hero-v2-poster.webp` contain the new blue-sky garden. Both silent videos
+are 1920 x 1080, 24 fps, 240 frames and ten seconds long. The WebP is the actual
+first composed frame at 1920 x 1080, encoded locally with libwebp at quality 82
+and compression level 6, without resizing or changing its art.
+
+The three still-art layers were regenerated on November 6, 2026 with the built-in
+image tool as targeted color/lighting edits of our original v1 artwork. The base
+keeps our v1 landscape geometry, tree positions, valley, meadow and open center.
+A settled Suzi garden-video frame was supplied only as a color and lighting
+reference for that base edit, not for copying its layout. The tree and cloud
+edits preserve their own v1 silhouettes, structure and transparent edges. No
+reference video frame or Tethra footage is composited into these exported videos.
+The original Suzi reference retains its own ownership and unverified
+redistribution terms; this description does not relicense its source artwork.
+
+The base is 1672 x 941 pixels, the transparent tree is 1451 x 1084, and the
+transparent cloud is 2172 x 724. The base is modestly upsampled during export.
+The image tool generated stills, not temporal video. Deterministic native WebGL
+then animated the coherent scene with smooth sky advection, independently
+drifting clouds, root-anchored canopy wind, subtle ground/parallax motion and
+drifting petals. This is 2.5D layered-art shader animation, not full 3D foliage
+physics or a single CSS zoom/pan. The site serves the local exports only; it does
+not ship the renderer or make image-generation requests.
+
+The corrected representative frame was visually reviewed before export. Saved
+source-frame checks show exact equality at zero and ten seconds. The finished
+movies were decoded to verify their actual frame count, changing frames and
+loop-boundary continuity. Original artwork, exact prompts, deterministic source
+and verification records are retained in the local `assets-temp/generated-hero-v2`
+source package, separate from runtime assets. The older garden, Tethra and Suzi
+media remain independent rollback/reference options, not sources of v2 footage.
+
+SHA-256 and file sizes:
+
+- MP4: `7d932ae837a07297ecfd0c023d8b0ebf9f30cb51317d418daaae35eb363c9edc`, 10,894,832 bytes.
+- WebM: `7ee6fcfaf1d127b2a5946bcf2d1d310df043e58ba6f05693d59ef531082295ae`, 4,871,337 bytes.
+- WebP poster: `3215d07946bd42d1939aa955d39aa2f2da79be35bdeafe6afa3d303de6ebb2fd`, 344,128 bytes.
+
 ## Original garden hero
 
 The previous generated option, retained for rollback, uses `garden-hero-v1.webm` (VP9), `garden-hero-v1.mp4`
