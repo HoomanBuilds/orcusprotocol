@@ -192,7 +192,7 @@ try {
     await until("!document.querySelector('button[aria-label=\"Refresh accounts\"]').disabled", "Refresh did not finish before fixture setup.");
     await click("button[aria-label=\"Refresh accounts\"]");
     await until("!!document.querySelector('.automation-approval-card')", "Structured fixture proposal did not render.");
-    assert.ok(await evaluate("document.querySelector('.automation-approval-card button').disabled"), "Approval must require explicit review.");
+    assert.ok(await evaluate("document.querySelector('.automation-approval-card > button.button.primary').disabled"), "Approval must require explicit review.");
     await evaluate("document.querySelector('.chat-scroll').scrollTop=0;scrollTo(0,0)");
     await screenshot("fixture-desktop-research");
     await evaluate("document.querySelector('.automation-approval-card').scrollIntoView({block:'nearest'});scrollTo(0,0)");
@@ -206,14 +206,14 @@ try {
     await screenshot("fixture-mobile-approval");
     await rpc("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
     await click(".approval-acknowledgement input");
-    await until("!document.querySelector('.automation-approval-card button').disabled", "Reviewed fixture proposal remained unavailable.");
-    await evaluate("(()=>{const button=document.querySelector('.automation-approval-card button');button.click();button.click()})()");
+    await until("!document.querySelector('.automation-approval-card > button.button.primary').disabled", "Reviewed fixture proposal remained unavailable.");
+    await evaluate("(()=>{const button=document.querySelector('.automation-approval-card > button.button.primary');button.click();button.click()})()");
     assert.equal(await evaluate("window.__orcusAgentFixture.posts"), 1);
     assert.deepEqual(await evaluate("window.__orcusAgentFixture.bodies[0]"), proposal);
     await evaluate("window.__orcusAgentFixture.releases.shift()(false)");
     await until("document.querySelector('.automation-approval-card').innerText.includes('Fixture refusal')", "Activation refusal was not visible.");
     assert.ok(await evaluate("!document.querySelector('.automation-approval-card').innerText.includes('Automation activated')"));
-    await click(".automation-approval-card button");
+    await click(".automation-approval-card > button.button.primary");
     assert.equal(await evaluate("window.__orcusAgentFixture.posts"), 2);
     fixtureChecks.push("frontend fixture: research table and successful-source references render on desktop/mobile without overflow");
     fixtureChecks.push("frontend fixture: explicit approval sends unchanged proposal once under rapid clicks and displays refusal without claiming activation");
