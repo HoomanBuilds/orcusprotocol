@@ -77,6 +77,8 @@ try {
     if (name === "trade") await until("document.querySelector('.market-price strong')?.textContent.startsWith('$')&&!document.querySelector('.chart-loading')");
     if (name === "agent") {
       await until("document.body.innerText.includes('fixed demo values')");
+      await until("document.querySelector('select[aria-label=\"Inference model\"]')?.textContent.includes('No models available')");
+      assert.equal(await evaluate("document.querySelector('select[aria-label=\"Inference model\"]').disabled"), true);
       await click("button[aria-label='Pause agent']");
       await until("document.body.innerText.includes('Demo account is read-only')");
       await click("button[aria-label='Dismiss error']").catch(() => {});
