@@ -62,7 +62,7 @@ try {
   const click = async (selector: string) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw new Error('Action unavailable');e.click();})()`);
   const navigate = async (label: string) => {
     const path = label === "Overview" ? "/" : `/${label.toLowerCase()}`;
-    await evaluate(`(()=>{const e=[...document.querySelectorAll('.primary-nav a')].find(e=>e.getAttribute('href')===${JSON.stringify(path)});if(!e)throw new Error('Navigation unavailable');e.click();})()`);
+    await evaluate(`(()=>{const mobile=innerWidth<=760;if(mobile&&document.querySelector('#mobile-workspace-navigation').hidden)document.querySelector('.workspace-menu-toggle').click();const e=[...document.querySelectorAll(mobile?'#mobile-workspace-navigation a':'.primary-nav a')].find(e=>e.getAttribute('href')===${JSON.stringify(path)});if(!e)throw new Error('Navigation unavailable');e.click();})()`);
     await until(`location.pathname===${JSON.stringify(path)}`, `The ${label} route did not load.`);
   };
   const api = async (path: string, body?: unknown, method = body ? "POST" : "GET") => evaluate(`fetch(${JSON.stringify(path)},{method:${JSON.stringify(method)},headers:{'Content-Type':'application/json'},${body ? `body:${JSON.stringify(JSON.stringify(body))},` : ""}credentials:'same-origin'}).then(async r=>({status:r.status,body:await r.json()}))`);
@@ -125,7 +125,18 @@ try {
     await navigate(label); await evaluate("scrollTo(0,0)");
     assert.ok(await evaluate("document.documentElement.scrollWidth<=innerWidth"), `${label} overflows on mobile.`);
     await screenshot(`connected-mobile-${label.toLowerCase()}`);
+    if (label === "Trade") {
+      for (const tab of ["Depth", "Ticket", "Accounts"]) {
+        await evaluate(`(()=>{const e=[...document.querySelectorAll('.trade-mobile-tabs button')].find(e=>e.textContent===${JSON.stringify(tab)});if(!e)throw new Error('Terminal view unavailable');e.click()})()`);
+        await screenshot(`connected-mobile-trade-${tab.toLowerCase()}`);
+        assert.ok(await evaluate("document.documentElement.scrollWidth<=innerWidth"), `${tab} view overflows on mobile.`);
+      }
+    }
   }
+  await click(".workspace-menu-toggle");
+  await until("!document.querySelector('#mobile-workspace-navigation').hidden", "Mobile navigation did not open.");
+  await rpc("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await until("document.querySelector('#mobile-workspace-navigation').hidden", "Escape did not dismiss mobile navigation.");
   checks.push("all six owner-scoped routes fit a390px viewport");
   await rpc("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   const created = await api("/api/automations", { kind: "alert", name: "Browser expiry proof", accountId: account.id, intervalSeconds: 60, condition: { symbol: "ETH", operator: "above", price: "1" }, expiresAt: Date.now() + 1500 });
