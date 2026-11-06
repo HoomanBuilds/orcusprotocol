@@ -20,8 +20,11 @@ import {
   createTradingSmartAccount,
   grantKernelPermission,
   revokeKernelPermission,
+  invalidateKernelPendingApprovals,
+  fundTradingAccount,
 } from "@/lib/wallets";
 import { usd } from "@/lib/format";
+import { MemoryControls } from "./memory-controls";
 import {
   Address,
   Badge,
@@ -55,6 +58,11 @@ function AccountCard({
   );
   const [hours, setHours] = useState("24");
   const [prepared, setPrepared] = useState<PreparedPermission | null>(null);
+  const [fundingAsset, setFundingAsset] = useState<"ETH" | "USDC" | "WETH">("ETH");
+  const [fundingAmount, setFundingAmount] = useState("");
+  const [fundingHash, setFundingHash] = useState<string | null>(null);
+  const [pendingPolicy, setPendingPolicy] = useState<KernelGrantPolicy | null>(null);
+  const [confirmInvalidation, setConfirmInvalidation] = useState(false);
   const permission = w.agentData?.permissions.find(
     (item) => item.accountId === account.id && item.status === "active",
   ) as Permission | undefined;
@@ -84,6 +92,41 @@ function AccountCard({
     } finally {
       setBusy(null);
     }
+  }
+
+  async function fund() {
+    setBusy("fund");
+    setError(null);
+    setFundingHash(null);
+    try {
+      const result = await fundTradingAccount({ account, asset: fundingAsset, amount: fundingAmount });
+      setFundingHash(result.transactionHash);
+      setFundingAmount("");
+      w.setNotice(`Testnet ${result.asset} funding confirmed. This funds your trading account, not the agent operating budget.`);
+      await w.refresh();
+    } catch (cause) {
+      if (cause && typeof cause === "object" && "evidence" in cause) {
+        const evidence = cause.evidence as { transactionHash?: string } | undefined;
+        if (evidence?.transactionHash) setFundingHash(evidence.transactionHash);
+      }
+      setError(displayError(cause));
+    } finally { setBusy(null); }
+  }
+
+  async function invalidatePending() {
+    if (!pendingPolicy || !confirmInvalidation) return;
+    setBusy("invalidate");
+    setError(null);
+    try {
+      await invalidateKernelPendingApprovals(pendingPolicy, { invalidateAllOlderSessions: true });
+      await post("/api/permissions", { accountId: account.id, action: "revoke" });
+      setPendingPolicy(null);
+      setPrepared(null);
+      setConfirmInvalidation(false);
+      w.setNotice("Older session approvals invalidated onchain. Review any other sessions before granting fresh access.");
+      await w.refresh();
+    } catch (cause) { setError(displayError(cause)); }
+    finally { setBusy(null); }
   }
 
   async function authorize() {
@@ -137,7 +180,11 @@ function AccountCard({
           throw new Error(
             "Native revocation needs the original policy. Pause the agent now and use the smart-account owner controls to revoke access.",
           );
-        await revokeKernelPermission(policy);
+        try { await revokeKernelPermission(policy); }
+        catch (cause) {
+          if (cause instanceof Error && "code" in cause && cause.code === "PENDING_APPROVAL_INVALIDATION_REQUIRED") setPendingPolicy(policy);
+          throw cause;
+        }
       }
       await post("/api/permissions", {
         accountId: account.id,
@@ -201,6 +248,35 @@ function AccountCard({
           ? "Fund this smart account explicitly with Sepolia assets and gas. Connecting your owner wallet does not move its funds."
           : "Existing supported positions stay in your account. The same positions can be managed manually or by your approved agent."}
       </p>
+      {spot && (
+        <details className="technical-limits">
+          <summary>Fund your smart account with testnet assets</summary>
+          <div className="form-grid">
+            <Field label="Asset">
+              <select value={fundingAsset} onChange={event => setFundingAsset(event.target.value as typeof fundingAsset)}>
+                <option value="ETH">Sepolia ETH for gas</option>
+                <option value="USDC">Testnet USDC</option>
+                <option value="WETH">Testnet WETH</option>
+              </select>
+            </Field>
+            <Field label="Amount">
+              <input inputMode="decimal" value={fundingAmount} onChange={event => setFundingAmount(event.target.value)} placeholder="0.00" />
+            </Field>
+          </div>
+          <p className="fine-print">The owner wallet signs a transfer to this account. No funds move merely by connecting or entering an amount.</p>
+          <button className="button secondary small" type="button" disabled={!!busy || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(fundingAmount) || Number(fundingAmount) <= 0} onClick={() => void fund()}>
+            {busy === "fund" ? <Spinner /> : <Wallet size={13} />}Fund in owner wallet
+          </button>
+          {fundingHash && <a className="text-link" href={`https://sepolia.etherscan.io/tx/${fundingHash}`} target="_blank" rel="noreferrer">Inspect funding transaction<ExternalLink size={12} /></a>}
+        </details>
+      )}
+      {pendingPolicy && (
+        <div className="permission-review">
+          <p className="warning-note">This signed approval is not installed, so uninstalling a signer cannot revoke it. Invalidation affects all older session approvals for this smart account, including other apps.</p>
+          <label className="checkbox"><input type="checkbox" checked={confirmInvalidation} onChange={event => setConfirmInvalidation(event.target.checked)} />I authorize invalidating all older session approvals</label>
+          <button className="button danger small" type="button" disabled={!!busy || !confirmInvalidation} onClick={() => void invalidatePending()}>{busy === "invalidate" ? <Spinner /> : <KeyRound size={13} />}Invalidate older approvals in owner wallet</button>
+        </div>
+      )}
       {permission ? (
         <>
           <div className="permission-active">
@@ -616,7 +692,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
                   <dt>Compute balance</dt>
                   <dd>
                     {w.budget?.computeBalanceStatus === "verified"
-                      ? (w.budget.computeCredits ?? "Verified")
+                      ? `${w.budget.providerBalance?.balance ?? "Verified"} ${w.budget.providerBalance?.unit ?? "provider units"}`
                       : "Not verified"}
                   </dd>
                 </div>
@@ -629,6 +705,9 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
                   </dd>
                 </div>
               </dl>
+              {w.budget?.providerBalance?.accountAddress && <p className="fine-print">Configured provider account: <Address value={w.budget.providerBalance.accountAddress} />. This is not a separate per-user credit pool.</p>}
+              <p className="fine-print">Pending expense reservations: {usd(w.budget?.reservedUsd)}. Requests with unknown billing retain their reservation instead of reporting an invented cost.</p>
+              {!!w.budget?.expenses?.length && <details className="technical-limits"><summary>Operating expense evidence</summary>{w.budget.expenses.slice(0, 20).map(expense => <div className="evaluation" key={expense.id}><small>{expense.status} / {usd(expense.amountUsd)}</small><code>{expense.reference}</code></div>)}</details>}
               <p className="warning-note">
                 {w.budget?.warning ??
                   "Live credit balance and replenishment require a verified provider funding path. Owner deposits are not earned revenue."}
@@ -744,6 +823,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
               {memoryStatus}
             </p>
           )}
+          <MemoryControls key={w.session.user.id} userId={w.session.user.id} />
         </section>
       )}
       <section className="service-status settings-card">
