@@ -11,7 +11,7 @@ The application uses Uniswap V3 on Sepolia for owner-initiated and scoped-agent 
 
 ## What worked
 
-The published Sepolia deployment table provided the factory, router and quoter needed for the direct integration. Read-only checks returned a real quote for the supported WETH/USDC pool. The integration does not require a separate Trading API key.
+The published Sepolia deployment table provided the factory, router and quoter needed for the direct integration. Real WETH/USDC swaps passed on an isolated Sepolia fork, including owner and bounded agent-session operations through existing Kernel/EntryPoint contracts. The application reconciler verified token transfers rather than accepting an acknowledgement as settlement. The integration does not require a separate Trading API key.
 
 ## Friction
 
@@ -21,4 +21,4 @@ Testnet prices and liquidity must also be distinguished from live market valuati
 
 ## Verification still required
 
-Owner/session execution needs configured bundler access, explicit user funding and a signed live demonstration. Do not treat the read-only quote check as evidence that those steps already occurred. The required developer feedback form must be submitted separately with this file's public URL.
+Public-network owner/session execution still needs configured bundler access and explicit user funding. The fork proof validates contract behavior but not external bundler acceptance or a public-chain transaction. See `docs/research/verification-2026-11-06.md` for the actual proof and limits. The required developer feedback form must be submitted separately with this file's public URL.
