@@ -122,7 +122,13 @@ export class Store {
   renewLease(scope:string,holder:string,ttl:number):boolean {return this.db.prepare("UPDATE leases SET expires_at=? WHERE scope=? AND holder=? AND expires_at>?").run(Date.now()+ttl,scope,holder,Date.now()).changes===1;}
   releaseLease(scope:string,holder:string) { this.db.prepare("DELETE FROM leases WHERE scope=? AND holder=?").run(scope,holder); }
   dueAutomations<T>(limit=10):T[] {
-    return (this.db.prepare("SELECT body FROM records WHERE kind='automation' AND json_extract(body,'$.status')='active' AND json_extract(body,'$.nextRunAt')<=? ORDER BY created_at LIMIT ?").all(Date.now(),limit) as {body:string}[]).map(row=>JSON.parse(row.body) as T);
+    return (this.db.prepare("SELECT body FROM records WHERE kind='automation' AND json_extract(body,'$.status')='active' AND json_extract(body,'$.nextRunAt')<=? ORDER BY CAST(json_extract(body,'$.nextRunAt') AS INTEGER),updated_at,id LIMIT ?").all(Date.now(),Math.max(1,Math.min(100,limit))) as {body:string}[]).map(row=>JSON.parse(row.body) as T);
+  }
+  pendingActions<T>(limit=5):T[] {
+    return (this.db.prepare("SELECT body FROM records WHERE kind='action' AND json_extract(body,'$.status') IN ('submitting','submitted-unknown','pending','partially-filled') ORDER BY updated_at,id LIMIT ?").all(Math.max(1,Math.min(20,limit))) as {body:string}[]).map(row=>JSON.parse(row.body) as T);
+  }
+  interruptedAutomations<T>(limit=10):T[] {
+    return (this.db.prepare("SELECT body FROM records WHERE kind='automation' AND json_extract(body,'$.runningEvaluationId') IS NOT NULL ORDER BY updated_at,id LIMIT ?").all(Math.max(1,Math.min(100,limit))) as {body:string}[]).map(row=>JSON.parse(row.body) as T);
   }
 }
 let singleton: Store|undefined;

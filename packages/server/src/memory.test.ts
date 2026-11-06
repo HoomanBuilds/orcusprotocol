@@ -1,10 +1,17 @@
 import { describe,expect,it } from "vitest";
 import { AgentRun } from "./agent-runtime";
 import { getBudget,setBudget } from "./budget";
-import { AgentMemoryStore } from "./memory";
+import { AgentMemoryStore,rejectMemorySecrets } from "./memory";
 import { Store } from "./store";
 
 describe("durable personal agent memory",()=>{
+  it("rejects management and inference credentials but permits public hashes in chat",()=>{
+    for(const prefix of ["mk-","mk_","sk-","sk_"]){const generated=`${prefix}${"example".repeat(4)}`;expect(()=>rejectMemorySecrets(generated)).toThrow("credentials");expect(()=>rejectMemorySecrets(generated,{allowPublicHashes:true})).toThrow("credentials");}
+    const publicHash=`0x${"a".repeat(64)}`;
+    expect(()=>rejectMemorySecrets(`Inspect transaction ${publicHash}`,{allowPublicHashes:true})).not.toThrow();
+    expect(()=>rejectMemorySecrets(publicHash,{allowPublicHashes:true})).toThrow("credentials");
+    expect(()=>rejectMemorySecrets(`private_key: ${publicHash}`,{allowPublicHashes:true})).toThrow("credentials");
+  });
   it("uses scoped full-text retrieval, deduplication and bounded context",()=>{
     const store=new Store(":memory:");
     try{

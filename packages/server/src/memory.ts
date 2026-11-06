@@ -12,8 +12,11 @@ type MemoryRow={id:string;kind:AgentMemory["kind"];content:string;importance:num
 function fromRow(row:MemoryRow):AgentMemory{return{id:row.id,kind:row.kind,content:row.content,importance:row.importance,source:row.source,sourceId:row.source_id??undefined,createdAt:row.created_at,updatedAt:row.updated_at,lastAccessedAt:row.last_accessed_at};}
 function hash(content:string){return createHash("sha256").update(content.trim().normalize("NFKC")).digest("hex");}
 
-export function rejectMemorySecrets(content:string){
-  if(/0x[\da-fA-F]{64}\b|\bBearer\s+[A-Za-z0-9._~+/=-]{12,}|\b(?:sk-|sk_)[A-Za-z0-9_-]{16,}|(?:private[ _-]?key|seed[ _-]?phrase|mnemonic|api[ _-]?key|password)\s*[:=]\s*\S+/i.test(content))throw new ApiError("MEMORY_SECRET_REJECTED","Keep wallet credentials, API keys and raw secret-like values out of agent memory.");
+export function rejectMemorySecrets(content:string,options:{allowPublicHashes?:boolean;code?:string}={}){
+  const credential=/\b(?:sk|mk|pk)[_-][A-Za-z0-9_-]{12,}\b|\bBearer\s+[A-Za-z0-9._~+/=-]{12,}|\b(?:private[\s_-]*key|seed[\s_-]*phrase|mnemonic|api[\s_-]*key|password|secret[\s_-]*key)\s*["']?\s*[:=]\s*["']?[^\s"']+/i.test(content);
+  const publicLabel=/\b(?:transaction|tx(?:n)?|request|block|user[ _-]?operation|userop|storage[ _-]?root|root|order)(?:[ _-]?(?:hash|id))?\s*[:=]?\s*$/i;
+  const ambiguousHash=[...content.matchAll(/\b0x[\da-fA-F]{64}\b/g)].some(match=>!options.allowPublicHashes||!publicLabel.test(content.slice(Math.max(0,match.index-64),match.index)));
+  if(credential||ambiguousHash)throw new ApiError(options.code??"MEMORY_SECRET_REJECTED","Keep wallet credentials, API keys and raw secret-like values out of agent memory and conversation.");
 }
 
 export class AgentMemoryStore{

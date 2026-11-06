@@ -8,7 +8,7 @@ import type { StoredRecord } from "./types";
 type Progress={stage:string;tool?:string;message?:string;modelCalls?:number;toolCalls?:number};
 export type AgentRunStatus=StoredRecord&{threadId:string;status:"running"|"completed"|"failed";stage:string;tool?:string;modelCalls:number;toolCalls:number;startedAt:number;completedAt?:number;errorCode?:string};
 const stages=new Set(["recall","thinking","tool","completed","failed","budget-stop"]);
-const preflightCodes=new Set(["COMPUTE_UNCONFIGURED","PRIVATE_INFERENCE_UNAVAILABLE","PRIVATE_INFERENCE_UNVERIFIED","INTEGRATION_UNCONFIGURED","NOT_CONFIGURED","INVALID_MESSAGE"]);
+const preflightCodes=new Set(["COMPUTE_UNCONFIGURED","PRIVATE_INFERENCE_UNAVAILABLE","PRIVATE_INFERENCE_UNVERIFIED","INTEGRATION_UNCONFIGURED","NOT_CONFIGURED","INVALID_MESSAGE","CREDENTIAL_INPUT_REJECTED","TOOL_PROFILE_MISMATCH","INVALID_TOOL_PROFILE"]);
 
 export class AgentRun{
   readonly memory:AgentMemoryStore;

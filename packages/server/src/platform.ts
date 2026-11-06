@@ -8,8 +8,8 @@ import { callEngine } from "./engine";
 import { ApiError,errorMessage } from "./errors";
 import { createSigner,memoryKey,readSigner } from "./keystore";
 import { getStore,id,type Store } from "./store";
-import type { Document,StoredAccount,StoredAction,StoredAgent,StoredAutomation,StoredMessage,StoredPermission } from "./types";
-import { AgentMemoryStore } from "./memory";
+import type { Document,StoredAccount,StoredAction,StoredAgent,StoredAutomation,StoredEvaluationRun,StoredMessage,StoredPermission } from "./types";
+import { AgentMemoryStore,rejectMemorySecrets } from "./memory";
 import { AgentRun,type AgentRunStatus } from "./agent-runtime";
 
 export const accountSchema=z.object({venue:z.enum(["uniswap","hyperliquid"]),address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
@@ -252,14 +252,14 @@ export class Platform {
     await Promise.all(actions.filter(action=>["submitting","submitted-unknown","pending","partially-filled"].includes(action.status)).slice(0,10).map(action=>this.reconcile(user,action)));
     return {actions:this.store.list<StoredAction>(user.id,"action",100)};
   }
-  async proposal(user:User,message:string,account:StoredAccount|undefined,reference:string){
+  async proposal(user:User,message:string,account:StoredAccount|undefined,reference:string,toolProfile:"interactive"|"strategy"="interactive"){
     const cached=this.store.get<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"proposal",reference);
-    if(cached)return cached.result as AgentReply;
+    if(cached){if((cached.toolProfile??"interactive")!==toolProfile)throw new ApiError("TOOL_PROFILE_MISMATCH","This proposal belongs to a different tool profile. Start a new authorized evaluation.",409);return cached.result as AgentReply;}
     const runtime=new AgentRun(this.store,user.id,reference,message,memoryId=>this.forgetMemory(user,memoryId));runtime.start();
     try{
       const agent=this.agent(user),portfolio=await this.portfolio(user),history=this.store.list<StoredMessage>(user.id,"message",9).reverse();
       if(history.at(-1)?.role==="user"&&history.at(-1)?.content===message)history.pop();
-      const result=await callEngine<AgentReply>("planWith0G",message,{...runtime.context(),evaluationId:reference,account,accounts:this.accounts(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired});
+      const result=await callEngine<AgentReply>("planWith0G",message,{...runtime.context(),toolProfile,evaluationId:reference,account,accounts:this.accounts(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired});
       if(typeof result.message!=="string"||!result.message.trim())throw new ApiError("INVALID_AI_RESULT","The model did not return a valid response. No action was taken.",502);
       if(result.proposal){
         const selected=account??(this.accounts(user).length===1?this.accounts(user)[0]:undefined);
@@ -273,7 +273,7 @@ export class Platform {
           delete result.automationProposal;result.requiresClarification=true;result.message="Clarify the target account and valid strategy settings before creating an automation. No job was created.";
         }else result.automationProposal=parsed.data;
       }
-      this.store.put("proposal",{id:reference,userId:user.id,result,createdAt:Date.now(),updatedAt:Date.now()});
+      this.store.put("proposal",{id:reference,userId:user.id,toolProfile,result,createdAt:Date.now(),updatedAt:Date.now()});
       runtime.complete(result);
       return result;
     }catch(error){
@@ -295,6 +295,7 @@ export class Platform {
     return memory.forget(memoryId)||Boolean(note?.source==="profile");
   }
   async chat(user:User,input:{message:string;accountId?:string;autonomous?:boolean;requestId?:string}){
+    rejectMemorySecrets(input.message,{allowPublicHashes:true,code:"CREDENTIAL_INPUT_REJECTED"});
     const reference=input.requestId?createHash("sha256").update(`${user.id}|chat|${input.requestId}`).digest("hex"):id();
     const requestFingerprint=createHash("sha256").update(JSON.stringify({message:input.message,accountId:input.accountId??null,autonomous:input.autonomous??false})).digest("hex");
     const priorUserMessage=this.store.get<StoredMessage>(user.id,"message",`${reference}:user`);
@@ -369,24 +370,56 @@ export class Platform {
     }finally{key.fill(0);}
   }
   async tick(){
-    const results:Document[]=[];
+    const tickHolder=id(),tickScope="worker:tick",results:Document[]=[],leaseMs=360_000;
+    if(!this.store.takeLease(tickScope,tickHolder,leaseMs))return{processed:0,results,busy:true,observedAt:Date.now()};
+    const assertTick=()=>{if(!this.store.renewLease(tickScope,tickHolder,leaseMs))throw new ApiError("WORKER_LEASE_LOST","Another worker now owns reconciliation. This tick cannot authorize new actions.",409);};
+    const tickTimer=setInterval(()=>{this.store.renewLease(tickScope,tickHolder,leaseMs);},30_000);tickTimer.unref();
+    try{
+    for(const interrupted of this.store.interruptedAutomations<StoredAutomation>(10)){
+      assertTick();
+      const reason="The previous worker stopped during evaluation. Review the job and reconcile any submitted action before resuming; no trade was retried.";
+      this.store.update<StoredAutomation>(interrupted.userId,"automation",interrupted.id,{status:interrupted.status==="active"?"failed":interrupted.status,runningEvaluationId:undefined,runningStartedAt:undefined,error:reason});
+      this.store.put("evaluation-run",{id:interrupted.runningEvaluationId!,userId:interrupted.userId,automationId:interrupted.id,accountId:interrupted.accountId,status:"interrupted",reason,createdAt:interrupted.runningStartedAt??Date.now(),updatedAt:Date.now()});
+      results.push({automationId:interrupted.id,status:"interrupted",evaluationId:interrupted.runningEvaluationId});
+    }
+    let reconciled=0;
+    for(const pending of this.store.pendingActions<StoredAction>(5)){
+      assertTick();
+      const user=this.storedUser(pending.userId);if(!user)continue;
+      try{await this.withAccountLease(pending.accountId,async()=>{const latest=this.store.get<StoredAction>(user.id,"action",pending.id);if(latest&&!terminalStates.has(latest.status)){await this.reconcile(user,latest);reconciled++;}});}
+      catch(error){if(!(error instanceof ApiError&&error.code==="ACCOUNT_BUSY"))results.push({actionId:pending.id,status:"reconciliation-pending",error:errorMessage(error)});}
+    }
     for(const automation of this.store.dueAutomations<StoredAutomation>(3)){
+      assertTick();
       const evaluationId=createHash("sha256").update(`${automation.id}|${automation.nextRunAt}|${automation.policyVersion}`).digest("hex"),holder=id(),scope=`evaluation:${automation.id}`;
       if(!this.store.takeLease(scope,holder,360_000))continue;
       const timer=setInterval(()=>{this.store.renewLease(scope,holder,360_000);},30_000);timer.unref();
-      const row=this.store.db.prepare("SELECT * FROM users WHERE id=?").get(automation.userId) as {id:string;address:string;created_at:number}|undefined;
-      if(!row){clearInterval(timer);this.store.releaseLease(scope,holder);continue;}
-      const user:User={id:row.id,address:row.address,createdAt:row.created_at};
+      const user=this.storedUser(automation.userId);
+      if(!user){clearInterval(timer);this.store.releaseLease(scope,holder);continue;}
+      let marked=false,evaluationAccepted=false;
       try{
         const current=this.store.get<StoredAutomation>(user.id,"automation",automation.id)!;
         if(current.status!=="active"||current.nextRunAt>Date.now())continue;
-        if(this.agent(user).paused||current.expiresAt<=Date.now()){this.store.update<StoredAutomation>(user.id,"automation",current.id,{status:current.expiresAt<=Date.now()?"expired":"paused"});continue;}
-        if(this.store.get(user.id,"evaluation",evaluationId))continue;
+        const agent=this.agent(user);
+        if(agent.paused||current.expiresAt<=Date.now()){this.store.update<StoredAutomation>(user.id,"automation",current.id,{status:current.expiresAt<=Date.now()?"expired":"paused"});continue;}
+        if(this.store.get(user.id,"evaluation",evaluationId)){this.store.update<StoredAutomation>(user.id,"automation",current.id,{status:"failed",error:"This evaluation was already consumed. Review its existing action before resuming."});continue;}
         const account=this.account(user,current.accountId);
         if(account.controlRevision!==current.controlRevision)throw new ApiError("CONTROL_CHANGED","Account control changed. Review this strategy before resuming.",409);
-        this.store.update<StoredAutomation>(user.id,"automation",current.id,{nextRunAt:Date.now()+current.intervalSeconds*1000});
         const alert=current.kind==="alert";
-        const planned=alert?{proposal:undefined,requestId:undefined}:current.request?{proposal:current.request,requestId:undefined}:await this.proposal(user,current.instruction,account,evaluationId);
+        if(!alert&&!this.store.list<StoredPermission>(user.id,"permission").some(permission=>permission.accountId===account.id&&permission.status==="active"&&permission.expiresAt>Date.now()&&permission.controlRevision===account.controlRevision))throw new ApiError("AGENT_NOT_AUTHORIZED","Renew agent authorization before running this strategy.",403);
+        this.store.db.transaction(()=>{
+          this.store.update<StoredAutomation>(user.id,"automation",current.id,{runningEvaluationId:evaluationId,runningStartedAt:Date.now(),nextRunAt:Date.now()+current.intervalSeconds*1000,error:undefined});
+          this.store.put("evaluation-run",{id:evaluationId,userId:user.id,automationId:current.id,accountId:account.id,status:"running",policyVersion:current.policyVersion,controlRevision:current.controlRevision,createdAt:Date.now(),updatedAt:Date.now()});
+        }).immediate();marked=true;
+        const assertCurrent=()=>{
+          assertTick();
+          if(!this.store.renewLease(scope,holder,360_000))throw new ApiError("EVALUATION_LEASE_LOST","Evaluation coordination expired. No new action may use this result.",409);
+          const latest=this.store.get<StoredAutomation>(user.id,"automation",current.id),latestAccount=this.account(user,account.id),latestAgent=this.agent(user);
+          if(!latest||latest.runningEvaluationId!==evaluationId||latest.policyVersion!==current.policyVersion||latest.status!=="active"||latest.expiresAt<=Date.now()||latest.controlRevision!==current.controlRevision||latestAccount.controlRevision!==account.controlRevision||latestAgent.paused||latestAgent.controlRevision!==agent.controlRevision)throw new ApiError("STRATEGY_CHANGED","Strategy or account authority changed while its workflow was running.",409);
+          return latest;
+        };
+        const planned=alert?{proposal:undefined,requestId:undefined}:current.request?{proposal:current.request,requestId:undefined}:await this.proposal(user,current.instruction,account,evaluationId,"strategy");
+        assertCurrent();
         const proposal=planned.proposal;
         if(!proposal&&!alert){
           this.store.put("evaluation",{id:evaluationId,userId:user.id,automationId:current.id,accountId:account.id,decision:"no-action",source:"planner",reason:"No executable proposal was returned. CRE was not invoked and no trade was authorized.",requestId:planned.requestId,createdAt:Date.now(),updatedAt:Date.now()});
@@ -396,9 +429,9 @@ export class Platform {
         const raw=await callEngine<Document>("evaluateStrategy",{kind:alert?"alert":"trade",evaluationId,automationId:current.id,account,request:proposal,proposal,requestId:planned.requestId,instruction:current.instruction,condition:current.condition,controlRevision:current.controlRevision,policyVersion:current.policyVersion,expiresAt:Math.min(current.expiresAt,Date.now()+120_000)});
         const evaluation=evaluationSchema.parse({...raw,id:raw.id??raw.evaluationId});
         if(evaluation.id!==evaluationId||evaluation.automationId!==current.id||evaluation.accountId!==account.id||evaluation.chainId!==account.chainId||evaluation.controlRevision!==account.controlRevision||evaluation.policyVersion!==current.policyVersion||evaluation.requestId!==planned.requestId||evaluation.expiresAt<=Date.now()||evaluation.observedAt>Date.now()+5000||Date.now()-evaluation.observedAt>120_000)throw new ApiError("INVALID_CRE_RESULT","Workflow result is stale, unbound or not an authenticated local simulation.",502);
-        const latest=this.store.get<StoredAutomation>(user.id,"automation",current.id)!;
-        if(latest.policyVersion!==current.policyVersion||latest.status!=="active"||this.agent(user).paused)throw new ApiError("STRATEGY_CHANGED","Strategy changed while its workflow was running.",409);
+        const latest=assertCurrent();
         this.store.put("evaluation",{...evaluation,id:evaluationId,userId:user.id,createdAt:Date.now(),updatedAt:Date.now()});
+        evaluationAccepted=true;
         this.store.update<StoredAutomation>(user.id,"automation",current.id,{lastEvaluation:evaluation as unknown as StoredAutomation["lastEvaluation"]});
         if(alert){
           if(evaluation.decision==="allow"&&!latest.conditionActive){
@@ -415,14 +448,22 @@ export class Platform {
           results.push({automationId:current.id,evaluationId,decision:evaluation.decision,actionId:submitted.action.id,status:submitted.action.status});
         }else results.push({automationId:current.id,evaluationId,decision:evaluation.decision});
       }catch(error){
-        const busy=error instanceof ApiError&&["AGENT_BUSY","ACCOUNT_BUSY","ACCOUNT_RECONCILING","EVALUATION_PENDING"].includes(error.code);
-        if(busy){this.store.update<StoredAutomation>(user.id,"automation",automation.id,{nextRunAt:Date.now()+30_000,error:errorMessage(error)});results.push({automationId:automation.id,status:"waiting",error:errorMessage(error)});}
-        else{const status=error instanceof ApiError&&error.code==="INSUFFICIENT_BUDGET"?"insufficient-budget":"failed";this.store.update<StoredAutomation>(user.id,"automation",automation.id,{status,error:errorMessage(error)});results.push({automationId:automation.id,error:errorMessage(error),status});}
+        const latest=this.store.get<StoredAutomation>(user.id,"automation",automation.id);
+        if(!latest||marked&&latest.runningEvaluationId!==evaluationId)continue;
+        const retryCount=(latest.retryCount??0)+1,busy=!evaluationAccepted&&error instanceof ApiError&&["AGENT_BUSY","ACCOUNT_BUSY","ACCOUNT_RECONCILING"].includes(error.code)&&retryCount<=5;
+        if(busy){this.store.update<StoredAutomation>(user.id,"automation",automation.id,{retryCount,nextRunAt:Date.now()+Math.min(300_000,15_000*2**(retryCount-1)),error:errorMessage(error)});results.push({automationId:automation.id,status:"waiting",error:errorMessage(error)});}
+        else{const status=latest.status!=="active"?latest.status:error instanceof ApiError&&error.code==="INSUFFICIENT_BUDGET"?"insufficient-budget":"failed";this.store.update<StoredAutomation>(user.id,"automation",automation.id,{status,retryCount,error:errorMessage(error)});results.push({automationId:automation.id,error:errorMessage(error),status});}
       }
-      finally{clearInterval(timer);this.store.releaseLease(scope,holder);}
+      finally{
+        const latest=this.store.get<StoredAutomation>(user.id,"automation",automation.id);
+        if(marked&&latest?.runningEvaluationId===evaluationId){this.store.update<StoredAutomation>(user.id,"automation",automation.id,{runningEvaluationId:undefined,runningStartedAt:undefined,...(!latest.error?{retryCount:0}:{})});this.store.update<StoredEvaluationRun>(user.id,"evaluation-run",evaluationId,{status:latest.error?"failed":"completed",completedAt:Date.now()});}
+        clearInterval(timer);this.store.releaseLease(scope,holder);
+      }
     }
-    return {processed:results.length,results,observedAt:Date.now()};
+    return {processed:results.length,results,reconciled,observedAt:Date.now()};
+    }finally{clearInterval(tickTimer);this.store.releaseLease(tickScope,tickHolder);}
   }
+  private storedUser(userId:string):User|undefined{const row=this.store.db.prepare("SELECT id,address,created_at FROM users WHERE id=?").get(userId)as{id:string;address:string;created_at:number}|undefined;return row?{id:row.id,address:row.address,createdAt:row.created_at}:undefined;}
 }
 
 function decimalProductMicros(a:string,b:string):bigint{
