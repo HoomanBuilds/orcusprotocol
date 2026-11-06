@@ -67,6 +67,8 @@ describe("personal LangGraph agent", () => {
     expect(provider.modelCalls()).toBe(2);
     expect(memory.lastCheckpoint()).toMatchObject({ status: "failed", inferencePending: false });
     expect(memory.lastCheckpoint().evidence).toHaveLength(2);
+    await expect(planWith0G("Explain spot.", { ...memory, evaluationId: "invalid" })).rejects.toMatchObject({ code: "INVALID_MODEL_OUTPUT" });
+    expect(provider.modelCalls()).toBe(2);
   });
   it("rejects credential-bearing messages before billing, memory or provider access", async () => {
     const provider = fakeProvider([final]), memory = personalMemory("agent:user-a", "Use conservative amounts.");
@@ -249,6 +251,16 @@ describe("personal LangGraph agent", () => {
 });
 
 describe("0G Router management balance", () => {
+  it("keeps USD balances in microdollars and binds testnet identity to its actual endpoint", async () => {
+    vi.stubEnv("ZEROG_COMPUTE_MANAGEMENT_KEY", "unit-test-management-key");
+    vi.stubEnv("ZEROG_COMPUTE_CHAT_URL", "https://router-api-testnet.integratenetwork.work/v1/chat/completions");
+    const fetch = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => Response.json({ currency: "usd", address: account.address, deposit_balance: "1000000", total_balance: "2500000" }));
+    vi.stubGlobal("fetch", fetch);
+    const balance = await getComputeBalance();
+    expect(balance).toMatchObject({ status: "verified", balance: "2.5", unit: "USD", currency: "usd", chainId: 16602 });
+    expect(balance.balanceNeurons).toBeUndefined();
+    expect(fetch.mock.calls[0]?.[0]).toBe("https://router-api-testnet.integratenetwork.work/v1/account/balance");
+  });
   it("uses the management key and reports exact neuron and 0G units", async () => {
     vi.stubEnv("ZEROG_COMPUTE_MANAGEMENT_KEY", "unit-test-management-key");
     const fetch = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => Response.json({ address: account.address, deposit_balance: "1000000000000000000", total_balance: "2500000000000000000" }));

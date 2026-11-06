@@ -26,6 +26,7 @@ import {
 } from "@/lib/wallets";
 import { usd } from "@/lib/format";
 import { MemoryControls } from "./memory-controls";
+import { ComputeFundingPanel } from "./compute-funding-panel";
 import {
   Address,
   Badge,
@@ -746,6 +747,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
                   "Live credit balance and replenishment require a verified provider funding path. Owner deposits are not earned revenue."}
               </p>
             </article>
+            {w.session.user && <ComputeFundingPanel key={w.session.user.id} onRefresh={w.refresh} />}
             <article className="settings-card">
               <div className="card-heading">
                 <ShieldCheck size={20} />

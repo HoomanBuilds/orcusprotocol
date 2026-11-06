@@ -70,6 +70,7 @@ export async function runPersonalAgent(message: string, context: AgentContext = 
   if (checkpoint?.runId === runId && (checkpoint.toolProfile ?? "interactive") !== toolProfile) throw new EngineError("RUN_PROFILE_MISMATCH", "This run ID belongs to another agent tool profile. No cached proposal was reused.", 409);
   if (checkpoint?.runId === runId && checkpoint.messageDigest !== messageDigest) throw new EngineError("RUN_INPUT_MISMATCH", "This agent run ID was already used for another instruction.", 409);
   if (checkpoint?.runId === runId && checkpoint.inferencePending) throw new EngineError("INFERENCE_OUTCOME_UNKNOWN", "The previous model step has an unresolved outcome. Reconcile its usage before resuming.", 409);
+  if (checkpoint?.runId === runId && checkpoint.status === "failed" && checkpoint.formatErrors) throw new EngineError("INVALID_MODEL_OUTPUT", "This run exhausted its bounded format repair. Start a new instruction instead of replaying its paid steps.", 409);
   if (checkpoint?.runId === runId && checkpoint.status === "completed" && checkpoint.reply?.framework === "langgraph" && typeof checkpoint.reply.message === "string") return checkpoint.reply;
   const resumed = checkpoint?.runId === runId && checkpoint.messageDigest === messageDigest ? checkpoint : undefined;
   const tools = buildAgentTools({ ...context, toolProfile }, message);
