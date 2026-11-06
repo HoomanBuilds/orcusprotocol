@@ -12,10 +12,11 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import type { ChatMessage, TradeRequest } from "@orcus/core";
 import type { Workspace } from "@/lib/use-workspace";
-import { api, ApiError, displayError, post } from "@/lib/api";
+import { api, displayError, post } from "@/lib/api";
 import { number, usd } from "@/lib/format";
+import { useAgentRequests } from "@/lib/use-agent-requests";
+import { AgentRequestProgress } from "./agent-request-progress";
 import { Address, Badge, InlineError, Spinner } from "../trading/primitives";
 
 function AutomationSuggestion({ proposal, messageId, onCreated }: { proposal: unknown; messageId: string; onCreated: () => Promise<void> }) {
@@ -51,16 +52,17 @@ export function AgentPanel({
   onSettings: () => void;
 }) {
   const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
-  const [pendingInput, setPendingInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [autonomous, setAutonomous] = useState(false);
   const [changingMode, setChangingMode] = useState(false);
-  const [progress, setProgress] = useState("Preparing your agent...");
-  const retry = useRef<{ owner: string; accountId?: string; message: string; requestId: string } | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const agent = w.agentData?.agent ?? w.session.agent;
   const messages = w.agentData?.messages ?? [];
+  const requests = useAgentRequests(w.session.user?.address, w.refresh);
+  const sending = requests.submitting;
+  const owner = w.session.user?.address.toLowerCase() ?? "";
+  const currentOwner = useRef(owner); currentOwner.current = owner;
+  useEffect(() => { setInput(""); setError(null); setChangingMode(false); }, [owner]);
   useEffect(() => {
     setAutonomous(agent?.mode === "autonomous");
   }, [agent?.mode]);
@@ -70,45 +72,10 @@ export function AgentPanel({
 
   async function send() {
     if (!input.trim() || sending) return;
+    if (!w.session.user) return;
     const message = input.trim();
-    const owner = w.session.user?.address;
-    if (!owner) return;
-    const previous = retry.current;
-    const requestId = previous?.owner === owner && previous.accountId === w.account?.id && previous.message === message ? previous.requestId : crypto.randomUUID();
-    retry.current = { owner, accountId: w.account?.id, message, requestId };
-    setSending(true);
-    setProgress("Retrieving relevant memory...");
     setError(null);
-    setInput("");
-    setPendingInput(message);
-    let active = true;
-    let polling = false;
-    const timer = setInterval(async () => {
-      if (polling) return;
-      polling = true;
-      try {
-        const run = await api<{ message?: string; stage?: string; tool?: string }>(`/api/agent/runs/${encodeURIComponent(requestId)}`);
-        if (active) setProgress(run.message ?? (run.tool ? `Using ${run.tool}...` : run.stage ? `${run.stage}...` : "Working with 0G..."));
-      } catch {} finally { polling = false; }
-    }, 1200);
-    try {
-      await post<{
-        message: ChatMessage;
-        proposal?: TradeRequest;
-        requestId?: string;
-      }>("/api/agent/chat", { message, accountId: w.account?.id, autonomous, requestId });
-      retry.current = null;
-      await w.refresh();
-    } catch (cause) {
-      if (cause instanceof ApiError && ["NOT_CONFIGURED", "AUTH_REQUIRED", "INSUFFICIENT_BUDGET", "PRIVATE_INFERENCE_UNVERIFIED", "PRIVACY_POLICY_CHANGED", "RUN_PRIVACY_MISMATCH"].includes(cause.code)) retry.current = null;
-      setError(displayError(cause));
-      setInput(message);
-    } finally {
-      active = false;
-      clearInterval(timer);
-      setSending(false);
-      setPendingInput("");
-    }
+    if (await requests.submit({ message, accountId: w.account?.id, autonomous }) && currentOwner.current === owner) setInput(current => current.trim() === message ? "" : current);
   }
 
   return (
@@ -231,21 +198,12 @@ export function AgentPanel({
             {message.automationProposal !== undefined && <AutomationSuggestion proposal={message.automationProposal} messageId={message.id} onCreated={w.refresh} />}
           </div>
         ))}
-        {sending && (
-          <div className="chat-message user">
-            <span className="message-role">YOU</span>
-            <p>{pendingInput}</p>
-          </div>
-        )}
-        {sending && (
-          <div className="agent-thinking">
-            <Spinner />
-            <span>{progress}</span>
-          </div>
-        )}
+        <AgentRequestProgress requests={requests.requests} conversationIds={messages.map(message => message.id)} />
+        {requests.loading && !requests.requests.length && <span className="agent-thinking"><Spinner />Loading saved requests...</span>}
         <div ref={end} />
       </div>
       <InlineError message={error} onDismiss={() => setError(null)} />
+      <InlineError message={requests.error} />
       <div className="chat-compose">
         <textarea
           aria-label="Message your agent"
@@ -291,10 +249,11 @@ export function AgentPanel({
               setChangingMode(true);
               try {
                 await post("/api/agent/control", { command: "update", mode: next ? "autonomous" : "approval-required" });
+                if (currentOwner.current !== owner) return;
                 setAutonomous(next);
                 await w.refresh();
-              } catch (cause) { setError(displayError(cause)); }
-              finally { setChangingMode(false); }
+              } catch (cause) { if (currentOwner.current === owner) setError(displayError(cause)); }
+              finally { if (currentOwner.current === owner) setChangingMode(false); }
             }}
           />
           Autonomous execution
