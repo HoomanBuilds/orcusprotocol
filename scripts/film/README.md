@@ -1,8 +1,8 @@
 # Orcus narrated walkthrough
 
-Seven real UI recordings alternate with restrained product chapter cards. The nominal cut is 156 seconds, 1920 x 1080 at 30 fps. Sarah narrates; there is no music, subtitle stream, or burned-in caption layer. The research recording is disclosed as prerecorded, strategy work ends at review, and the wallet stays unfunded. No trades are submitted.
+Seven real UI recordings alternate with restrained product chapter cards. The nominal cut is 156 seconds, 1920 x 1080 at 30 fps. Sarah narrates; there is no music, subtitle stream, burned-in caption layer, or added warning banner. Provenance belongs here and in the output manifest: research uses a previously recorded 0G response, strategy work ends at review, and the wallet stays unfunded. No trades are submitted. Queued request status is not a completed result. Native product statuses remain visible.
 
-The scripts use the product's existing Inter font and Orcus mark, Chromium for title cards, and FFmpeg with two threads. No Remotion dependency is needed. Run capture and render serially with other resource-intensive tasks.
+The scripts use the product's existing Inter font and landing-page `orcus.` wordmark, Chromium for title cards, and FFmpeg with two threads. No Remotion dependency is needed. Run capture and render serially with other resource-intensive tasks.
 
 ## Inputs
 
@@ -19,6 +19,8 @@ node scripts/film/generate-voice.mjs --output-dir /absolute/output/orcus-film --
 ```
 
 The ledger reserves each segment's character cost before sending it. Verified completed audio is reused by exact text/voice/settings fingerprint and audio hash. A timeout, malformed response, interruption after submission, or missing completed cache stops the run. Pending attempts are not automatically retried, and changed story text cannot start a second pass in that ledger. Inspect billing and obtain new approval before any manual recovery. Keep this same output directory and ledger throughout the approved pass.
+
+The approved editorial version removes selected explanatory demo disclaimers from the existing speech, without generating another word. `edit-voice.mjs` validates exact timestamp alignment, retains specified sentence spans, and produces local WAV derivatives in `voice-edited`. Original MP3s, story, approved character ledger, and voice settings remain untouched. Render manifests contain the exact retained narration, source audio hashes, and retained source spans. Preview the edit plan without running FFmpeg using `node scripts/film/edit-voice.mjs --output-dir /absolute/output/orcus-film --dry-run`. The renderer applies this approved edit automatically. Narration describes capabilities and review controls, not an execution that did not happen.
 
 ## Render
 

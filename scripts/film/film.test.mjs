@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {segments, narrationCharacters} from './story.mjs';
 import {reserveSegment, fingerprintFor, validateCachedAudio, digest} from './generate-voice.mjs';
 import {timelineFor, cardHtml} from './render.mjs';
+import {editPlan, retainedText} from './edit-voice.mjs';
 
 describe('chaptered walkthrough', () => {
   it('keeps the approved narration below its single-pass cap', () => {
@@ -43,6 +44,19 @@ describe('chaptered walkthrough', () => {
     expect(html).toContain('data:font/woff2');
     expect(html).not.toContain('Lori');
     expect(html).not.toContain('http');
+    expect(html).toContain('orcus<span>.</span>');
+    expect(html).not.toContain('<img');
     expect(cardHtml({title: 'Orcus', accent: 'You stay in control.'})).not.toContain('Testnet preview');
+  });
+  it('cuts only approved sentence ranges and keeps source alignment exact', () => {
+    const text = segments.find(segment => segment.id === 'control-history').narration;
+    const alignment = {characters: [...text], character_start_times_seconds: [...text].map((_item, index) => index * .1), character_end_times_seconds: [...text].map((_item, index) => (index + 1) * .1)};
+    const plan = editPlan('control-history', {text, alignment}, text.length * .1);
+    expect(plan.spans).toHaveLength(2);
+    expect(plan.text).toBe(retainedText('control-history', text));
+    expect(plan.text).not.toContain('queued, not completed');
+    expect(plan.text).toContain('let you pause');
+    expect(() => editPlan('control-history', {text: text + ' changed', alignment}, 40)).toThrow('exactly match');
+    expect(() => retainedText('strategy', 'Unrelated text')).toThrow('exactly once');
   });
 });

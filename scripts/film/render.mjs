@@ -6,6 +6,7 @@ import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 import {segments, promise, narrationCharacters} from './story.mjs';
 import {fingerprintFor} from './generate-voice.mjs';
+import {prepareEditedVoice, removedSentences} from './edit-voice.mjs';
 
 const project = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const run = (program, args) => {
@@ -19,8 +20,7 @@ const escapeHtml = value => value.replace(/[&<>"']/g, character => ({'&': '&amp;
 const hashFile = async file => {const hash = createHash('sha256'); for await (const chunk of createReadStream(file)) hash.update(chunk); return hash.digest('hex');};
 export function cardHtml(segment) {
   const font = readFileSync(resolve(project, 'web/public/landing/fonts/inter-regular.woff2')).toString('base64');
-  const mark = readFileSync(resolve(project, 'web/public/workspace/orcus.svg')).toString('base64');
-  return `<!doctype html><html><head><meta charset="utf-8"><style>@font-face{font-family:Inter;src:url(data:font/woff2;base64,${font})}*{box-sizing:border-box}html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:#171518;color:#f7f4f6;font-family:Inter,sans-serif}main{height:100%;padding:100px 132px;display:flex;flex-direction:column}.brand{display:flex;align-items:center;gap:18px;font-size:32px;letter-spacing:-1px}.brand img{width:50px;height:50px}.copy{margin:auto 0}h1{font-size:104px;font-weight:400;line-height:1.15;letter-spacing:-5px;margin:0}h1 span{color:#ffa4d4}.footer{font-size:20px;color:#a7a1a6;text-align:right}</style></head><body><main><div class="brand"><img src="data:image/svg+xml;base64,${mark}" alt="">Orcus</div><div class="copy"><h1>${escapeHtml(segment.title)}<br><span>${escapeHtml(segment.accent)}</span></h1></div><div class="footer">${segment.chapter ? `${String(segment.chapter).padStart(2, '0')} / 07` : ''}</div></main></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>@font-face{font-family:Inter;src:url(data:font/woff2;base64,${font})}*{box-sizing:border-box}html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:#171518;color:#f7f4f6;font-family:Inter,sans-serif}main{height:100%;padding:100px 132px;display:flex;flex-direction:column}.brand{font-size:46px;font-weight:700;line-height:.9;letter-spacing:-3.8px}.brand span{color:#ff99d6}.copy{margin:auto 0}h1{font-size:104px;font-weight:400;line-height:1.15;letter-spacing:-5px;margin:0}h1 span{color:#ffa4d4}.footer{font-size:20px;color:#a7a1a6;text-align:right}</style></head><body><main><div class="brand">orcus<span>.</span></div><div class="copy"><h1>${escapeHtml(segment.title)}<br><span>${escapeHtml(segment.accent)}</span></h1></div><div class="footer">${segment.chapter ? `${String(segment.chapter).padStart(2, '0')} / 07` : ''}</div></main></body></html>`;
 }
 export function timelineFor(sourceInfo, voiceInfo) {
   let cursor = 0;
@@ -28,8 +28,9 @@ export function timelineFor(sourceInfo, voiceInfo) {
     const lead = segment.narration ? 0.35 : 0;
     const audioSeconds = voiceInfo[segment.id]?.duration ?? 0;
     const sourceSeconds = sourceInfo[segment.id]?.duration ?? 0;
-    const durationSeconds = Math.ceil(Math.max(segment.duration, sourceSeconds, audioSeconds + lead + (segment.id === 'closing' ? 2 : 0.65)) * 30) / 30;
-    const entry = {...segment, startSeconds: cursor, durationSeconds, audioSeconds, voiceOffset: lead};
+    const minimum = voiceInfo[segment.id]?.text ? Math.min(segment.duration, audioSeconds + 2) : segment.duration;
+    const durationSeconds = Math.ceil(Math.max(minimum, sourceSeconds, audioSeconds + lead + (segment.id === 'closing' ? 2 : 0.65)) * 30) / 30;
+    const entry = {...segment, narration: voiceInfo[segment.id]?.text ?? segment.narration, startSeconds: cursor, durationSeconds, audioSeconds, voiceOffset: lead};
     cursor += durationSeconds;
     return entry;
   });
@@ -63,12 +64,16 @@ export async function main() {
       const metadata = JSON.parse(readFileSync(meta, 'utf8'));
       if (metadata.fingerprint !== fingerprintFor(segment.narration) || metadata.audioHash !== await hashFile(file)) throw new Error(`Narration cache mismatch: ${segment.id}`);
       voiceInfo[segment.id] = {file, hash: metadata.audioHash, duration: Number(probe(file).format.duration)};
+      if (removedSentences[segment.id]) {
+        const edited = prepareEditedVoice(output, segment.id);
+        voiceInfo[segment.id] = {file: edited.file, hash: edited.audioHash, duration: edited.duration, text: edited.text, sourceHash: edited.sourceHash, retainedSpans: edited.spans};
+      }
       if (!Number.isFinite(voiceInfo[segment.id].duration) || voiceInfo[segment.id].duration <= 0) throw new Error('Invalid narration duration.');
     }
   }
   const timeline = timelineFor(sourceInfo, voiceInfo);
   json(resolve(output, 'timeline.json'), {...timeline, promise, resolution: '1920x1080', fps: 30, sourceInfo, voiceInfo, music: false, subtitles: false});
-  json(resolve(output, 'narration-manifest.json'), {characters: narrationCharacters(), segments: timeline.segments.filter(segment => segment.narration).map(({id, narration, startSeconds, voiceOffset, audioSeconds}) => ({id, text: narration, startSeconds: startSeconds + voiceOffset, audioSeconds}))});
+  json(resolve(output, 'narration-manifest.json'), {originalApprovedCharacters: narrationCharacters(), editorialCharacters: timeline.segments.reduce((total, segment) => total + [...segment.narration].length, 0), provenance: {research: 'Previously recorded 0G response displayed in the interface, not a new inference call during capture.', trading: 'Unfunded wallet; no trades submitted. Strategy review only, no activation. Native status labels remain visible.'}, segments: timeline.segments.filter(segment => segment.narration).map(({id, narration, startSeconds, voiceOffset, audioSeconds}) => ({id, text: narration, startSeconds: startSeconds + voiceOffset, audioSeconds, sourceHash: voiceInfo[id]?.sourceHash ?? voiceInfo[id]?.hash, retainedSpans: voiceInfo[id]?.retainedSpans}))});
   const rendererHash = await hashFile(fileURLToPath(import.meta.url));
   for (const segment of timeline.segments) {
     const file = resolve(parts, `${segment.id}.mkv`), silent = resolve(parts, `${segment.id}-silent.mkv`), cache = resolve(parts, `${segment.id}.json`);
