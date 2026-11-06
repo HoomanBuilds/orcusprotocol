@@ -71,7 +71,12 @@ try {
     if (!directory) return;
     mkdirSync(directory, { recursive: true });
     await evaluate("document.fonts.ready.then(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))");
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (!await evaluate("document.body.innerText.includes('Loading venue snapshots...')||!!document.querySelector('.chart-loading')")) break;
+      await delay(200);
+    }
     await delay(450);
+    assert.ok(!await evaluate("!!document.querySelector('nextjs-portal')"), "Use a production preview for screenshot evidence.");
     const result = await rpc("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
     writeFileSync(join(directory, `${name}.png`), Buffer.from(result.data, "base64"));
   };
