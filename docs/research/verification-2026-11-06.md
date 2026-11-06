@@ -90,11 +90,35 @@ Upload finality and node availability were checked, followed by a proof-verified
 
 The operator path has a global payer nonce lock, per-backup ceilings and a shared UTC-day cap across all users. It rejects unresolved prior transactions and requests above operator limits. Additional public storage payments remain disabled in the ordinary local app after this one approved test; the verifier enabled storage only within its own process. Read-only quotes remain available with `npm run verify:storage`.
 
+## Low-friction trading and sponsored gas
+
+The existing Kernel account stack is retained. Both owner and agent paths require bounded sponsorship before signing and preserve the exact signed UserOperation payload at broadcast. The server-only paymaster proxy binds the authenticated owner, account derivation and factory, EntryPoint, control revision and exact reviewed calldata/value. Arbitrary account execution is not sponsored. Native-wrap permissions are explicit, capped and absent from old grants.
+
+Gas accounting covers all five ERC-4337 v0.7 gas components. Per-operation, per-user/day, per-user operation-count and shared project/day ceilings use exact wei accounting. Returned approval fields are validated; provider errors do not disclose credentials. Estimation and final approval have separate provider-consumption flags. Unresolved issued approvals remain conservatively reserved across days, including the highest still-valid cost after a cheaper reissue. Trusted receipt reconciliation supports RPC hex values and SDK bigint values and is idempotent. Configuration does not imply funded provider approval.
+
+An external-wallet deposit still requires owner-paid Sepolia gas. Token deposits now check that balance before signing, rather than discovering the missing gas inside the wallet. Funding intent is saved before the wallet flow starts; refreshes preserve uncertainty instead of inviting an identical retry. Cancellation, rejection, pending receipts and uncertain submission have separate safe messages. No owner private key is requested, and no automatic paid-gas fallback was introduced.
+
+Native ETH input is an exact WETH deposit plus protected swap in one smart-account operation. Native ETH output is not implemented or labelled as available. The real Kernel fork proof was repeated successfully at Sepolia block `12075053`, with six successful local UserOperations and no public writes or protocol deployments. Representative local-only receipts:
+
+- Owner native-input swap: `0xea3b480252e24df80860c7198f7c8cd3058cae05ac0f98254231b0251e43a288`.
+- Agent native-input swap on the same account: `0xa32e8631d171bbf01ee95bc0a0dbfe793b13275397ce6e8dbf711271b8877a9a`.
+
+The fork rejects token/native transfers outside the grant, wrapping above the cap, a changed swap recipient and expired authority. Repeated permitted wrapping keeps WETH in the same user account. Earlier pinned-block proofs also passed, but later replay encountered unavailable historical state from the public RPC. Selecting a retained block restored the proof; an archival provider is needed for reliable replay of the older pinned fixture.
+
+CRE now reads native ETH through its actual `balanceAt` capability at the observed block for native-input strategies. WETH/USDC inputs retain ERC20 balance reads. Proposal comparison binds the native-input choice, and missing or insufficient native evidence rejects the evaluation. Three explicit capability-fixture tests and the official typecheck/WASM compiler pass. This is not a successful authenticated CLI simulation.
+
+Verification totals: 404 application tests and three workflow capability-fixture tests; application, script and workflow typechecks; Next production build; CRE WASM build. Real read-only diagnostics returned one Uniswap market and 159 Hyperliquid markets. No additional paid inference, public storage payment, public trade or deployment was performed during this pass.
+
+`npm audit --omit=dev` reports 11 existing upstream dependency findings: four high and seven moderate. They include Axios through the storage SDK and WebSocket dependencies through ethers. No blind major-version override was applied. Compatibility and actual exposure require triage before production or real-fund use. Relevant upstream advisories: [Axios absolute-URL handling](https://github.com/advisories/GHSA-jr5f-v2jv-69x6) and [WebSocket memory exhaustion](https://github.com/advisories/GHSA-96hv-2xvq-fx4p).
+
+The implementation follows the existing SDKs and primary references: [ZeroDev sponsorship](https://docs.zerodev.app/smart-accounts/sponsor-gas/evm), [provider gas policies](https://docs.zerodev.app/api-and-toolings/infrastructure/gas-policies), and [Uniswap Sepolia deployments](https://developers.uniswap.org/docs/protocols/v3/deployments/v3-ethereum-deployments).
+
 ## Remaining external acceptance
 
 - CRE CLI authentication will be supplied later. Workflow compilation is not a successful CLI simulation, and no hosted DON execution is claimed.
 - Funded Hyperliquid authorization/trading and external Sepolia bundler execution require owner actions and accounts.
 - Encrypted storage upload/download/restore is now live-verified with a funded platform payer. Actual compute replenishment still needs a matching verified Router account and management-read access. Compute credits and native storage funds are separate.
-- User-facing payment collection and Uniswap paymaster sponsorship remain unimplemented; an allowance is not paid service credit and backend sponsorship does not make all trades gasless.
+- User-facing payment collection remains unimplemented; an allowance is not paid service credit. Capped Uniswap paymaster integration is implemented, but its provider account, funded policy and live external acceptance are not configured or proven.
+- Dependency-audit findings remain unresolved. The hackathon implementation is not certified production-safe by these functional checks.
 - Optional earned funding remains off. Sponsor credits, owner deposits and theoretical trading profit are not proof of service revenue funding inference.
 - Public repository publication, feedback-form submission, hosted deployment and demo recording were not performed.

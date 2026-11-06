@@ -14,12 +14,14 @@ Current verification, 2026-11-06: real 0G inference, sealed gateway-reported inf
 
 Compute replenishment is implemented with owner policy, exact beneficiary/network binding, caps, idempotency, receipt recovery and Router-credit synchronization checks. It remains disabled for the supplied production Router key: Galileo deposits cannot replenish that account, and an inference key does not verify its funding beneficiary. Optional earned-funding mode is not enabled or represented as complete.
 
-Checked items have direct local evidence or the stated isolated-fork proof. Unchecked items can have complete software but still lack their required funded/provider/CLI or submission acceptance. Fixture-backed tests are not presented as funded external execution. All 340 tests and application typechecks pass; production and CRE WASM builds have passed. Public deployments are intentionally outside this completion pass. See the [dated verification record](../research/verification-2026-11-06.md).
+Checked items have direct local evidence or the stated isolated-fork proof. Unchecked items can have complete software but still lack their required funded/provider/CLI or submission acceptance. Fixture-backed tests are not presented as funded external execution. The current verification covers 404 application tests plus three CRE capability-fixture tests, application/workflow typechecks, and production/CRE WASM builds. Public deployments are intentionally outside this completion pass. See the [dated verification record](../research/verification-2026-11-06.md).
+
+The low-friction trading pass adds shared manual/agent gas sponsorship, an authenticated and scoped paymaster proxy, per-operation/user/project caps, native ETH input with explicit agent opt-in, pre-signing external-deposit gas checks, safe error messages and pending-deposit recovery across refreshes. Hosted gas sponsorship is not configured locally and is not claimed as live. Native ETH output, bridges and mainnet trading remain disabled. Dependency-audit findings also remain a production gate.
 
 | Area | Implementation and verification | Remaining external acceptance |
 | --- | --- | --- |
 | Personal agent and memory | Real signed HTTP tool loops and actual encrypted 0G upload/download/restore after reopening the database; platform payer spent 0.001259629469494168 testnet 0G | Independent strict attestation remains separate; normal end users do not need native 0G for this sponsored path |
-| Shared trading | Shared adapters, permissions, reviewed proposals, takeover and durable action audit; real owner/session swaps on local fork | External bundler account and funded Hyperliquid owner approval/trades |
+| Shared trading | Shared adapters, permissions, reviewed proposals, takeover and durable action audit; real owner/session native ETH input swaps on local fork; capped sponsorship/proxy and receipt recovery implemented | External bundler/paymaster policy and sponsored execution proof; funded Hyperliquid owner approval/trades |
 | Private inference | Explicit gateway-reported sealed mode passes; strict hardware/code verifier and certificate pinning fail closed | Hash-matching raw app-compose manifest is unavailable from the live gateway's public attestation service |
 | Operating budget | Actual Router billing plus USD-equivalent ledger; platform-paid storage with global payer locking and daily/per-backup caps; capped compute deposits and receipt recovery implemented | Management-read credential, matching testnet Router account and actual compute deposit/credit-sync proof; real service-payment checkout is not implemented |
 | CRE | Real SDK workflow, WASM build, authenticated handoff, durable runner, allow/reject consumption and restart fixtures | CLI authentication is unavailable; owner will provide it later. No successful live simulation is claimed |
@@ -36,7 +38,7 @@ Checked items have direct local evidence or the stated isolated-fork proof. Unch
 
 - [x] `C2.1` Keep wallet connection separate from trading authorization. The user explicitly approves agent access in their wallet.
 - [x] `C2.2` For Uniswap, use a user-owned ERC-4337 smart account with Kernel's scoped permission modules. Actual owner/session behavior is verified on the isolated Sepolia fork; external bundler acceptance remains a separate gate.
-- [ ] `C2.3` Make smart-account funding an explicit user-approved action. Connecting an existing wallet does not transfer its tokens or grant control over them.
+- [ ] `C2.3` Make smart-account funding an explicit user-approved action. Connecting an existing wallet does not transfer its tokens or grant control over them. Check the external owner's token and gas balance before signing, distinguish deposits from bridges, and preserve unresolved transfer recovery across refreshes.
 - [ ] `C2.4` For Hyperliquid, use native agent-wallet authorization for the user's existing account. Read positions using the trading account's address, not the agent signer's address.
 - [ ] `C2.5` Provide permission review, expiry, revocation and key rotation. The agent cannot change ownership or grant itself broader permissions.
 - [x] `C2.6` Keep withdrawals and permission changes owner-controlled. Store agent credentials in protected signing infrastructure, never in model prompts, plaintext memory or public storage. Private inference does not itself secure wallet signing keys.
@@ -45,7 +47,7 @@ Checked items have direct local evidence or the stated isolated-fork proof. Unch
 ## 3. Unified dashboard and manual trading
 
 - [ ] `C3.1` Show balances, open positions, pending orders, P&L, recent activity and agent operating costs.
-- [x] `C3.2` Support manual Uniswap spot swaps with quote, approval, slippage, fee and confirmation states.
+- [x] `C3.2` Support manual Uniswap spot swaps with quote, approval, slippage, fee and confirmation states. Native ETH input atomically wraps the exact reviewed amount; WETH output is labelled honestly. Sponsorship must be approved before signing, with no silent owner-paid fallback. Native execution is fork-verified; external paymaster acceptance remains separate.
 - [ ] `C3.3` Support manual Hyperliquid orders, cancellation, position reduction and closing, plus supported stop-loss and take-profit controls.
 - [x] `C3.4` Clearly distinguish spot holdings from leveraged positions. Selling a spot holding is not the same operation as closing a perpetual position.
 - [x] `C3.5` Display live, pending, failed and stale states accurately. Do not show an API acknowledgement as a confirmed fill.

@@ -42,7 +42,7 @@ Set `ORCUS_MASTER_KEY` before starting in production. Development creates an own
 | Integration | Configuration and user action |
 | --- | --- |
 | 0G inference | Exact chat-completions URL, API key and model from your credited account; authorize an operating expense cap in settings. Router balance additionally needs a management key scoped to `account:read` |
-| Uniswap | Public Sepolia RPC, server-side `ZERODEV_RPC_URL`, owner-created smart account, explicitly transferred test tokens and gas; delegation requires a bounded owner-signed session grant |
+| Uniswap | Public Sepolia RPC, server-side bundler and funded gas-sponsorship policy, owner-created smart account and explicitly transferred test assets; delegation requires a bounded owner-signed session grant |
 | Hyperliquid | Owner wallet and funded Hyperliquid testnet account; approve the separate agent address only if autonomous trading is wanted |
 | 0G memory | Configure a funded operator Galileo signer and enable storage. The platform pays native gas/storage under per-backup and shared daily caps; users do not need 0G. Advanced agent-paid mode remains optional |
 | Chainlink CRE | Official CLI, its required build toolchain, authenticated CLI access and the workflow directory; see the workflow's own setup instructions |
@@ -50,6 +50,16 @@ Set `ORCUS_MASTER_KEY` before starting in production. Development creates an own
 Wallet connection is not trading authorization. Users retain their owner wallet; the application never asks for its seed phrase or private key. Agent and owner actions target the same supported account state, including existing Hyperliquid positions. Operating funds and trading capital are separate.
 
 Uniswap execution uses a Kernel account with bounded call, expiry and gas policies. The backend's per-trade risk checks are additional controls. Hyperliquid's native agent grant is trading authority; our custom asset and notional limits are application-enforced, not falsely advertised as venue-native restrictions.
+
+### Trading funds and gas
+
+- Connecting a wallet does not move funds. The initial deposit is an explicit owner-wallet transfer on Ethereum Sepolia and needs that wallet's Sepolia ETH network fee. This is not a bridge from another chain.
+- Manual and agent smart-account swaps require platform-sponsored gas. A sponsor refusal stops before signing; the app does not silently charge the trading account instead. Sponsorship covers gas, not the assets being swapped.
+- Native ETH input wraps exactly the reviewed amount into WETH and swaps it for USDC in the same atomic operation. An agent needs a separate, default-off native-wrap grant with a cap. Existing grants do not gain ETH transfer authority.
+- Buying WETH returns WETH, not native ETH. Native ETH output, automatic unwrapping and cross-chain routes are not enabled.
+- Hyperliquid uses its own testnet account, collateral and trading fees. Ethereum smart-account sponsorship is not its deposit or gas mechanism.
+
+ZeroDev is the infrastructure provider used by the existing Kernel wallet library, not another hackathon sponsor or a customer account requirement. Operators must configure the server-side bundler and paymaster endpoints plus a funded provider sponsorship policy. Normal users do not need a ZeroDev login or native 0G for trading. Provider configuration alone is not proof of successful sponsored execution.
 
 ## Personal agent and automation
 
@@ -67,7 +77,7 @@ Encrypted backups have explicit per-request native gas and storage-fee caps. The
 
 Operator-paid storage uses `ZEROG_STORAGE_PAYER=operator` and a server-only sponsor signer. A payer-wide nonce lock and UTC-day native cap cover all users; one user cannot bypass a pending transfer by starting another account. Requests cannot raise the operator's fee ceilings. Users keep separate trading and agent operating accounts but do not have to fund those accounts with 0G for inference or sponsored storage. Native costs are metered here, not converted into a fabricated USD charge.
 
-Service-payment collection is not yet a checkout: the current budget is an authorized cost allowance, not proof the user paid. Trading principal, collateral and venue/network fees remain separate. Uniswap smart accounts still need Sepolia ETH for execution until a paymaster is configured; backend 0G sponsorship does not make every trade gasless.
+Service-payment collection is not yet a checkout: the current budget is an authorized cost allowance, not proof the user paid. Trading principal, collateral and venue/network fees remain separate. Uniswap smart-account execution is disabled until Ethereum gas sponsorship is configured and approved for the operation; backend 0G sponsorship does not make every trade gasless. An unavailable sponsor does not revoke existing onchain session authority. Pause new agent actions and use an explicitly reviewed owner recovery transaction if native revocation is unavailable.
 
 Private inference is an explicit owner setting. Independent mode runs the official `pcverify` verifier, checks measured code and hardware, and pins the gateway certificate. Missing evidence stops the request. A separate opt-in gateway-reported mode routes only to the sealed private tier and records its evidence without labelling it independently attested. Neither mode hides public trades.
 
@@ -85,7 +95,7 @@ npm run verify:uniswap-fork
 npm run verify:kernel-fork
 ```
 
-The fork verifier needs Anvil and public Sepolia RPC access. It performs real local-fork swaps with ephemeral accounts, not public transactions. To intentionally spend a small amount of compute credits against a running local app:
+The fork verifier needs Anvil and Sepolia RPC access. Its pinned historical block needs an archival source; use `ORCUS_FORK_SOURCE_RPC` for one or explicitly select a retained block with `ORCUS_FORK_BLOCK`. It performs real local-fork swaps with ephemeral accounts, not public transactions. After installing the separate CRE workflow dependencies, `npm run test:cre` runs its three capability-fixture tests. To intentionally spend a small amount of compute credits against a running local app:
 
 ```sh
 npm run verify:compute -- --allow-paid-inference --gateway-reported-private
@@ -106,6 +116,8 @@ Use `ORCUS_VERIFY_APP_URL=http://localhost:3100` when the app runs on another po
 `doctor` checks configuration and performs read-only market requests. It does not submit transactions, upload storage objects or spend inference credits. An installed SDK or configured endpoint is not evidence of live authorization or successful execution.
 
 The checklist remains the end-to-end acceptance record. Code implementation, local compile checks, public read connectivity and a funded owner-signed live demonstration are distinct milestones. Missing credentials and disabled integrations are surfaced instead of replaced with fabricated balances, fills or workflow results.
+
+The dependency audit still reports upstream findings, including transitive storage-SDK and WebSocket dependencies. These need compatibility and exposure review before production or real-fund use; passing application tests is not a clean dependency-security audit.
 
 ## Boundaries
 

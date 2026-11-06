@@ -107,7 +107,21 @@ ERC-4337 handles account abstraction; it does not itself specify session-key spe
 
 Ordinary users do not need native 0G for inference or platform-sponsored storage. The backend uses its credited Router key for inference and a separate capped operator signer for Galileo storage gas and storage value. User-specific memory keys and trading credentials remain isolated. Operator storage shares a payer-wide nonce lock and daily native cap; the operator key never reaches the model or browser. Agent-paid storage remains an optional advanced mode, not a default customer requirement.
 
-The current budget tracks authorized spending, not a completed service-payment checkout. Collection of user fees remains separate work. Trading principal and collateral stay separate from service costs. Uniswap execution still requires Sepolia ETH until a paymaster is configured; backend 0G sponsorship does not imply gasless trading.
+The current budget tracks authorized spending, not a completed service-payment checkout. Collection of user fees remains separate work. Trading principal and collateral stay separate from service costs. Uniswap smart-account execution requires configured and approved Ethereum gas sponsorship; backend 0G sponsorship does not imply gasless trading. An external-wallet deposit still needs owner-paid Sepolia gas.
+
+### Low-friction trading and gas
+
+Keep the existing Kernel account and venue adapters. Improve the experience without introducing a new wallet, bridge, token or customer infrastructure balance.
+
+1. Connect and sign in with the owner wallet. Derive the same user-owned trading account without requiring a live bundler just to calculate its address. No funds move at this step.
+2. Fund the selected venue explicitly. Show the receiving account, supported network, asset and amount. A transfer from an external wallet is owner-signed and needs that wallet's native gas. Never present a same-chain deposit as a cross-chain bridge.
+3. Default supported smart-account execution to platform-sponsored gas. Keep provider credentials on the server, bind sponsorship to the authenticated user's reviewed operation, and cap individual operations and daily usage. Provider configuration is not proof of a funded or approved sponsorship.
+4. Apply the same sponsorship path to manual and agent actions. Obtain and validate sponsorship before signing. Do not silently retry with the user's native balance if the sponsor rejects or is unavailable.
+5. Native ETH input is an atomic conversion to the verified WETH contract followed by the protected spot swap, not a separate custody vault. Agent grants require an explicit bounded native-wrap opt-in; existing zero-value permissions do not grow automatically. WETH output must be labelled WETH rather than native ETH.
+6. Keep one reviewed action and its transaction evidence through wallet approval, submission, receipt uncertainty and reconciliation. Disable duplicate submission while the result is unknown. Account, chain or control changes invalidate stale reviews.
+7. Missing provider configuration, unsupported routes and insufficient balances produce actionable states before signing. Preserve owner recovery information; an unavailable sponsor is not proof of a revoked agent permission.
+
+ZeroDev is the infrastructure provider behind the existing Kernel SDK, not a new sponsor target or a requirement for customers to create another account. Operators must configure the bundler and funded sponsorship policy before claiming live sponsored execution. Check provider support for the initial permission-enrollment gas cost as well as ordinary swaps.
 
 ### Ownership and takeover rules
 
