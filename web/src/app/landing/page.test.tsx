@@ -65,6 +65,24 @@ describe("Orcus landing page", () => {
     for (const blocked of [{ allowed: false }, { visible: false }, { pageVisible: false }, { userPaused: true }]) expect(canPlayHero({ ...active, ...blocked })).toBe(false);
   });
 
+  it("fades a neutral hero shade from the top to a clear garden foreground", () => {
+    const css = readFileSync(new URL("./landing.module.css", import.meta.url), "utf8");
+    const gradient = css.match(/\.heroShade\s*\{\s*background:\s*linear-gradient\(180deg,\s*(.*?)\);\s*\}/)?.[1];
+    expect(gradient).toBeDefined();
+    const stops = [...gradient!.matchAll(/rgb\(0 0 0 \/ ([.\d]+)\) (\d+)%/g)].map(match => ({ opacity: Number(match[1]), position: Number(match[2]) }));
+    expect(stops.length).toBeGreaterThanOrEqual(2);
+    expect(stops[0].position).toBe(0);
+    expect(stops[0].opacity).toBeGreaterThan(0.36);
+    expect(stops[0].opacity).toBeLessThanOrEqual(0.6);
+    for (let index = 1; index < stops.length; index++) {
+      expect(stops[index].opacity).toBeLessThan(stops[index - 1].opacity);
+      expect(stops[index].position).toBeGreaterThan(stops[index - 1].position);
+    }
+    const clearPosition = Number(gradient!.match(/, transparent (\d+)%$/)?.[1]);
+    expect(clearPosition).toBeGreaterThan(stops.at(-1)!.position);
+    expect(clearPosition).toBeLessThanOrEqual(70);
+  });
+
   it("sets Orcus-specific preview metadata without inventing a public domain", () => {
     expect(metadata.title).toBe("Orcus | Your personal trading agent");
     expect(metadata.description).toContain("testnet prototype");
