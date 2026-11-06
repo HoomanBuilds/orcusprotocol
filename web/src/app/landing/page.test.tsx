@@ -44,8 +44,8 @@ describe("Orcus landing page", () => {
     expect(markup).not.toMatch(/<input|<textarea|Connect Wallet|Approve USDC/);
   });
 
-  it("uses the complete local garden loop with poster-only motion opt-out", () => {
-    expect(HERO_MEDIA).toEqual({ webm: "/landing/garden-hero-v1.webm", mp4: "/landing/garden-hero-v1.mp4", poster: "/landing/garden-hero-v1-poster.webp" });
+  it("uses only the supplied local Tethra clip with poster-only motion opt-out", () => {
+    expect(HERO_MEDIA).toEqual({ mp4: "/landing/tethra-hero-v1.mp4", poster: "/landing/tethra-hero-v1-poster.webp" });
     for (const path of Object.values(HERO_MEDIA)) expect(statSync(new URL(`../../../public${path}`, import.meta.url)).size).toBeGreaterThan(0);
     const markup = renderToStaticMarkup(<MotionVideo/>);
     expect(markup).toContain('loop=""');
@@ -54,6 +54,7 @@ describe("Orcus landing page", () => {
     expect(markup).not.toContain("<source");
     const source = readFileSync(new URL("./landing-interactions.tsx", import.meta.url), "utf8");
     expect(source).not.toMatch(/currentTime\s*=|hero-mobile\.webm|src="\/landing\/hero\.webm"/);
+    expect(source).not.toMatch(/garden-hero|video\/webm/);
     expect(source).toContain('"visibilitychange"');
     expect(source).toContain("IntersectionObserver");
   });
