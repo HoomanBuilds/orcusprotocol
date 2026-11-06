@@ -1,6 +1,7 @@
 import { createPublicClient, createWalletClient, custom, decodeFunctionData, encodeFunctionData, erc20Abi, getAddress, http, zeroAddress, type EIP1193Provider, type Hex } from "viem";
 import { sepolia } from "viem/chains";
 import { isOwnerRejection, WalletActionError } from "./preflight";
+import { prepareOwnerTokenTransfer } from "./token-transfer";
 
 export type ServicePaymentQuote = { id: string; mode: "testnet"; testOnly: true; chainId: 11155111; token: string; payer: string; treasury: string; amountBaseUnits: string; data: Hex; value: "0"; status: string; expiresAt: number };
 
@@ -26,13 +27,12 @@ export async function payServiceCredits(quote: ServicePaymentQuote, hooks: { bef
   await assertOwner();
   const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
   const client = createPublicClient({ chain: sepolia, transport: http(new URL("/api/rpc", origin).href, { fetchOptions: { credentials: "same-origin", redirect: "error" }, retryCount: 0 }) });
-  const simulated = await client.simulateContract({ account: getAddress(owner), address: getAddress(quote.token), abi: erc20Abi, functionName: "transfer", args: [getAddress(quote.treasury), BigInt(quote.amountBaseUnits)] });
-  if (simulated.result !== true) throw new WalletActionError("SERVICE_PAYMENT_EVIDENCE_INVALID", "The test-USDC transfer simulation did not succeed.");
+  const envelope = await prepareOwnerTokenTransfer(client, { owner: getAddress(owner), token: getAddress(quote.token), recipient: getAddress(quote.treasury), amount: BigInt(quote.amountBaseUnits), maxGasCostWei: 3_000_000_000_000_000n });
   await hooks.beforeSubmit();
   await assertOwner();
   if (quote.expiresAt <= Date.now()) throw new WalletActionError("SERVICE_PAYMENT_EXPIRED", "The payment quote expired before the wallet opened.");
   let hash: Hex;
-  try { hash = await wallet.sendTransaction({ account: getAddress(owner), to: getAddress(quote.token), data: quote.data, value: 0n }); }
+  try { hash = await wallet.sendTransaction({ account: getAddress(owner), to: getAddress(quote.token), data: quote.data, value: 0n, gas: envelope.gas, maxFeePerGas: envelope.maxFeePerGas, maxPriorityFeePerGas: envelope.maxPriorityFeePerGas }); }
   catch (error) {
     if (isOwnerRejection(error)) throw new WalletActionError("OWNER_REJECTED", "Payment cancelled in your wallet. No credits were added.");
     throw new WalletActionError("SUBMISSION_UNKNOWN", "The payment submission is uncertain. Check the same intent and your wallet history before paying again.", "submitted-unknown");

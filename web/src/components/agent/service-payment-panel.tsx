@@ -5,6 +5,7 @@ import { payServiceCredits, type ServicePaymentQuote } from "@orcus/wallets/serv
 import { api, displayError, post } from "../../lib/api";
 import { tokenUnits, usd } from "../../lib/format";
 import { Address, Badge, Field, InlineError, Spinner, Status } from "../trading/primitives";
+import { ServicePaymentScope } from "./service-payment-scope";
 
 type Intent = ServicePaymentQuote & { transactionHash?: string; amountUsd: string; createdAt: number };
 type Snapshot = { mode: string; configured: boolean; testOnly: true; token?: string; treasury?: string; message: string; credits: { paidUsd: string; spentUsd: string; reservedUsd: string; releasedUsd: string; remainingUsd: string; refundedUsd: string }; intents: Intent[] };
@@ -31,16 +32,22 @@ export function servicePaymentCanPay(intent: Intent | undefined, configured: boo
 }
 
 export function ServicePaymentPanel({ owner, onRefresh }: { owner: string; onRefresh: () => Promise<unknown> }) {
+  const ownerKey = owner.toLowerCase();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null), [amount, setAmount] = useState("1"), [pending, setPending] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null), [acknowledged, setAcknowledged] = useState(false), [recoveryHash, setRecoveryHash] = useState("");
   const [now, setNow] = useState(Date.now()), locked = useRef(false), mounted = useRef(true), requestId = useRef<string | null>(null);
+  const ownerScope = useRef(new ServicePaymentScope(owner));
+  ownerScope.current.changeOwner(owner);
   const intent = snapshot?.intents.find(item => ["prepared", "awaiting-wallet", "submitted"].includes(item.status)) ?? snapshot?.intents[0];
   const unresolved = Boolean(intent && ["prepared", "awaiting-wallet", "submitted"].includes(intent.status));
-  const load = useCallback(async () => { const next = await api<Snapshot>("/api/budget/payments"); if (mounted.current) setSnapshot(next); return next; }, []);
+  const load = useCallback(async () => { const ticket = ownerScope.current.capture(), next = await api<Snapshot>("/api/budget/payments"); if (mounted.current && ownerScope.current.isCurrent(ticket)) setSnapshot(next); return next; }, [ownerKey]);
   useEffect(() => {
-    mounted.current = true; load().catch(cause => { if (mounted.current) setError(servicePaymentError(cause)); });
+    mounted.current = true; ownerScope.current.activate();
+    setSnapshot(null); setError(null); setNotice(null); setAcknowledged(false); setRecoveryHash(""); setAmount("1"); setPending(null); requestId.current = null; locked.current = false;
+    const ticket = ownerScope.current.capture();
+    load().catch(cause => { if (mounted.current && ownerScope.current.isCurrent(ticket)) setError(servicePaymentError(cause)); });
     const timer = setInterval(() => setNow(Date.now()), 5000);
-    return () => { mounted.current = false; clearInterval(timer); };
+    return () => { mounted.current = false; ownerScope.current.stop(); clearInterval(timer); };
   }, [load]);
   useEffect(() => { setAcknowledged(false); }, [intent?.id, intent?.status]);
   useEffect(() => {
@@ -51,43 +58,50 @@ export function ServicePaymentPanel({ owner, onRefresh }: { owner: string; onRef
 
   async function perform(action: Action) {
     if (locked.current) return;
+    const ticket = ownerScope.current.capture(), current = () => mounted.current && ownerScope.current.isCurrent(ticket);
+    if (!current()) return;
     locked.current = true; setPending(action); setError(null); setNotice(null);
     try {
       if (action === "prepare") {
         requestId.current ??= `owner:${crypto.randomUUID()}`;
         await post("/api/budget/payments/intent", { amountUsd: amount, requestId: requestId.current });
-        requestId.current = null;
+        if (current()) requestId.current = null;
       } else if (action === "pay" && intent) {
         if (!servicePaymentCanPay(intent, Boolean(snapshot?.configured), acknowledged) || intent.payer.toLowerCase() !== owner.toLowerCase()) return;
         const result = await payServiceCredits(intent, {
-          beforeSubmit: async () => { await post("/api/budget/payments/submit", { intentId: intent.id }); },
+          beforeSubmit: async () => { if (!current()) throw new Error("Owner changed before payment."); await post("/api/budget/payments/submit", { intentId: intent.id }); },
           onSubmitted: async transactionHash => {
-            setRecoveryHash(transactionHash);
             try { sessionStorage.setItem(`orcus:service-payment:${owner.toLowerCase()}:${intent.id}`, transactionHash); } catch {}
+            if (!current()) throw new Error("Owner changed while payment was submitted.");
+            setRecoveryHash(transactionHash);
             await post("/api/budget/payments/submit", { intentId: intent.id, transactionHash });
           },
         });
+        if (!current()) return;
         setRecoveryHash(result.transactionHash);
         setNotice("Payment submitted. Credits are added only after the server verifies two Sepolia confirmations. Use Check payment; do not pay again.");
       } else if (action === "reconcile" && intent) {
         const result = await post<Intent>("/api/budget/payments/reconcile", { intentId: intent.id, transactionHash: intent.transactionHash ?? recoveryHash });
-        setNotice(result.status === "credited" ? "Verified testnet transfer credited once. These are test-only credits, not real revenue." : "The transfer reverted. No service credits were added.");
+        if (current()) setNotice(result.status === "credited" ? "Verified testnet transfer credited once. These are test-only credits, not real revenue." : "The transfer reverted. No service credits were added.");
       } else if (action === "cancel" && intent) {
-        await post("/api/budget/payments/cancel", { intentId: intent.id }); setNotice("Unpaid quote dismissed. This does not refund a transfer or add credits.");
+        await post("/api/budget/payments/cancel", { intentId: intent.id }); if (current()) setNotice("Unpaid quote dismissed. This does not refund a transfer or add credits.");
       }
-      await load(); await onRefresh();
+      if (!current()) return;
+      await load(); if (current()) await onRefresh();
     } catch (cause) {
+      if (!current()) return;
       if (cause && typeof cause === "object" && "code" in cause && cause.code === "OWNER_REJECTED" && intent) await post("/api/budget/payments/cancel", { intentId: intent.id }).catch(() => undefined);
+      if (!current()) return;
       const evidence = cause && typeof cause === "object" && "evidence" in cause ? cause.evidence as { transactionHash?: string } : undefined;
       if (evidence?.transactionHash) setRecoveryHash(evidence.transactionHash);
-      if (mounted.current) setError(servicePaymentError(cause));
+      if (current()) setError(servicePaymentError(cause));
       await load().catch(() => undefined);
-    } finally { locked.current = false; if (mounted.current) setPending(null); }
+    } finally { if (current()) { locked.current = false; setPending(null); } }
   }
 
   return <section className="technical-limits" aria-label="Testnet service credits">
     <div className="card-heading"><div><h3>Agent service credits</h3><p>Separate from trading capital and the expense cap</p></div><Badge tone="warn">Testnet only</Badge></div>
-    <p className="fine-print">Sepolia USDC has no monetary value. One test USDC grants one USD-equivalent test credit. Live payments are disabled. Your owner wallet approves this exact transfer and pays its Sepolia ETH fee; no token allowance or agent permission is granted.</p>
+    <p className="fine-print">Sepolia USDC has no monetary value. One test USDC grants one USD-equivalent test credit. Live payments are disabled. Your owner wallet approves this exact transfer and pays its Sepolia ETH fee, capped at 0.003 ETH; no token allowance or agent permission is granted.</p>
     {!snapshot && <p className="fine-print">Loading payment configuration...</p>}
     {snapshot && <><Status value={snapshot.configured ? "configured" : "unconfigured"} /><dl className="account-addresses">
       <div><dt>Paid test credits</dt><dd className="tabular-nums">{usd(snapshot.credits.paidUsd)}</dd></div>
@@ -107,6 +121,6 @@ export function ServicePaymentPanel({ owner, onRefresh }: { owner: string; onRef
       {["prepared", "awaiting-wallet"].includes(intent.status) && !intent.transactionHash && <button className="button secondary small" type="button" disabled={!!pending} onClick={() => void perform("cancel")}>{pending === "cancel" && <Spinner />}{intent.status === "prepared" ? "Cancel unpaid quote" : "Dismiss only after checking wallet history"}</button>}
     </div>}
     {notice && <p className="fine-print" role="status">{notice}</p>}<InlineError message={error} />
-    <button className="button secondary small" type="button" disabled={!!pending} onClick={() => { setError(null); load().catch(cause => setError(servicePaymentError(cause))); }}>Refresh credits</button>
+    <button className="button secondary small" type="button" disabled={!!pending} onClick={() => { const ticket = ownerScope.current.capture(); setError(null); load().catch(cause => { if (mounted.current && ownerScope.current.isCurrent(ticket)) setError(servicePaymentError(cause)); }); }}>Refresh credits</button>
   </section>;
 }

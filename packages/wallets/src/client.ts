@@ -10,6 +10,7 @@ import { createOwnerKernel, createPermissionPlugin, entryPoint, kernelVersion, k
 import { exactTokenAmount, inspectPreparedSwap, isOwnerRejection, WalletActionError } from "./preflight";
 import { broadcastPreparedOperation } from "./execution";
 import { assertSponsoredOperation, browserGasSponsorship } from "./gas";
+import { prepareOwnerTokenTransfer } from "./token-transfer";
 
 export { WalletActionError } from "./preflight";
 
@@ -275,19 +276,9 @@ export async function fundTradingAccount(input: { account: TradingAccount; asset
     const token = getAddress(configured);
     const decimals = await kernel.publicClient.readContract({ address: token, abi: erc20Abi, functionName: "decimals" });
     const amount = exactTokenAmount(input.amount, decimals);
-    const balance = await kernel.publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [ownerAddress] });
-    if (balance < amount) throw new WalletActionError("INSUFFICIENT_FUNDS", `Your owner wallet does not have enough testnet ${input.asset}.`);
-    const { result: success } = await kernel.publicClient.simulateContract({ account: wallet.account, address: token, abi: erc20Abi, functionName: "transfer", args: [recipient, amount] });
-    if (!success) throw new WalletActionError("PREFLIGHT_FAILED", "The test token rejected this funding transfer.");
-    const data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [recipient, amount] });
-    const [gas, fees] = await Promise.all([
-      kernel.publicClient.estimateGas({ account: wallet.account, to: token, data }),
-      kernel.publicClient.estimateFeesPerGas(),
-    ]);
-    const gasLimit = (gas * 120n + 99n) / 100n;
-    if (await kernel.publicClient.getBalance({ address: ownerAddress }) < gasLimit * fees.maxFeePerGas) throw new WalletActionError("INSUFFICIENT_GAS", `Your owner wallet needs Sepolia ETH for this ${input.asset} deposit's network fee. Trading gas sponsorship does not cover external-wallet deposits.`);
+    const envelope = await prepareOwnerTokenTransfer(kernel.publicClient, { owner: ownerAddress, token, recipient, amount });
     await ready();
-    try { hash = await wallet.writeContract({ address: token, abi: erc20Abi, functionName: "transfer", args: [recipient, amount], gas: gasLimit, ...fees }); }
+    try { hash = await wallet.writeContract({ address: token, abi: erc20Abi, functionName: "transfer", args: [recipient, amount], gas: envelope.gas, maxFeePerGas: envelope.maxFeePerGas, maxPriorityFeePerGas: envelope.maxPriorityFeePerGas }); }
     catch (error) { throw fundingSendError(error); }
   }
   let receipt;
