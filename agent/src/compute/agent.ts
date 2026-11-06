@@ -16,7 +16,7 @@ const decisionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tool"), name: z.string().min(1).max(60), arguments: z.record(z.string(), z.unknown()) }).strict(),
   z.object({ type: z.literal("final"), message: z.string().min(1).max(12_000), requiresClarification: z.boolean().default(false) }).strict(),
 ]);
-const evidenceSchema = z.object({ callId: z.string(), requestId: z.string().optional(), usage: z.object({ prompt_tokens: z.number().optional(), completion_tokens: z.number().optional(), total_tokens: z.number().optional() }).optional(), receivedAt: z.number() });
+const evidenceSchema = z.object({ callId: z.string(), requestId: z.string().optional(), responseId: z.string().optional(), providerAddress: z.string().optional(), billing: z.unknown().optional(), usage: z.object({ prompt_tokens: z.number().optional(), completion_tokens: z.number().optional(), total_tokens: z.number().optional() }).optional(), receivedAt: z.number() });
 const State = new StateSchema({
   messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() })),
   decision: decisionSchema.nullable(),

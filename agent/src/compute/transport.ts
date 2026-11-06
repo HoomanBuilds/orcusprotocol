@@ -12,7 +12,7 @@ function usageValues(value: unknown): ModelUsage | undefined {
 export async function invoke0G(input: { url: string; apiKey: string; model: string; messages: Array<AgentMessage | { role: "system"; content: string }>; callId: string; maxTokens: number; timeoutMs: number; context: AgentContext }): Promise<{ content: string; evidence: ModelEvidence }> {
   let response: Response;
   try {
-    response = await fetch(input.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${input.apiKey}` }, body: JSON.stringify({ model: input.model, messages: input.messages, temperature: 0.2, max_tokens: input.maxTokens }), signal: AbortSignal.timeout(input.timeoutMs) });
+    response = await fetch(input.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${input.apiKey}` }, body: JSON.stringify({ model: input.model, messages: input.messages, temperature: 0.2, max_tokens: input.maxTokens, ...(/^0gm-/.test(input.model) ? { chat_template_kwargs: { enable_thinking: false } } : {}) }), signal: AbortSignal.timeout(input.timeoutMs) });
   } catch {
     await input.context.modelBudget?.afterCall({ callId: input.callId, outcome: "unknown" });
     throw new EngineError("INFERENCE_OUTCOME_UNKNOWN", "A 0G model step disconnected. Its usage may be billable; the agent will not repeat it automatically.", 504);
@@ -21,16 +21,17 @@ export async function invoke0G(input: { url: string; apiKey: string; model: stri
     await input.context.modelBudget?.afterCall({ callId: input.callId, outcome: "unknown", requestId: response.headers.get("x-request-id") ?? undefined });
     throw new EngineError("INFERENCE_REJECTED", `0G returned HTTP ${response.status}. The agent did not authorize a trade.`, 502);
   }
-  let body: { id?: string; choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
+  let body: { id?: string; choices?: Array<{ message?: { content?: string } }>; usage?: unknown; x_0g_trace?: { request_id?: unknown; provider?: unknown; billing?: unknown } };
   try { body = await response.json(); }
   catch {
     await input.context.modelBudget?.afterCall({ callId: input.callId, outcome: "unknown", requestId: response.headers.get("x-request-id") ?? undefined });
     throw new EngineError("INFERENCE_OUTCOME_UNKNOWN", "The 0G response could not be recovered. Reconcile usage before retrying this step.", 502);
   }
-  const requestId = response.headers.get("x-request-id") ?? (typeof body.id === "string" ? body.id : undefined) ?? response.headers.get("zg-request-id") ?? undefined;
+  const trace = body.x_0g_trace;
+  const requestId = (typeof trace?.request_id === "string" && trace.request_id.trim() ? trace.request_id : undefined) ?? response.headers.get("x-request-id") ?? (typeof body.id === "string" ? body.id : undefined) ?? response.headers.get("zg-request-id") ?? undefined;
   const usage = usageValues(body.usage);
-  const evidence = { callId: input.callId, requestId, usage, receivedAt: Date.now() };
-  await input.context.modelBudget?.afterCall({ callId: input.callId, outcome: "completed", requestId, usage });
+  const evidence = { callId: input.callId, requestId, responseId: body.id, providerAddress: typeof trace?.provider === "string" ? trace.provider : undefined, usage, billing: trace?.billing, receivedAt: Date.now() };
+  await input.context.modelBudget?.afterCall({ callId: input.callId, outcome: "completed", requestId, usage, billing: trace?.billing });
   const content = body.choices?.[0]?.message?.content;
   if (typeof content !== "string" || !content.trim() || content.length > 32_000) throw new EngineError("INVALID_MODEL_OUTPUT", "0G returned no bounded, usable agent response. No trade was authorized.", 502);
   return { content, evidence };

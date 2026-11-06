@@ -16,6 +16,7 @@
   "private": "true",
   "exports": {
     ".": "./src/index.ts",
+    "./budget": "./src/budget/index.ts",
     "./compute": "./src/compute/index.ts"
   },
   "dependencies": {

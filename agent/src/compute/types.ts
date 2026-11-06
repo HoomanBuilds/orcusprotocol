@@ -4,7 +4,7 @@ import type { AutomationProposal } from "./automation";
 import type { AgentToolProfile } from "./tool-profiles";
 
 export interface ModelUsage { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
-export interface ModelEvidence { callId: string; requestId?: string; usage?: ModelUsage; receivedAt: number }
+export interface ModelEvidence { callId: string; requestId?: string; responseId?: string; providerAddress?: string; usage?: ModelUsage; billing?: unknown; receivedAt: number }
 export interface AgentMemoryNote { id: string; kind: string; content: string; importance: number; source: string; createdAt: number; updatedAt: number; lastAccessedAt?: number }
 export interface MemoryStore {
   search(query: string, limit?: number): Promise<AgentMemoryNote[]>;
@@ -42,7 +42,7 @@ export interface AgentContext extends PlannerContext {
   memoryStore?: MemoryStore;
   modelBudget?: {
     beforeCall(input: { callId: string; maxTokens: number }): Promise<void>;
-    afterCall(input: { callId: string; outcome: "completed" | "rejected" | "unknown"; requestId?: string; usage?: ModelUsage }): Promise<void>;
+    afterCall(input: { callId: string; outcome: "completed" | "rejected" | "unknown"; requestId?: string; usage?: ModelUsage; billing?: unknown }): Promise<void>;
   };
   maxModelCalls?: number;
   maxToolCalls?: number;

@@ -1,11 +1,13 @@
 export function engineConfig() {
-  const computeBase = process.env.ZEROG_COMPUTE_BASE_URL ?? process.env.ZG_SERVICE_URL;
+  const setting = (...names: string[]) => names.map(name => process.env[name]?.trim()).find(value => Boolean(value));
+  const computeBase = setting("ZEROG_COMPUTE_BASE_URL", "ZG_SERVICE_URL");
+  const computeKey = setting("ZEROG_COMPUTE_API_KEY", "0G_API_KEY", "ZG_API_SECRET");
   return {
     compute: {
-      url: process.env.ZEROG_COMPUTE_CHAT_URL ?? (computeBase ? `${computeBase.replace(/\/$/, "")}/chat/completions` : undefined),
-      apiKey: process.env.ZEROG_COMPUTE_API_KEY ?? process.env.ZG_API_SECRET,
-      model: process.env.ZEROG_COMPUTE_MODEL ?? process.env.ZG_MODEL,
-      balanceUrl: process.env.ZEROG_COMPUTE_BALANCE_URL,
+      url: setting("ZEROG_COMPUTE_CHAT_URL") ?? (computeBase ? `${computeBase.replace(/\/$/, "")}/chat/completions` : computeKey ? "https://router-api.0g.ai/v1/chat/completions" : undefined),
+      apiKey: computeKey,
+      model: setting("ZEROG_COMPUTE_MODEL", "ZG_MODEL") ?? (computeKey ? "0gm-1.0-35b-a3b" : undefined),
+      balanceUrl: setting("ZEROG_COMPUTE_BALANCE_URL"),
     },
     uniswap: {
       rpcUrl: process.env.SEPOLIA_RPC_URL ?? process.env.SEPOLIA_RPC ?? "https://ethereum-sepolia-rpc.publicnode.com",
