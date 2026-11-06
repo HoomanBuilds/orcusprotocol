@@ -110,6 +110,35 @@ describe("Ostium official SDK build-only preparation", () => {
 });
 
 describe("Ostium evidence reconciliation", () => {
+  it("does not fail an action from an unrelated reverted transaction or a pre-review receipt", async () => {
+    const prepared = await prepareOstiumAction(request(), account);
+    const transaction = { from: owner, to: OSTIUM_TESTNET.trading, value: 0n, input: prepared.transactions!.at(-1)!.data };
+    state.rpc.getTransactionReceipt.mockResolvedValue({ status: "reverted", blockNumber: 101n, logs: [] });
+    for (const change of [{ from: account.agentAddress }, { to: OSTIUM_TESTNET.usdc }, { input: "0x12345678" }, { value: 1n }]) {
+      state.rpc.getTransaction.mockResolvedValue({ ...transaction, ...change });
+      await expect(reconcileOstiumAction({ transactionHash: hash, prepared }, account)).rejects.toMatchObject({ code: "TRANSACTION_ACCOUNT_MISMATCH" });
+    }
+    state.rpc.getTransaction.mockResolvedValue(transaction);
+    state.rpc.getTransactionReceipt.mockResolvedValue({ status: "reverted", blockNumber: 100n, logs: [] });
+    await expect(reconcileOstiumAction({ transactionHash: hash, prepared }, account)).rejects.toMatchObject({ code: "TRANSACTION_PREDATES_REVIEW" });
+    state.rpc.getTransactionReceipt.mockResolvedValue({ status: "reverted", blockNumber: 101n, logs: [] });
+    expect(await reconcileOstiumAction({ transactionHash: hash, prepared }, account)).toMatchObject({ status: "rejected", txHash: hash });
+    expect(state.client.getOrders).not.toHaveBeenCalled();
+  });
+  it("does not reject an owner allowance from an unrelated reverted hash", async () => {
+    const plan = await getOstiumApprovalTransaction(account, "1.000001");
+    const transaction = { from: owner, to: OSTIUM_TESTNET.usdc, value: 0n, input: plan.transaction.data };
+    state.rpc.getTransactionReceipt.mockResolvedValue({ status: "reverted", blockNumber: 101n, logs: [] });
+    for (const change of [{ from: account.agentAddress }, { to: OSTIUM_TESTNET.trading }, { input: "0x12345678" }, { value: 1n }]) {
+      state.rpc.getTransaction.mockResolvedValue({ ...transaction, ...change });
+      await expect(reconcileOstiumApproval({ account, amountUsd: plan.amountUsd, transactionHash: hash, minimumBlock: plan.minimumBlock })).rejects.toMatchObject({ code: "APPROVAL_NOT_VERIFIED" });
+    }
+    state.rpc.getTransaction.mockResolvedValue(transaction);
+    state.rpc.getTransactionReceipt.mockResolvedValue({ status: "reverted", blockNumber: 100n, logs: [] });
+    await expect(reconcileOstiumApproval({ account, amountUsd: plan.amountUsd, transactionHash: hash, minimumBlock: plan.minimumBlock })).rejects.toMatchObject({ code: "APPROVAL_NOT_VERIFIED" });
+    state.rpc.getTransactionReceipt.mockResolvedValue({ status: "reverted", blockNumber: 101n, logs: [] });
+    expect(await reconcileOstiumApproval({ account, amountUsd: plan.amountUsd, transactionHash: hash, minimumBlock: plan.minimumBlock })).toMatchObject({ status: "rejected", transactionHash: hash });
+  });
   it("does not call native acceptance a fill and binds later execution to the initial hash", async () => {
     const prepared = await prepareOstiumAction(request(), account);
     state.rpc.getTransaction.mockResolvedValue({ from: owner, to: OSTIUM_TESTNET.trading, value: 0n, input: prepared.transactions!.at(-1)!.data });
