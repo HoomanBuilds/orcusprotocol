@@ -1,0 +1,6 @@
+{
+  "mode": "local-simulation",
+  "schedule": "0 */5 * * * *",
+  "marketUrl": "https://api.coinbase.com/v2/prices/ETH-USD/spot",
+  "samplePreviousPrice": "1"
+}

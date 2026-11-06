@@ -1,7 +1,16 @@
 staging-settings:
   user-workflow:
     workflow-name: orcus-strategy-staging
+    deployment-registry: "private"
   workflow-artifacts:
     workflow-path: ./main.ts
     config-path: ./config.staging.json
+    secrets-path: ""
+local-simulation:
+  user-workflow:
+    workflow-name: orcus-price-local-simulation
+    deployment-registry: "private"
+  workflow-artifacts:
+    workflow-path: ./main.ts
+    config-path: ./config.local-simulation.json
     secrets-path: ""
