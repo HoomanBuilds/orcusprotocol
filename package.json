@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": ["web", "agent", "packages/*"],
+  "workspaces": [
+    "web",
+    "agent",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "node scripts/web.mjs dev",
     "start": "node scripts/web.mjs start",
@@ -18,9 +22,19 @@
     "test": "npm run test --workspaces --if-present",
     "test:cre": "vitest run workflows/cre/strategy/workflow.test.ts"
   },
-  "engines": { "node": ">=22.16.0" },
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "overrides": {
+    "solc": {
+      "tmp": "0.2.7"
+    }
+  },
   "devDependencies": {
+    "@account-abstraction/contracts": "0.7.0",
+    "@openzeppelin/contracts": "5.0.2",
     "@types/node": "^22.15.0",
+    "solc": "0.8.28",
     "tsx": "^4.21.0",
     "typescript": "^5.8.3",
     "vitest": "^4.1.6"
