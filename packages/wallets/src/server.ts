@@ -12,7 +12,7 @@ import { broadcastPreparedOperation } from "./execution";
 import { assertSponsoredOperation, requiredKernelPaymaster, type KernelGasSponsorship } from "./gas";
 
 function config(): KernelConfig {
-  return { rpcUrl: process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com", bundlerUrl: resolveKernelBundlerUrl(process.env) };
+  return { rpcUrl: process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com", bundlerUrl: resolveKernelBundlerUrl({ ORCUS_GAS_SPONSOR_PROVIDER: process.env.ORCUS_GAS_SPONSOR_PROVIDER, BUNDLER_RPC_URL: process.env.BUNDLER_RPC_URL, ZERODEV_RPC_URL: process.env.ZERODEV_RPC_URL }) };
 }
 
 const canonical = (value: unknown) => JSON.stringify(value, (_, item) => typeof item === "bigint" ? item.toString() : item);
