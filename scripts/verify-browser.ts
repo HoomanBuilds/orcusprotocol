@@ -154,7 +154,8 @@ try {
   await delay(1800); await click("button[aria-label=\"Refresh accounts\"]"); await navigate("Automations");
   await until("!!document.querySelector('button[aria-label=\"Automation expired\"]:disabled')", "Expired automation incorrectly offers resume.");
   const automationId = created.body.data.id ?? created.body.data.automation?.id;
-  assert.equal((await api(`/api/automations/${automationId}`, { status: "active" }, "PATCH")).status, 409); checks.push("expired automation is disabled in browser and rejected by actual HTTP API");
+  const expiredResume = await api(`/api/automations/${automationId}`, { status: "active" }, "PATCH");
+  assert.equal(expiredResume.status, 400); assert.equal(expiredResume.body.error.code, "INVALID_EXPIRY"); checks.push("expired automation is disabled in browser and rejected by actual HTTP API");
   await navigate("Agent");
   if (agentFixtures) {
     const agentData = (await api("/api/agent")).body.data;
