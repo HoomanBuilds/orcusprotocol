@@ -2,7 +2,7 @@ import { describe,expect,it } from "vitest";
 import { mkdtempSync,rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentRun } from "./agent-runtime";
+import { AgentRun,readAgentRunStatus } from "./agent-runtime";
 import { getBudget,setBudget } from "./budget";
 import { AgentMemoryStore,rejectMemorySecrets } from "./memory";
 import { Store } from "./store";
@@ -69,7 +69,7 @@ describe("durable personal agent memory",()=>{
       await context.onProgress({stage:"tool",tool:"read_portfolio",message:"This private text must not be stored"});
       expect(getBudget(store,user.id).reservedUsd).toBe("0.020000");
       await expect(context.modelBudget.beforeCall({callId:"run:model:0",maxTokens:1000})).rejects.toThrow("duplicate");
-      expect(JSON.stringify(store.get(user.id,"agent-run","run"))).not.toContain("private text");
+      expect(JSON.stringify(readAgentRunStatus(store,user.id,"run"))).not.toContain("private text");
       await context.memoryStore.remember({content:"Prefer ETH",kind:"preference"});
       expect(context.threadId).toBe(`agent:${user.id}`);
     }finally{run?.close();store.db.close();}

@@ -12,7 +12,7 @@ import { createSigner,memoryKey,readSigner } from "./keystore";
 import { getStore,id,type Store } from "./store";
 import type { Document,StoredAccount,StoredAction,StoredAgent,StoredAutomation,StoredEvaluationRun,StoredMessage,StoredPermission } from "./types";
 import { AgentMemoryStore,rejectMemorySecrets } from "./memory";
-import { AgentRun,type AgentRunStatus } from "./agent-runtime";
+import { AgentRun,readAgentRunStatus } from "./agent-runtime";
 import { listStorageExpenses,recordStorageExpense } from "./storage-expenses";
 import { safeAgentToolSteps } from "./agent-evidence";
 import { selectStoragePayer,assertStoragePayerAllowance,publicStoragePayerMetadata } from "./storage-payer";
@@ -372,7 +372,8 @@ export class Platform {
     return {actions:this.store.list<StoredAction>(user.id,"action",100)};
   }
   async proposal(user:User,message:string,account:StoredAccount|undefined,reference:string,toolProfile:"interactive"|"strategy"="interactive"){
-    const cached=this.store.get<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"proposal",reference);
+    const recordId=`proposal:${user.id}:${reference}`;
+    const cached=this.store.get<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"proposal",recordId)??this.store.get<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"proposal",reference);
     if(cached){
       if((cached.toolProfile??"interactive")!==toolProfile)throw new ApiError("TOOL_PROFILE_MISMATCH","This proposal belongs to a different tool profile. Start a new authorized evaluation.",409);
       const agent=this.agent(user),result=cached.result as AgentReply,required=agent.privateVerification==="gateway-reported"?"gateway-reported-private":"independently-attested-private";
@@ -397,7 +398,7 @@ export class Platform {
           delete result.automationProposal;result.requiresClarification=true;result.message="Clarify the target account and valid strategy settings before creating an automation. No job was created.";
         }else result.automationProposal=parsed.data;
       }
-      this.store.put("proposal",{id:reference,userId:user.id,toolProfile,result,createdAt:Date.now(),updatedAt:Date.now()});
+      this.store.put("proposal",{id:recordId,reference,userId:user.id,toolProfile,result,createdAt:Date.now(),updatedAt:Date.now()});
       runtime.complete(result);
       return result;
     }catch(error){
@@ -406,10 +407,10 @@ export class Platform {
     }finally{runtime.close();}
   }
   runStatus(user:User,requestId:string){
-    const reference=createHash("sha256").update(`${user.id}|chat|${requestId}`).digest("hex"),run=this.store.get<AgentRunStatus>(user.id,"agent-run",requestId)??this.store.get<AgentRunStatus>(user.id,"agent-run",reference);
+    const reference=createHash("sha256").update(`${user.id}|chat|${requestId}`).digest("hex"),run=readAgentRunStatus(this.store,user.id,requestId)??readAgentRunStatus(this.store,user.id,reference);
     if(!run)throw new ApiError("RUN_NOT_FOUND","This agent run has not started yet.",404);
     const{id,status,stage,tool,modelCalls,toolCalls,startedAt,updatedAt,completedAt,errorCode}=run;
-    return{id,status,stage,tool,modelCalls,toolCalls,startedAt,updatedAt,completedAt,errorCode};
+    return{id:run.runId??id,status,stage,tool,modelCalls,toolCalls,startedAt,updatedAt,completedAt,errorCode};
   }
   memories(user:User,query?:string){const memory=new AgentMemoryStore(this.store,user.id);return{notes:query?memory.search(query,25):memory.list(50),checkpointAvailable:Boolean(memory.loadCheckpoint(memory.threadId)),warning:"Memory cannot change wallet permissions. Forgetting current notes does not delete existing encrypted 0G backups."};}
   remember(user:User,input:unknown){return new AgentMemoryStore(this.store,user.id).remember(input);}

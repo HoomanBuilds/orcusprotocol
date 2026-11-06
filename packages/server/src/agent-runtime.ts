@@ -6,9 +6,11 @@ import { id,type Store } from "./store";
 import type { StoredRecord } from "./types";
 
 type Progress={stage:string;tool?:string;message?:string;modelCalls?:number;toolCalls?:number};
-export type AgentRunStatus=StoredRecord&{threadId:string;status:"running"|"completed"|"failed";stage:string;tool?:string;modelCalls:number;toolCalls:number;startedAt:number;completedAt?:number;errorCode?:string};
+export type AgentRunStatus=StoredRecord&{runId?:string;threadId:string;status:"running"|"completed"|"failed";stage:string;tool?:string;modelCalls:number;toolCalls:number;startedAt:number;completedAt?:number;errorCode?:string};
 const stages=new Set(["recall","thinking","tool","completed","failed","budget-stop"]);
 const preflightCodes=new Set(["COMPUTE_UNCONFIGURED","PRIVATE_INFERENCE_UNAVAILABLE","PRIVATE_INFERENCE_UNVERIFIED","INTEGRATION_UNCONFIGURED","NOT_CONFIGURED","INVALID_MESSAGE","CREDENTIAL_INPUT_REJECTED","TOOL_PROFILE_MISMATCH","INVALID_TOOL_PROFILE"]);
+export const agentRunRecordId=(userId:string,runId:string)=>`agent-run:${userId}:${runId}`;
+export function readAgentRunStatus(store:Store,userId:string,runId:string){return store.get<AgentRunStatus>(userId,"agent-run",agentRunRecordId(userId,runId))??store.get<AgentRunStatus>(userId,"agent-run",runId);}
 
 export class AgentRun{
   readonly memory:AgentMemoryStore;
@@ -38,9 +40,9 @@ export class AgentRun{
   }
   progress(input:Progress){
     this.assertLease();
-    const previous=this.store.get<AgentRunStatus>(this.userId,"agent-run",this.runId),now=Date.now();
+    const previous=readAgentRunStatus(this.store,this.userId,this.runId),now=Date.now();
     const stage=stages.has(input.stage)?input.stage:"thinking",tool=input.tool&&/^[a-z][a-z0-9_]{0,59}$/i.test(input.tool)?input.tool:undefined;
-    this.store.put("agent-run",{id:this.runId,userId:this.userId,threadId:this.memory.threadId,status:stage==="completed"?"completed":stage==="failed"?"failed":"running",stage,tool,modelCalls:Math.max(previous?.modelCalls??0,Math.min(4,input.modelCalls??this.modelCalls)),toolCalls:Math.max(previous?.toolCalls??0,Math.min(6,input.toolCalls??0)),startedAt:previous?.startedAt??now,createdAt:previous?.createdAt??now,updatedAt:now,...(stage==="completed"||stage==="failed"?{completedAt:now}:{})}satisfies AgentRunStatus);
+    this.store.put("agent-run",{id:agentRunRecordId(this.userId,this.runId),runId:this.runId,userId:this.userId,threadId:this.memory.threadId,status:stage==="completed"?"completed":stage==="failed"?"failed":"running",stage,tool,modelCalls:Math.max(previous?.modelCalls??0,Math.min(4,input.modelCalls??this.modelCalls)),toolCalls:Math.max(previous?.toolCalls??0,Math.min(6,input.toolCalls??0)),startedAt:previous?.startedAt??now,createdAt:previous?.createdAt??now,updatedAt:now,...(stage==="completed"||stage==="failed"?{completedAt:now}:{})}satisfies AgentRunStatus);
   }
   context(){
     const explicitRemember=/\b(remember|save|store|note|prefer|preference)\b/i.test(this.message)&&!/(?:don't|do not|never)\s+(remember|save|store)/i.test(this.message);
@@ -69,8 +71,8 @@ export class AgentRun{
   fail(error:unknown){
     const code=error instanceof Error&&"code"in error&&typeof error.code==="string"?error.code:"AGENT_RUN_FAILED";
     if(this.modelCalls===0)settleReservation(this.store,this.userId,this.runId,preflightCodes.has(code)?"released":"unknown",{code});
-    const run=this.store.get<AgentRunStatus>(this.userId,"agent-run",this.runId);
-    if(run)this.store.update<AgentRunStatus>(this.userId,"agent-run",this.runId,{status:"failed",stage:"failed",completedAt:Date.now(),errorCode:code});
+    const run=readAgentRunStatus(this.store,this.userId,this.runId);
+    if(run)this.store.put("agent-run",{...run,id:agentRunRecordId(this.userId,this.runId),runId:this.runId,status:"failed",stage:"failed",updatedAt:Date.now(),completedAt:Date.now(),errorCode:code});
   }
   close(){if(this.timer)clearInterval(this.timer);this.store.releaseLease(this.scope,this.holder);}
 }
