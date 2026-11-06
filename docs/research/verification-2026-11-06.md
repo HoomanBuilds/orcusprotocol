@@ -248,3 +248,21 @@ The owner can now use Check provider billing for an unknown expense. The authent
 The laptop rebooted during overlapping verification commands. The prior boot's kernel journal was unavailable, so an individual OOM culprit was not established. Interrupted command completions are not counted as passes. Further checks run serially in user systemd scopes with MemoryMax=4G, MemorySwapMax=512M and CPUQuota=200%. Vitest defaults to two workers and serial files, including ad-hoc root calls; Next static-build workers are limited to two. Native build threads still require the aggregate cgroup limit.
 
 After the reboot, the isolated paid-check directory `/tmp/orcus-final-compute-uqUzNx` was absent. Its temporary database is no longer available; the recorded request identity and unknown 0.010000 USD-equivalent reservation remain historical evidence, not proof of zero provider charges. No paid attempt was repeated. Normal application data lives on persistent local disk outside the checkout. Future billable verification must use a persistent verification directory until billing is resolved.
+
+## Native Ostium CRE integration and read-only acceptance
+
+Source reviewed through `c21352b`: shared verified deployment constants (`6bdfeb9`), native workflow/managed runner integration (`dfb6290`), live SDK-canonical symbol aliases (`39b1903`) and zero-size native cancellation validation (`c21352b`). Native observations resolve the current testnet pair/feed, use exact E18 quote-currency prices and read actual six-decimal USDC at the observed Arbitrum Sepolia block. Global instruments are not mapped to guessed Coinbase tickers. A CRE allow remains separate from fresh wallet authority and execution policy checks.
+
+The actual receiver-free CLI simulation produced:
+
+```text
+ORCUS_CRE_LOCAL_RESULT={"mode":"local-simulation","currentPrice":"2240.66","previousPrice":"1","changed":true,"wouldWrite":false}
+```
+
+The [native read-only verifier](../../scripts/verify-ostium-cre.ts), using the actual [managed CLI adapter](../../agent/src/automation/cre.ts) and [native observation capability](../../workflows/cre/strategy/ostium.ts), then passed an above-`1` XAU/USD alert. It observed pair `5`, price `4069.64875` USD, Arbitrum Sepolia block `326623115`, actual testnet-USDC balance `0` and oracle fee `0.5` USDC. Complete feed/evaluation identity passed the managed parser and binding checks. The result was `allow` for notification only. These are dated observations, not runtime defaults.
+
+The initial native attempt was correctly rejected because the CLI truncated a single result log at approximately 1,024 characters. The workflow now emits ordered base64 frames of at most 512 decoded bytes. The parser requires matching counts/order, rejects duplicate/missing/mixed-format or invalid UTF-8 data, caps the reconstructed result at 32 KiB, then validates schema and account/policy/evaluation/expiry bindings. The corrected actual managed CLI run passed; truncation was not treated as success.
+
+Ten changed native workflow/runner/server fixtures and four relevant typechecks passed serially. Two additional framing fixtures and final engine typecheck passed after the framing fix. One targeted core boundary fixture passed for amount `0` only on Ostium cancellation with an exact nonempty order ID and explicit base units; all other action amounts remain positive. Counts describe focused checks, not a repeated full-suite total. Native interface components separately have 29 passing tests, but integrated terminal/account visual acceptance remains pending.
+
+Public-network writes, paid inference, grants, payments, deployments and broadcasts were zero in these CRE runs. This does not prove hosted DON consensus, a fresh 0G proposal or native authorized trade settlement. The [workflow README](../../workflows/cre/README.md) retains reproduction instructions and the local-runner trust boundary. Original optional earned-funding, combined 0G/CRE/trade and publication gates remain unchanged.
