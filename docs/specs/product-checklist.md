@@ -2,7 +2,7 @@
 
 Updated: 2026-11-06
 
-Implementation checklist for this repository. IDs link to the [implementation plan](../plans/implementation-plan.md). All core user and agent capabilities are retained; the six former EF/Anon-RPC requirements in section 9 are replaced by CRE requirements in this revision. The current count remains 57. Source provenance is recorded separately in the [reuse inventory](../research/reuse-inventory.md).
+Implementation checklist for this repository. IDs link to the [implementation plan](../plans/implementation-plan.md). All core user and agent capabilities are retained; the six former EF/Anon-RPC requirements in section 9 are replaced by CRE requirements in this revision. There are now 67 items, including ten new workspace and return-to-session requirements in section 11. The earlier 53/57 completion baseline does not include this new work. Source provenance is recorded separately in the [reuse inventory](../research/reuse-inventory.md).
 
 Build a personal-agent trading platform where users can research, trade and manage positions themselves or through their authorized agent. Both interfaces operate on the same supported trading accounts. Privacy supports the product; it does not turn public trades into private transactions.
 
@@ -115,6 +115,21 @@ Revision note: C9.1-C9.6 now describe CRE acceptance, replacing their former EF/
 - [x] `C10.5` Demonstrate: user manually opens a position; agent reduces or closes that same position; user takes over again.
 - [x] `C10.6` Demonstrate: an agent-created position can be managed manually; expired or revoked permissions prevent subsequent agent actions.
 - [x] `C10.7` Implement and verify safe outcomes for conflicting actions, stale state, duplicate CRE results, low budget and unavailable runners through regression/browser tests. Recording these scenarios in the final judge demo remains a publication task, not a claim of public execution.
+
+## 11. Professional workspace and return-to-session experience
+
+This is newly requested implementation work, not a claim that the earlier terminal already meets these requirements. Keep the existing execution and wallet safeguards while improving the complete product interface. The public landing preview remains separate at `/landing`.
+
+- [ ] `C11.1` Provide a real overview dashboard and URL-addressable Trade, Agent, Automations, Activity and Settings pages with shared navigation, working deep links and browser back/forward behavior. Show actual balances, exposure, pending work and operating costs; do not invent account value or performance charts.
+- [ ] `C11.2` Reuse compatible terminal presentation and interaction patterns for charts, market selection, order entry and account tables. Manual and agent controls continue to manage the same accounts, with spot and perpetual exposure clearly distinguished.
+- [ ] `C11.3` Persist an agent request before accepting background execution. Returning users can discover queued, running, completed, failed or interrupted work and its saved answer. Duplicate requests, server restart and unknown inference billing must not trigger automatic duplicate model calls or trades.
+- [ ] `C11.4` Recover trade and funding progress from existing durable records after navigation or reconnect. Clearly distinguish awaiting owner approval, submitted, reconciling, confirmed, failed and unknown outcomes. Never silently repeat a signature, transfer or trade when a user returns.
+- [ ] `C11.5` Provide an owner-scoped activity center with useful filters and detail views connecting an instruction, initiator, run, action, venue evidence and final status where those records exist. Pending work must remain visible without relying on a disappearing toast.
+- [ ] `C11.6` Provide a dedicated agent workspace with restored conversation, discoverable run progress, saved responses, actionable proposals and existing memory and permission controls. Switching wallets must clear private state and ignore late responses from the previous owner.
+- [ ] `C11.7` Give automations, operating budget and account settings dedicated page layouts with clear setup, unavailable, pending, error and success states. Preserve pause/takeover, permission expiry/revocation, service-credit separation and explicit sponsorship readiness.
+- [ ] `C11.8` Use the actual protocol and supported-token logos throughout the product. Keep network/testnet badges and feature availability explicit; a decorative asset or read-only market listing must not imply execution support.
+- [ ] `C11.9` Verify worthwhile trading additions against official Hyperliquid and Uniswap documentation before implementation. Add useful supported market context such as real order-book depth and funding, and truthful swap execution/quote details, without forcing another venue, bridge, lending product or unapproved permission expansion.
+- [ ] `C11.10` Review the real dashboard and terminal visually on desktop and mobile, including empty/loading/error states and return-to-session behavior. Run focused regression tests and typechecks serially within the established memory cap; do not equate a mock display with live execution proof.
 
 ## Scope boundaries
 

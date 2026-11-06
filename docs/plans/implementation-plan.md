@@ -7,7 +7,7 @@ Status: implementation and acceptance closeout. Serial post-reboot checks at `df
 
 Build a personal-agent trading platform. A user connects their wallet, authorizes their own agent, and can research, trade, automate and manage the same supported accounts through either the interface or conversation. The agent has its own operating wallet and separate, restricted trading credentials. The user's private key never leaves their wallet.
 
-The [product checklist](../specs/product-checklist.md) contains 57 implementation and acceptance items. A check identifies implemented behavior with its stated evidence, not automatic external readiness. This revision replaces the former EF/Anon-RPC requirements with Chainlink CRE; all manual trading, agent, ownership, memory and budget capabilities remain. The passes below record execution order within the hackathon, not future product releases. Optional earned funding stays optional.
+The [product checklist](../specs/product-checklist.md) contains 67 implementation and acceptance items. Section 11 adds ten newly requested professional-workspace and session-recovery requirements to the earlier 57-item baseline. A check identifies implemented behavior with its stated evidence, not automatic external readiness. This revision replaces the former EF/Anon-RPC requirements with Chainlink CRE; all manual trading, agent, ownership, memory and budget capabilities remain. The passes below record execution order within the hackathon, not future product releases. Optional earned funding stays optional.
 
 | Integration | Actual product responsibility | What we must demonstrate |
 | --- | --- | --- |
@@ -271,6 +271,21 @@ Exit: browser-closed operation and restart recovery work; memory returns; actual
 - Verify private-inference configuration and attestation independently. If unavailable, leave TEE protection unverified and clearly mark which privacy protections actually work; do not silently downgrade a request explicitly requiring private inference.
 
 Exit: UI reflects actual backend/venue state, CRE decisions drive the demonstrated strategy and the simulation/hosting boundary is visible. The demonstration works without hidden manual fixes.
+
+### P5b. Professional workspace and persistent work
+
+Requested follow-up scope: `C11.1`-`C11.10`. Update this checklist before implementation and leave new requirements unchecked until their specific behavior is verified.
+
+- Keep one owner-scoped workspace provider across real URL routes: overview, trade, agent, automations, activity and settings. Preserve `/landing` as the separately reviewed marketing preview. Reuse existing terminal components and compatible source-product presentation rather than importing entire applications.
+- The overview summarizes only observed balances/exposure, active automations, pending actions and separate operating costs. Missing valuations stay unavailable; do not fabricate portfolio history.
+- Accept agent work into a durable owner-scoped request record before execution. Return a stable run ID, expose owner-scoped listing/status/results, and let the existing worker process queued requests independently of the browser. On restart, reconcile or mark interrupted work without blindly repeating unknown billable inference. Existing synchronous compatibility must remain explicit where needed.
+- Restore conversation, request progress, pending approvals, submitted trades and funding evidence on return. Owner signing remains an interactive user action. Pending work must not disappear just because its original component unmounted, and reconnect must never resubmit it automatically.
+- Build a persistent activity center and dedicated agent/automation/settings layouts. Link existing evidence instead of claiming every historic exchange trade originated in Orcus. Clear private UI data and reject stale-owner updates on wallet switch.
+- Verify trading additions from official protocol documentation. Prioritize real Hyperliquid depth/funding and useful existing Uniswap quote/execution details. Additional venues require a concrete user benefit, compatible testnet/authentication and bounded implementation; no arbitrary integration is approved merely because a recommendation names it. The separately mentioned recommendation text has not yet been supplied.
+- Implement through separate worktree agents with clear file ownership. Root reviews and integrates logical commits, then removes each completed clean worktree after verifying its changes are retained. Do not delete dirty worktrees, runtime evidence or credentials to make cleanup succeed; report any retained exception.
+- Keep one heavy verification lane under the existing 4 GiB aggregate memory cap. Use focused tests and typechecks, then one integrated browser review with desktop/mobile screenshots. No deployment, paid inference retry, public trade or permission grant is part of this follow-up.
+
+Exit: users navigate a coherent product, leave a request or submitted action, and return to accurate persisted progress or results. New checklist items carry precise implementation/verification scope; existing external gates stay visible.
 
 ### P6. Verify, package and rehearse
 
