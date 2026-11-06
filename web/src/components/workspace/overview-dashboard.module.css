@@ -1,0 +1,49 @@
+.page { display: grid; gap: 24px; min-width: 0; }
+.header { margin-bottom: 0; }
+.header p { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--line, #34343a); padding: 20px 0; gap: 24px; }
+.metrics > div { display: grid; gap: 7px; min-width: 0; }
+.metrics span, .metrics small { color: var(--muted); font-size: 12px; }
+.metrics strong { font-size: clamp(19px, 2vw, 27px); font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.metrics small { font-size: 11px; }
+.columns { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 30px; align-items: start; }
+.main, .aside { display: grid; gap: 28px; min-width: 0; }
+.aside { border-left: 1px solid var(--line, #34343a); padding-left: 26px; gap: 24px; }
+.section { min-width: 0; }
+.sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+.sectionHeading h2 { font-size: 16px; font-weight: 550; margin: 0; }
+.sectionHeading h3 { font-size: 13px; font-weight: 500; margin: 0; }
+.sectionHeading > span { color: var(--muted); font-size: 11px; }
+.empty, .agentNote, .snapshot { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0; }
+.empty { padding: 10px 0 16px; }
+.agentNote { margin: 12px 0 20px; }
+.snapshot { margin-bottom: 12px; }
+.account { padding: 18px 0; border-top: 1px solid var(--line, #34343a); }
+.accountHeading { display: flex; align-items: center; gap: 10px; }
+.accountHeading > div { flex: 1; min-width: 0; }
+.accountHeading h3 { font-size: 14px; margin: 0 0 3px; font-weight: 550; }
+.accountHeading small, .accountDetails { font-size: 11px; color: var(--muted); }
+.accountDetails { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+.accountDetails b { font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+.balances { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; }
+.balance, .tradingRow { display: flex; align-items: center; gap: 10px; padding: 12px 0; min-width: 0; }
+.balance > div, .tradingRow > div { display: grid; gap: 4px; min-width: 0; }
+.balance > div:last-child, .tradingRow > div:last-child { text-align: right; margin-left: auto; font-variant-numeric: tabular-nums; }
+.balance strong, .tradingRow strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.balance small, .tradingRow small { color: var(--muted); font-size: 10px; }
+.tradingRow { width: 100%; text-align: left; background: transparent; border: 0; border-top: 1px solid var(--line, #34343a); border-radius: 0; }
+.tradingRow:hover { background: #ffffff04; }
+.tradingRow strong > span { font-size: 11px; font-weight: 400; }
+.list { display: grid; margin-bottom: 14px; }
+.list > a { display: flex; gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid var(--line, #34343a); text-decoration: none; min-width: 0; }
+.list > a > div { flex: 1; min-width: 0; }
+.list strong { display: block; font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.list small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 4px; }
+.list :global(.badge) { font-size: 10px; max-width: 110px; overflow-wrap: anywhere; }
+.budget { margin: 0; display: grid; gap: 14px; font-size: 12px; }
+.budget > div { display: flex; justify-content: space-between; gap: 12px; }
+.budget dt { color: var(--muted); }
+.budget dd { margin: 0; font-variant-numeric: tabular-nums; }
+@media (max-width: 1150px) { .columns { grid-template-columns: minmax(0, 1fr) 260px; gap: 22px; } .aside { padding-left: 20px; } .balances { grid-template-columns: 1fr; } }
+@media (max-width: 850px) { .columns { grid-template-columns: 1fr; } .aside { border-left: 0; border-top: 1px solid var(--line, #34343a); padding: 24px 0 0; grid-template-columns: repeat(2, minmax(0, 1fr)); } .metrics { gap: 16px; } }
+@media (max-width: 540px) { .page { gap: 20px; } .header { gap: 16px; } .header p { max-width: 240px; } .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 22px; } .metrics strong { font-size: 22px; } .aside { grid-template-columns: 1fr; } .sectionHeading h2 { font-size: 15px; } .accountDetails { gap: 10px; } .tradingRow { flex-wrap: wrap; } .tradingRow > div:last-child { max-width: 47%; } }
