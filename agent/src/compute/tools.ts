@@ -73,8 +73,11 @@ export function buildAgentTools(context: AgentContext, latestMessage: string) {
       const portfolio = account.venue === "uniswap" ? await getUniswapPortfolio(account) : await getHyperliquidPortfolio(account);
       const symbol = request.symbol.replace(/(?:[-/]?(?:USD|USDC))$/i, "");
       if (!portfolio.positions.some(position => position.symbol === symbol)) throw new Error("The selected account has no matching perpetual position. Spot holdings require a swap, not a close.");
-      const mentioned = latestMessage.toLowerCase().includes(symbol.toLowerCase());
-      if (portfolio.positions.length > 1 && !mentioned) throw new Error("Several positions are open. Ask which position the user means before proposing a change.");
+      const mentioned = portfolio.positions.filter(position => {
+        const escaped = position.symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`(^|[^a-z0-9_.])${escaped}($|[^a-z0-9_.])`, "i").test(latestMessage);
+      });
+      if (portfolio.positions.length > 1 && (mentioned.length !== 1 || mentioned[0].symbol !== symbol)) throw new Error("Several positions are open. Ask which position the user means before proposing a change.");
     }
     return { proposal: { ...request, mode: "agent" }, executable: false, authorization: "Pending independent account permissions and execution checks." };
   });
