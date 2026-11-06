@@ -1,10 +1,26 @@
 import { describe,expect,it } from "vitest";
+import { mkdtempSync,rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AgentRun } from "./agent-runtime";
 import { getBudget,setBudget } from "./budget";
 import { AgentMemoryStore,rejectMemorySecrets } from "./memory";
 import { Store } from "./store";
 
 describe("durable personal agent memory",()=>{
+  it("recalls saved notes and checkpoints after reopening the database",()=>{
+    const directory=mkdtempSync(join(tmpdir(),"orcus-memory-restart-")),path=join(directory,"memory.sqlite");
+    let store=new Store(path);
+    try{
+      const user=store.ensureUser("0x1111111111111111111111111111111111111111"),memory=new AgentMemoryStore(store,user.id);
+      const note=memory.remember({content:"Prefer bounded ETH orders",kind:"preference"});
+      memory.saveCheckpoint(memory.threadId,{threadId:memory.threadId,runId:"saved-run",status:"completed"});
+      store.db.close();store=new Store(path);
+      const recovered=new AgentMemoryStore(store,user.id);
+      expect(recovered.search("ETH")[0].id).toBe(note.id);
+      expect(recovered.loadCheckpoint(recovered.threadId)).toMatchObject({runId:"saved-run"});
+    }finally{if(store.db.open)store.db.close();rmSync(directory,{recursive:true,force:true});}
+  });
   it("rejects management and inference credentials but permits public hashes in chat",()=>{
     for(const prefix of ["mk-","mk_","sk-","sk_"]){const generated=`${prefix}${"example".repeat(4)}`;expect(()=>rejectMemorySecrets(generated)).toThrow("credentials");expect(()=>rejectMemorySecrets(generated,{allowPublicHashes:true})).toThrow("credentials");}
     const publicHash=`0x${"a".repeat(64)}`;
