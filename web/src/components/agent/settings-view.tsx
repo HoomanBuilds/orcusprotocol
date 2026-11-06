@@ -265,10 +265,10 @@ function AccountCard({
             </Field>
           </div>
           <p className="fine-print">The owner wallet signs a transfer to this account. No funds move merely by connecting or entering an amount.</p>
-          <button className="button secondary small" type="button" disabled={!!busy || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(fundingAmount) || Number(fundingAmount) <= 0} onClick={() => void fund()}>
+          <button className="button secondary small" type="button" disabled={!!busy || !!fundingHash || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(fundingAmount) || Number(fundingAmount) <= 0} onClick={() => void fund()}>
             {busy === "fund" ? <Spinner /> : <Wallet size={13} />}Fund in owner wallet
           </button>
-          {fundingHash && <a className="text-link" href={`https://sepolia.etherscan.io/tx/${fundingHash}`} target="_blank" rel="noreferrer">Inspect funding transaction<ExternalLink size={12} /></a>}
+          {fundingHash && <><a className="text-link" href={`https://sepolia.etherscan.io/tx/${fundingHash}`} target="_blank" rel="noreferrer">Inspect funding transaction<ExternalLink size={12} /></a><button className="button secondary small" type="button" onClick={() => setFundingHash(null)}>I checked this transfer; enter another</button></>}
         </details>
       )}
       {pendingPolicy && (

@@ -249,6 +249,8 @@ export function useWorkspace() {
     if (!preview || executing) return;
     setExecuting(true);
     setError(null);
+    setNotice(null);
+    let ownerResult: Awaited<ReturnType<typeof executePreparedAction>> | undefined;
     try {
       if (preview.execution.expiresAt <= Date.now())
         throw new Error(
@@ -256,19 +258,18 @@ export function useWorkspace() {
         );
       const owner = await currentWalletAddress();
       if (owner.toLowerCase() !== preview.execution.account.ownerAddress.toLowerCase()) throw new Error("Your wallet changed. Reconnect the account owner before approving this action.");
-      const result = preview.execution.request.mode === "manual" ? await executePreparedAction(preview.execution) : undefined;
+      ownerResult = preview.execution.request.mode === "manual" ? await executePreparedAction(preview.execution) : undefined;
       const saved = await post<{ action: ActionRecord }>("/api/actions/submit", {
         actionId: preview.action.id,
-        ...(result ? { txHash: result.transactionHash, userOperationHash: result.userOperationHash, orderId: result.orderId, result: result.response } : {}),
+        ...(ownerResult ? { txHash: ownerResult.transactionHash, userOperationHash: ownerResult.userOperationHash, orderId: ownerResult.orderId, result: ownerResult.response } : {}),
       });
-      setNotice(
-        saved.action.status === "confirmed"
-          ? "Action confirmed by the venue."
-          : "Action submitted. Reconciliation will confirm its final status.",
-      );
       setPreview(null);
       await refresh();
+      if (saved.action.status === "rejected") throw new Error(saved.action.error ?? "The venue rejected this action. Check activity before preparing another.");
+      setNotice(saved.action.status === "confirmed" ? "Action confirmed by the venue." : saved.action.status === "cancelled" ? "Order cancellation confirmed by the venue." : saved.action.status === "submitted-unknown" ? "Submission outcome is unknown. Check activity before retrying." : "Action submitted. Reconciliation will confirm its final status.");
     } catch (cause) {
+      const phase = cause && typeof cause === "object" && "phase" in cause ? cause.phase : undefined;
+      if (ownerResult || phase === "submitted-unknown" || phase === "reverted") { setPreview(null); await refresh(); }
       setError(displayError(cause));
     } finally {
       setExecuting(false);
