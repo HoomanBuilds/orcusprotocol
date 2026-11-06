@@ -326,7 +326,28 @@ export interface OstiumAllowanceIntent {
   transactionHash?: string; error?: string; createdAt: number; updatedAt: number;
 }
 
+export const agentModelIdSchema = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,119}$/);
+export const agentModelCandidates = ["0gm-1.0-35b-a3b", "qwen3.5-plus", "glm-5.3"] as const;
+export interface AgentModelChoice {
+  id: string;
+  name: string;
+  available: boolean;
+  compatibility: "configured" | "catalog";
+  privacy: "catalog-tee" | "unverified";
+  pricing?: { promptPerMillionUsd: string; completionPerMillionUsd: string };
+  reason?: string;
+}
+export interface AgentModelCatalog {
+  defaultModelId: string;
+  selectedModelId: string;
+  catalogAvailable: boolean;
+  checkedAt?: number;
+  warning?: string;
+  models: AgentModelChoice[];
+}
+
 export interface AgentProfile {
+  modelId?: string;
   id: string;
   userId: string;
   name: string;
@@ -353,6 +374,7 @@ export interface AgentPermission {
 }
 
 export interface ChatMessage {
+  modelId?: string;
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -368,6 +390,7 @@ export interface ChatMessage {
 }
 
 export interface AgentRequest {
+  modelId?: string;
   id: string;
   requestId: string;
   runId: string;
