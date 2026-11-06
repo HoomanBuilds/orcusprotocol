@@ -1,108 +1,116 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import LandingPage, { metadata } from "./page";
-import { HERO_MEDIA, canPlayHero, MotionVideo } from "./landing-interactions";
 import { readFileSync, statSync } from "node:fs";
+import LandingPage, { metadata } from "./page";
+import { HERO_MEDIA, canPlayHero, MarketMotion, MotionVideo } from "./landing-interactions";
 
 describe("Orcus landing page", () => {
-  it("explains the actual testnet scope and shared account controls", () => {
+  it("explains shared control without overstating readiness or privacy", () => {
     const markup = renderToStaticMarkup(<LandingPage/>);
-    for (const text of ["Trading Agent", "Sepolia", "Hyperliquid testnet", "0G Compute", "0G Storage", "Chainlink CRE", "Scoped permissions", "Spending limits", "Manual takeover", "same supported trading accounts", "testnet prototype", "Illustrative interface", "separate trading portfolio", "operating wallet and agent keys are separate", "does not claim independently verified strict TEE guarantees", "does not claim a live decentralized CRE deployment"]) expect(markup).toContain(text);
-    expect(markup).not.toMatch(/1000\+|\$25M|150k|SendAI|suzi\.trade|guaranteed returns<\/|backed by/);
+    for (const text of ["same supported trading accounts", "separate trading portfolio", "operating wallet and agent keys are separate", "Scoped permissions", "Spending limits", "Manual takeover", "testnet prototype", "Hyperliquid testnet", "Arbitrum Sepolia", "no sponsorship", "disabled by default", "does not claim independently verified strict TEE guarantees", "does not claim a live decentralized CRE deployment"]) expect(markup).toContain(text);
+    expect(markup).not.toMatch(/1000\+|\$25M|150k|SendAI|suzi\.trade|backed by/);
   });
 
-  it("keeps app links on the existing terminal and section links resolvable", () => {
+  it("uses a concise original composition rather than the reference's section sequence", () => {
+    const markup = renderToStaticMarkup(<LandingPage/>);
+    expect(markup.match(/<h1\b/g)).toHaveLength(1);
+    expect(markup).toContain("with a second mind.");
+    expect(markup).not.toMatch(/You bring.*conviction|Investment Banker|Wall Street|Hedge Fund/);
+    expect(markup.indexOf('<h1')).toBeLessThan(markup.indexOf('<video'));
+    expect(markup.indexOf('id="about"')).toBeLessThan(markup.indexOf('id="agent"'));
+    expect(markup.indexOf('id="agent"')).toBeLessThan(markup.indexOf('id="markets"'));
+    const marketing = markup.slice(0, markup.indexOf('<footer'));
+    for (const paragraph of marketing.matchAll(/<p\b[^>]*>(.*?)<\/p>/g)) {
+      expect(paragraph[1].replace(/<[^>]+>/g, "").length).toBeLessThan(100);
+    }
+  });
+
+  it("connects the agent to its real tools and user authorization", () => {
+    const markup = renderToStaticMarkup(<LandingPage/>);
+    for (const text of ["Orcus agent connections", "You set the boundaries.", "0G Compute", "0G Storage backup optional", "Chainlink CRE", "Local workflow checks", "Uniswap", "Hyperliquid", "Ostium", "You authorize the actions."]) expect(markup).toContain(text);
+    expect(markup).toContain("SHARED<br/>POSITIONS");
+    expect(markup).toContain("Manual trading + authorized agent control");
+  });
+
+  it("keeps all navigation local and section targets unique", () => {
     const markup = renderToStaticMarkup(<LandingPage/>);
     const links = [...markup.matchAll(/<a\b[^>]*href="([^"]+)"/g)].map(match => match[1]);
     expect(links.filter(link => link === "/").length).toBeGreaterThan(3);
-    for (const link of links.filter(link => link.startsWith("#"))) expect(markup).toContain(`id="${link.slice(1)}"`);
-    expect(links.every(link => link === "/" || link.startsWith("#"))).toBe(true);
+    for (const link of links) {
+      expect(link === "/" || link.startsWith("#")).toBe(true);
+      if (link.startsWith("#")) expect(markup).toContain(`id="${link.slice(1)}"`);
+    }
     const ids = [...markup.matchAll(/\sid="([^"]+)"/g)].map(match => match[1]);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("provides keyboard-friendly native disclosures and a closed initial menu", () => {
+  it("keeps detailed scope collapsed and navigation keyboard accessible", () => {
     const markup = renderToStaticMarkup(<LandingPage/>);
     expect(markup.match(/<details(?:\s|>)/g)).toHaveLength(6);
     expect(markup.match(/<summary>/g)).toHaveLength(6);
+    expect(markup).not.toMatch(/<details[^>]*\sopen/);
     expect(markup).toContain('aria-expanded="false"');
     expect(markup).toContain('aria-controls="landing-navigation"');
-    expect(markup).toContain('id="landing-navigation"');
     expect(markup).toContain('aria-label="Main navigation" hidden=""');
     expect(markup).toContain("Skip to product details");
-    expect(markup).not.toContain("A little more context");
-    expect(markup.indexOf('id="scope"')).toBeGreaterThan(markup.indexOf("<footer"));
   });
 
-  it("starts decorative video without autoplay and uses only local visual assets", () => {
+  it("uses local existing assets, with no copied decorative artwork", () => {
     const markup = renderToStaticMarkup(<LandingPage/>);
-    expect(markup).not.toMatch(/autoPlay=|autoplay=|<iframe|<script/);
-    expect(markup).toContain('preload="none"');
-    expect(markup).toContain('aria-hidden="true"');
-    for (const match of markup.matchAll(/(?:src|poster|srcSet)="([^"]+)"/g)) expect(match[1]).toMatch(/^\/landing\//);
-    expect(markup).not.toMatch(/<input|<textarea|Connect Wallet|Approve USDC/);
+    const css = readFileSync(new URL("./landing.module.css", import.meta.url), "utf8");
+    expect(markup + css).not.toMatch(/laurel\.svg|paper-grain\.png|floral-desktop|floral-mobile|cutting-mat/);
+    for (const match of markup.matchAll(/(?:src|poster)="([^"]+)"/g)) {
+      expect(match[1]).toMatch(/^\/(landing|workspace)\//);
+      expect(statSync(new URL(`../../../public${match[1]}`, import.meta.url)).size).toBeGreaterThan(0);
+    }
+    for (const name of ["uniswap", "hyperliquid", "chainlink", "0g"]) expect(markup).toContain(`src="/landing/brands/${name}.svg"`);
+    expect(markup).toContain('src="/workspace/ostium.png"');
   });
 
-  it("uses both local blue-garden formats with poster-only motion opt-out", () => {
+  it("labels illustrations without inventing prices or trading actions", () => {
+    const markup = renderToStaticMarkup(<LandingPage/>);
+    expect(markup).toContain("Illustrative interface");
+    expect(markup).toContain("Illustrative asset examples. Availability varies by venue.");
+    expect(markup).toContain("Illustrative market chart, not live prices");
+    expect(markup).not.toMatch(/<input|<textarea|<iframe|<script|Connect Wallet|Approve USDC|Mark Price|Funding Rate|APY|24H Fees/);
+  });
+
+  it("preserves the local garden with a poster-only initial render", () => {
     expect(HERO_MEDIA).toEqual({ webm: "/landing/garden-hero-v2.webm", mp4: "/landing/garden-hero-v2.mp4", poster: "/landing/garden-hero-v2-poster.webp" });
     for (const path of Object.values(HERO_MEDIA)) expect(statSync(new URL(`../../../public${path}`, import.meta.url)).size).toBeGreaterThan(0);
     const markup = renderToStaticMarkup(<MotionVideo/>);
-    expect(markup).toContain('loop=""');
     expect(markup).toContain('hidden=""');
+    expect(markup).toContain('preload="none"');
     expect(markup).toContain(`poster="${HERO_MEDIA.poster}"`);
-    expect(markup).not.toContain("<source");
-    const source = readFileSync(new URL("./landing-interactions.tsx", import.meta.url), "utf8");
-    expect(source).not.toMatch(/currentTime\s*=|hero-mobile\.webm|src="\/landing\/hero\.webm"/);
-    expect(source).not.toMatch(/tethra-hero|garden-hero-v1/);
-    expect(source).toContain('"visibilitychange"');
-    expect(source).toContain("IntersectionObserver");
+    expect(markup).not.toMatch(/<source|autoPlay=|autoplay=/);
   });
 
-  it("pauses motion for reduced preference, hidden page, offscreen hero and the user control", () => {
+  it("honors every video playback guard", () => {
     const active = { allowed: true, visible: true, pageVisible: true, userPaused: false };
     expect(canPlayHero(active)).toBe(true);
     for (const blocked of [{ allowed: false }, { visible: false }, { pageVisible: false }, { userPaused: true }]) expect(canPlayHero({ ...active, ...blocked })).toBe(false);
+    const source = readFileSync(new URL("./landing-interactions.tsx", import.meta.url), "utf8");
+    expect(source).toContain('"visibilitychange"');
+    expect(source).toContain("IntersectionObserver");
+    expect(source).not.toMatch(/currentTime\s*=/);
   });
 
-  it("fades a neutral hero shade from the top to a clear garden foreground", () => {
+  it("keeps marquee motion optional and asset examples labeled", () => {
+    const markup = renderToStaticMarkup(<MarketMotion><span>Example</span></MarketMotion>);
+    expect(markup).toContain('aria-pressed="false"');
+    expect(markup).toContain("Pause");
     const css = readFileSync(new URL("./landing.module.css", import.meta.url), "utf8");
-    const gradient = css.match(/\.heroShade\s*\{\s*background:\s*linear-gradient\(180deg,\s*(.*?)\);\s*\}/)?.[1];
-    expect(gradient).toBeDefined();
-    const stops = [...gradient!.matchAll(/rgb\(0 0 0 \/ ([.\d]+)\) (\d+)%/g)].map(match => ({ opacity: Number(match[1]), position: Number(match[2]) }));
-    expect(stops.length).toBeGreaterThanOrEqual(2);
-    expect(stops[0].position).toBe(0);
-    expect(stops[0].opacity).toBeGreaterThanOrEqual(0.85);
-    expect(stops[0].opacity).toBeLessThanOrEqual(0.95);
-    for (let index = 1; index < stops.length; index++) {
-      expect(stops[index].opacity).toBeLessThan(stops[index - 1].opacity);
-      expect(stops[index].position).toBeGreaterThan(stops[index - 1].position);
-    }
-    const clearPosition = Number(gradient!.match(/, transparent (\d+)%$/)?.[1]);
-    expect(clearPosition).toBeGreaterThan(stops.at(-1)!.position);
-    expect(clearPosition).toBeLessThanOrEqual(80);
+    expect(css).toContain("prefers-reduced-motion: reduce");
+    expect(css).toContain("animation-play-state: paused");
+    const page = renderToStaticMarkup(<LandingPage/>);
+    for (const symbol of ["ETH", "USDC", "BTC", "SOL", "XRP", "DOGE", "AVAX", "LINK", "BNB", "ADA", "DOT"]) expect(page).toContain(`src="/landing/tokens/${symbol}.svg"`);
   });
 
-  it("sets Orcus-specific preview metadata without inventing a public domain", () => {
+  it("sets Orcus-specific metadata and preserves testnet indexing policy", () => {
     expect(metadata.title).toBe("Orcus | Your personal trading agent");
     expect(metadata.description).toContain("testnet prototype");
     expect(metadata.robots).toEqual({ index: false, follow: false });
     expect(metadata.openGraph).toMatchObject({ title: metadata.title, type: "website" });
-  });
-
-  it("uses local official protocol marks and a distinct Ethereum asset mark", () => {
-    const markup = renderToStaticMarkup(<LandingPage/>);
-    for (const name of ["uniswap", "hyperliquid", "chainlink", "0g"]) expect(markup).toContain(`src="/landing/brands/${name}.svg"`);
-    expect(markup).toContain('src="/landing/brands/ethereum.png"');
-    expect(markup).not.toContain("Ξ");
-    expect(markup).not.toMatch(/>H<|>C<|>0G<|>M</);
-  });
-
-  it("shows rich asset examples without inventing live prices or support for every token", () => {
-    const markup = renderToStaticMarkup(<LandingPage/>);
-    for (const symbol of ["ETH", "USDC", "BTC", "SOL", "XRP", "DOGE", "AVAX", "LINK", "BNB", "ADA", "DOT"]) expect(markup).toContain(`src="/landing/tokens/${symbol}.svg"`);
-    expect(markup).toContain('src="/landing/tokens/WETH.png"');
-    for (const text of ["HYPE-USDC", "illustrative asset examples", "Quote / collateral", "Native ETH input wraps to WETH", "WETH / USDC", "Asset example"]) expect(markup).toContain(text);
-    expect(markup).not.toMatch(/Mark Price|Funding Rate|APY|24H Fees|USDC-USDC/);
   });
 });

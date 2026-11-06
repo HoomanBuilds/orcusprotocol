@@ -3,6 +3,17 @@
 The visual reference for this requested local prototype is https://www.suzi.trade/.
 Orcus is an independent project and is not affiliated with Suzi or SendAI.
 
+## Orcus landing composition, November 7, 2026
+
+The current page retains the reference's design vocabulary: cinematic scenery,
+serif accents, pastel cards, grid lines, corner dots and moving asset cards.
+Its layout, product illustrations and copy are authored for Orcus. The hero
+uses our generated garden described below. The active page no longer uses
+the reference's paper texture, laurel, floral footer or cutting-mat artwork.
+Those older files remain historical reference assets, not active page content.
+Protocol and token marks identify integrations or clearly labeled illustrative
+asset examples; they do not imply endorsement or support for every asset.
+
 ## Original blue garden hero
 
 `garden-hero-v2.webm` (VP9), `garden-hero-v2.mp4` (H.264 fallback), and
