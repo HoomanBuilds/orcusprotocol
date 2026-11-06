@@ -9,7 +9,7 @@ import { arbitrumSepolia, sepolia } from "viem/chains";
 import { createOwnerKernel, createPermissionPlugin, entryPoint, kernelVersion, kernelPublicClient, kernelGrantPolicySchema, type KernelAuthorization, type KernelConfig, type KernelGrantPolicy } from "./kernel";
 import { exactTokenAmount, inspectPreparedSwap, isOwnerRejection, WalletActionError } from "./preflight";
 import { broadcastPreparedOperation } from "./execution";
-import { assertSponsoredOperation, browserGasSponsorship } from "./gas";
+import { checkAccountGas, defaultOperationGasCapWei } from "./self-funded-gas";
 import { prepareOwnerTokenTransfer } from "./token-transfer";
 import { assertOstiumOwnerDeployment, executeOstiumOwnerAction } from "./ostium-owner";
 import { OSTIUM_TESTNET, inspectOstiumOwnerPlan, inspectPreparedOstiumAction, ostiumTradingAbi, type OstiumAllowancePlan, type OstiumDelegationPlan } from "./ostium";
@@ -79,15 +79,14 @@ async function browserKernelConfig(scope?: { actionId?: string; accountAddress?:
   const response = await fetch("/api/wallet-config", { cache: "no-store" });
   const result = await response.json();
   if (!response.ok || !result.data?.rpcUrl) throw new Error(result.error?.message ?? "The testnet wallet configuration is unavailable.");
-  const gas = result.data.gasSponsorship;
   const proxy = (value: string) => {
     const url = new URL(value, window.location.origin);
-    if (url.origin !== window.location.origin || url.username || url.password) throw new WalletActionError("SPONSORSHIP_UNCONFIGURED", "Wallet execution requires the authenticated platform proxies. Nothing was submitted.");
+    if (url.origin !== window.location.origin || url.username || url.password) throw new WalletActionError("WALLET_CONFIG_INVALID", "Wallet execution requires the authenticated platform proxies. Nothing was submitted.");
     return url;
   };
-  const paymasterUrl = proxy(gas?.paymasterUrl ?? "/api/paymaster");
-  for (const [key, value] of Object.entries(scope ?? {})) if (value) paymasterUrl.searchParams.set(key, value);
-  return { rpcUrl: proxy(result.data.rpcUrl).href, bundlerUrl: proxy(result.data.bundlerUrl ?? "/api/bundler").href, sponsorship: scope && gas?.configured ? browserGasSponsorship(paymasterUrl.href, gas.maxOperationGasWei) : undefined };
+  const bundlerUrl = proxy(result.data.bundlerUrl ?? "/api/bundler");
+  for (const [key, value] of Object.entries(scope ?? {})) if (value) bundlerUrl.searchParams.set(key, value);
+  return { rpcUrl: proxy(result.data.rpcUrl).href, bundlerUrl: bundlerUrl.href, maxOperationGasWei: result.data.gasPayment?.maxOperationGasWei ?? defaultOperationGasCapWei };
 }
 
 export async function createTradingSmartAccount() {
@@ -110,20 +109,20 @@ async function recordSubmission(actionId: string, evidence: Record<string, unkno
 }
 
 async function sendOwnerOperation(owner: Awaited<ReturnType<typeof createOwnerKernel>>, calls: Array<{ to: Address; data: Hex; value: bigint }>, assertReady: () => Promise<void>, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void>) {
-  if (!owner.sponsorship) throw new WalletActionError("SPONSORSHIP_UNCONFIGURED", "Gas sponsorship is unavailable. Nothing was signed or submitted. Owner-paid recovery requires a compatible account client and explicit fee approval.");
   let operation;
   try { operation = await owner.client.prepareUserOperation({ callData: await owner.account.encodeCalls(calls) }); }
-  catch { throw new WalletActionError("SPONSORSHIP_UNAVAILABLE", "Sponsored simulation or fee estimation failed. Nothing was submitted; no owner-paid fallback was used."); }
-  assertSponsoredOperation(operation, owner.sponsorship.maxOperationGasWei);
+  catch { throw new WalletActionError("PREFLIGHT_FAILED", "Bundler simulation or fee estimation failed. Fund your trading smart account with Sepolia ETH and check the reviewed action. Nothing was submitted."); }
+  const checkGas = () => checkAccountGas(owner.publicClient, owner.account.address, operation, calls.reduce((sum, call) => sum + call.value, 0n), owner.maxOperationGasWei);
+  await checkGas();
   await assertReady();
-  assertSponsoredOperation(operation, owner.sponsorship.maxOperationGasWei);
+  await checkGas();
   let signature: Hex;
   try { signature = await owner.account.signUserOperation(operation); }
   catch (error) { throw new WalletActionError(isOwnerRejection(error) ? "OWNER_REJECTED" : "SIGNING_FAILED", isOwnerRejection(error) ? "You declined the wallet signature. Nothing was submitted." : "The wallet signature failed. Nothing was submitted."); }
   await assertReady();
   const candidateHash = getUserOperationHash({ userOperation: { ...operation, signature }, entryPointAddress: entryPoint.address, entryPointVersion: entryPoint.version, chainId: sepolia.id });
   const payload = formatUserOperationRequest({ ...operation, signature });
-  return broadcastPreparedOperation({ candidateHash, assertBeforeSend: assertReady, send: () => owner.client.request({ method: "eth_sendUserOperation", params: [payload, entryPoint.address] }, { retryCount: 0 }), onSubmitted, wait: hash => owner.client.waitForUserOperationReceipt({ hash, timeout: 120_000 }) });
+  return broadcastPreparedOperation({ candidateHash, assertBeforeSend: async () => { await assertReady(); await checkGas(); }, send: () => owner.client.request({ method: "eth_sendUserOperation", params: [payload, entryPoint.address] }, { retryCount: 0 }), onSubmitted, wait: hash => owner.client.waitForUserOperationReceipt({ hash, timeout: 120_000 }) });
 }
 
 export async function approveHyperliquidAgent(agentAddress: string, agentName = "Orcus") {

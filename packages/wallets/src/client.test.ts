@@ -38,10 +38,10 @@ vi.mock("./kernel", async importOriginal => ({
   ...await importOriginal<typeof import("./kernel")>(),
   kernelPublicClient: () => ({ getCode: async () => mocks.ownerCode }),
   createOwnerKernel: async () => ({
-    sponsorship: mocks.sponsorshipConfigured ? { maxOperationGasWei: "3000000000000000" } : undefined,
+    maxOperationGasWei: "3000000000000000",
     account: { address: mocks.accountAddress, encodeCalls: async () => "0x1234", signUserOperation: mocks.sign },
     client: { prepareUserOperation: mocks.prepare, request: mocks.send, waitForUserOperationReceipt: mocks.wait },
-    publicClient: { getCode: mocks.getCode, readContract: mocks.read, simulateContract: mocks.simulateContract, estimateGas: mocks.estimateGas, estimateFeesPerGas: mocks.estimateFees, getBalance: mocks.getBalance, waitForTransactionReceipt: mocks.waitTransaction },
+    publicClient: { getCode: mocks.getCode, readContract: (input: { functionName: string; address: string }) => input.functionName === "balanceOf" && input.address.toLowerCase() === "0x0000000071727de22e5e9d8baf0edac6f37da032" ? Promise.resolve(0n) : mocks.read(input), simulateContract: mocks.simulateContract, estimateGas: mocks.estimateGas, estimateFeesPerGas: mocks.estimateFees, getBalance: mocks.getBalance, waitForTransactionReceipt: mocks.waitTransaction },
   }),
   createPermissionPlugin: async () => ({ getIdentifier: () => "0x12345678", getEnableData: async () => "0x" }),
 }));
@@ -61,7 +61,7 @@ beforeEach(() => {
   mocks.ownerCode = "0x";
   mocks.sponsorshipConfigured = true;
   mocks.getCode.mockResolvedValue("0x1234");
-  mocks.prepare.mockResolvedValue({ sender: mocks.accountAddress, nonce: 0n, callData: "0x1234", callGasLimit: 10n, verificationGasLimit: 10n, preVerificationGas: 10n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n, paymaster: `0x${"9".repeat(40)}`, paymasterData: "0x1234", paymasterVerificationGasLimit: 10n, paymasterPostOpGasLimit: 10n });
+  mocks.prepare.mockResolvedValue({ sender: mocks.accountAddress, nonce: 0n, callData: "0x1234", callGasLimit: 10n, verificationGasLimit: 10n, preVerificationGas: 10n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n });
   mocks.sign.mockResolvedValue("0x1234");
   mocks.send.mockImplementation(async ({ params }: { params: [{ sender: `0x${string}`; nonce: `0x${string}`; callData: `0x${string}`; callGasLimit: `0x${string}`; verificationGasLimit: `0x${string}`; preVerificationGas: `0x${string}`; maxFeePerGas: `0x${string}`; maxPriorityFeePerGas: `0x${string}`; signature: `0x${string}` }] }) => {
     const { getUserOperationHash } = await import("viem/account-abstraction");
@@ -84,9 +84,9 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("owner account binding", () => {
-  it.each(["rpcUrl", "bundlerUrl", "paymasterUrl"])("refuses external %s metadata instead of exposing wallet traffic", async field => {
+  it.each(["rpcUrl", "bundlerUrl"])("refuses external %s metadata instead of exposing wallet traffic", async field => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ data: { rpcUrl: field === "rpcUrl" ? "https://external.example/rpc" : "/api/rpc", bundlerUrl: field === "bundlerUrl" ? "https://external.example/bundler" : "/api/bundler", gasSponsorship: { paymasterUrl: field === "paymasterUrl" ? "https://external.example/paymaster" : "/api/paymaster" } } }) })));
-    await expect(createTradingSmartAccount()).rejects.toMatchObject({ code: "SPONSORSHIP_UNCONFIGURED", phase: "not-submitted" });
+    await expect(createTradingSmartAccount()).rejects.toMatchObject({ code: "WALLET_CONFIG_INVALID", phase: "not-submitted" });
     expect(mocks.sign).not.toHaveBeenCalled();
     expect(mocks.send).not.toHaveBeenCalled();
   });
@@ -108,6 +108,13 @@ describe("owner account binding", () => {
 });
 
 describe("native permission revocation", () => {
+  it("requires smart-account ETH before requesting an owner signature", async () => {
+    mocks.read.mockResolvedValue({ signer: mocks.ownerAddress });
+    mocks.getBalance.mockResolvedValue(0n);
+    await expect(revokeKernelPermission(policy)).rejects.toMatchObject({ code: "SMART_ACCOUNT_GAS_INSUFFICIENT" });
+    expect(mocks.sign).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
   it("requires explicit invalidation for a signed but never-installed grant", async () => {
     mocks.read.mockResolvedValue({ signer: zeroAddress });
     await expect(revokeKernelPermission(policy)).rejects.toMatchObject({ code: "PENDING_APPROVAL_INVALIDATION_REQUIRED" });

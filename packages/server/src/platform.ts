@@ -17,7 +17,6 @@ import { listStorageExpenses,recordStorageExpense } from "./storage-expenses";
 import { safeAgentToolSteps } from "./agent-evidence";
 import { selectedAgentModel } from "./agent-models";
 import { selectStoragePayer,assertStoragePayerAllowance,publicStoragePayerMetadata } from "./storage-payer";
-import { createSessionSponsorship } from "./sponsorship";
 import { agentRequestSchema,agentRequestRecordId,agentRequestLease,agentRequestView,chatRequestFingerprint,chatRequestReference,listAgentRequests,queuedAgentRequests,readAgentRequest,recoverInterruptedAgentRequests,safeAgentRequestError,storedAgentRequest } from "./agent-requests";
 import { assertOstiumAutomation,ostiumAcknowledgement,ostiumAgentActions,ostiumAuthorization,validateOstiumExecution } from "./ostium-policy";
 import { recordOstiumActionApproval,recordUnknownOstiumApproval,rejectOstiumActionApproval,startOstiumActionApproval } from "./ostium-allowances";
@@ -411,7 +410,7 @@ export class Platform {
           const wallets=await import("@orcus/wallets/server") as unknown as Record<string,unknown>;
           if(typeof wallets.submitKernelSessionAction!=="function")throw new ApiError("SESSION_UNCONFIGURED","Kernel delegated execution is not configured.",503);
           assertAuthority();
-          result=await (wallets.submitKernelSessionAction as (...args:unknown[])=>Promise<typeof result>)(fresh,key,permission.authorization,(evidence:{userOperationHash:string})=>{action=this.store.update<StoredAction>(user.id,"action",action!.id,{status:"pending",userOperationHash:evidence.userOperationHash});},assertAuthority,createSessionSponsorship(this.store,user,fresh));
+          result=await (wallets.submitKernelSessionAction as (...args:unknown[])=>Promise<typeof result>)(fresh,key,permission.authorization,(evidence:{userOperationHash:string})=>{action=this.store.update<StoredAction>(user.id,"action",action!.id,{status:"pending",userOperationHash:evidence.userOperationHash});},assertAuthority);
         }else {assertAuthority();result=await callEngine("submitAgentAction",fresh,current,key,{assertAuthority,onSubmitted:(evidence:{transactionHash:string;step?:string})=>{if(evidence.step==="approval")throw new ApiError("OWNER_SIGNATURE_REQUIRED","The agent cannot submit owner token allowances.",403);if(!/^0x[\da-fA-F]{64}$/.test(evidence.transactionHash))throw new ApiError("INVALID_TRANSACTION","The adapter did not provide a signed transaction hash.",503);action=this.store.update<StoredAction>(user.id,"action",action!.id,{status:"pending",transactionHash:evidence.transactionHash});}});}
         action=this.store.update<StoredAction>(user.id,"action",action.id,{status:result.status??"pending",transactionHash:result.transactionHash??result.txHash??action.transactionHash,userOperationHash:result.userOperationHash??action.userOperationHash,orderId:result.orderId,evidence:result.evidence});
         return {action:await this.reconcile(user,action)};

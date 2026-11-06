@@ -48,21 +48,21 @@ describe("scoped Kernel sponsorship", () => {
     expect(fetch).not.toHaveBeenCalled();
     const config = await handleRequest(new Request("http://localhost:3000/api/wallet-config"), store);
     const text = await config.text();
-    expect(text).toContain('"paymasterUrl":"/api/paymaster"');
+    expect(text).toContain('"mode":"self-funded"');
     expect(text).not.toContain("test-paymaster-secret");
     expect(text).not.toContain("test-bundler-secret");
   });
-  it("serves only the authenticated user's scoped sponsorship over the real HTTP handler", async () => {
+  it("rejects the retired authenticated sponsorship endpoint", async () => {
     const h = await fixture(), origin = "http://localhost:3000";
     const challenge = store.createChallenge(h.user.address, origin), session = store.createSession(challenge.id, h.user.address);
     const send = (method: string, actionId = h.prepared.id, extraHeaders: Record<string, string> = {}) => handleRequest(new Request(`${origin}/api/paymaster?actionId=${actionId}`, { method: "POST", headers: { Origin: origin, Cookie: `orcus_session=${session.token}`, "Content-Type": "application/json", ...extraHeaders }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: [h.input] }) }), store);
-    expect((await send("eth_sendTransaction")).status).toBe(403);
-    expect((await send("orcus_sponsorUserOperation", "not-this-users-action")).status).toBe(403);
+    expect((await send("eth_sendTransaction")).status).toBe(410);
+    expect((await send("orcus_sponsorUserOperation", "not-this-users-action")).status).toBe(410);
     expect((await send("orcus_sponsorUserOperation", h.prepared.id, { Origin: "https://different-origin.invalid" })).status).toBe(403);
     const response = await send("orcus_sponsorUserOperation");
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ jsonrpc: "2.0", id: 1, result: { paymaster } });
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(response.status).toBe(410);
+    expect(await response.json()).toMatchObject({ error: { code: "SPONSORSHIP_DISABLED" } });
+    expect(fetch).not.toHaveBeenCalled();
   });
   it("only reports configuration and never exposes provider credentials", () => {
     expect(sponsorshipSummary()).toMatchObject({ configured: true, required: true, chainId: 11155111 });
@@ -145,13 +145,13 @@ describe("scoped Kernel sponsorship", () => {
     await expect(sponsorKernelOperation(store, h.user, h.scope, h.input)).rejects.toMatchObject({ code: "SPONSORSHIP_UNCONFIGURED" });
     expect(fetch).not.toHaveBeenCalled(); expect(mocks.operator).not.toHaveBeenCalled();
   });
-  it("routes the authenticated neutral paymaster method to the operator and omits signature payloads from its public ledger", async () => {
+  it("does not invoke an operator even if stale signing configuration remains", async () => {
     selectOperator(); const h = await fixture(), origin = "http://localhost:3000";
     const challenge = store.createChallenge(h.user.address, origin), session = store.createSession(challenge.id, h.user.address);
     const response = await handleRequest(new Request(`${origin}/api/paymaster?actionId=${h.prepared.id}`, { method: "POST", headers: { Origin: origin, Cookie: `orcus_session=${session.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "orcus_sponsorUserOperation", params: [h.input] }) }), store);
-    expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ result: { paymaster } });
-    expect(mocks.operator).toHaveBeenCalledWith(h.operation, "3000000000000000", true); expect(fetch).not.toHaveBeenCalled();
-    expect(listGasSponsorship(store, h.user)[0]).toMatchObject({ provider: "operator", paymaster, reserveWei: "1000" });
+    expect(response.status).toBe(410); expect(await response.json()).toMatchObject({ error: { code: "SPONSORSHIP_DISABLED" } });
+    expect(mocks.operator).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+    expect(listGasSponsorship(store, h.user)).toEqual([]);
     expect(JSON.stringify(listGasSponsorship(store, h.user))).not.toContain("paymasterData");
     expect(JSON.stringify(sponsorshipSummary())).not.toContain("private-bundler");
   });

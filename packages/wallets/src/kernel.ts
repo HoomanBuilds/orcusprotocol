@@ -4,10 +4,11 @@ import { CallPolicyVersion, ParamCondition, toCallPolicy, toGasPolicy, toTimesta
 import { toECDSASigner } from "@zerodev/permissions/signers";
 import { addressToEmptyAccount, createKernelAccount, createKernelAccountClient } from "@zerodev/sdk";
 import { getEntryPoint, KERNEL_V3_1 } from "@zerodev/sdk/constants";
-import { createPublicClient, encodeAbiParameters, getAddress, http, padHex, toFunctionSelector, toHex, type Address, type Hex } from "viem";
+import { createClient, createPublicClient, encodeAbiParameters, getAddress, http, padHex, rpcSchema, toFunctionSelector, toHex, type Address, type Hex } from "viem";
 import { sepolia } from "viem/chains";
 import { z } from "zod";
-import { requiredKernelPaymaster, type KernelGasSponsorship } from "./gas";
+import { type KernelGasSponsorship } from "./gas";
+import { defaultOperationGasCapWei } from "./self-funded-gas";
 export type { KernelGasSponsorship } from "./gas";
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -24,13 +25,13 @@ export const kernelGrantPolicySchema = z.object({
 }).strict().refine(policy => policy.expiresAt > policy.issuedAt && policy.expiresAt - policy.issuedAt <= 86_400_000, "Permission must expire within 24 hours");
 export type KernelGrantPolicy = z.infer<typeof kernelGrantPolicySchema>;
 export interface KernelAuthorization { approval: string; policy: KernelGrantPolicy }
-export interface KernelConfig { rpcUrl: string; bundlerUrl: string; sponsorship?: KernelGasSponsorship }
+export interface KernelConfig { rpcUrl: string; bundlerUrl: string; maxOperationGasWei?: string; sponsorship?: KernelGasSponsorship }
 
 export function resolveKernelBundlerUrl(environment: { ORCUS_GAS_SPONSOR_PROVIDER?: string; BUNDLER_RPC_URL?: string; ZERODEV_RPC_URL?: string }): string {
-  const provider = environment.ORCUS_GAS_SPONSOR_PROVIDER ?? "operator";
-  if (provider !== "operator" && provider !== "zerodev") throw new Error("Select operator or zerodev explicitly for gas sponsorship.");
-  const url = provider === "operator" ? environment.BUNDLER_RPC_URL : environment.ZERODEV_RPC_URL;
-  if (!url) throw new Error(provider === "operator" ? "Set BUNDLER_RPC_URL for the Sepolia bundler." : "Set ZERODEV_RPC_URL for the explicitly selected secondary provider.");
+  const url = environment.BUNDLER_RPC_URL;
+  if (!url) throw new Error("Set BUNDLER_RPC_URL for the Sepolia bundler.");
+  const parsed = new URL(url);
+  if (parsed.username || parsed.password || !(parsed.protocol === "https:" || parsed.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname))) throw new Error("Use an HTTPS bundler endpoint or local development endpoint.");
   return url;
 }
 
@@ -41,6 +42,17 @@ export const multicallSelector = toFunctionSelector("multicall(uint256,bytes[])"
 
 export function kernelPublicClient(config: Pick<KernelConfig, "rpcUrl">) {
   return createPublicClient({ chain: sepolia, transport: http(config.rpcUrl, { timeout: 20_000, retryCount: 0 }) });
+}
+
+export function kernelFeeEstimator(bundlerUrl: string) {
+  const client = createClient({ transport: http(bundlerUrl, { retryCount: 0, timeout: 20_000 }), rpcSchema: rpcSchema<[{ Method: "pimlico_getUserOperationGasPrice"; Parameters: []; ReturnType: { fast: { maxFeePerGas: Hex; maxPriorityFeePerGas: Hex } } }]>() });
+  return async () => {
+    const { fast } = await client.request({ method: "pimlico_getUserOperationGasPrice", params: [] });
+    if (!fast || !/^0x[\da-f]+$/iu.test(fast.maxFeePerGas) || !/^0x[\da-f]+$/iu.test(fast.maxPriorityFeePerGas)) throw new Error("Bundler returned invalid fee estimates.");
+    const maxFeePerGas = BigInt(fast.maxFeePerGas), maxPriorityFeePerGas = BigInt(fast.maxPriorityFeePerGas);
+    if (maxFeePerGas <= 0n || maxFeePerGas >= 2n ** 128n || maxPriorityFeePerGas > maxFeePerGas) throw new Error("Bundler fee estimates exceed their bounds.");
+    return { maxFeePerGas, maxPriorityFeePerGas };
+  };
 }
 
 export function buildKernelPolicies(input: KernelGrantPolicy) {
@@ -86,8 +98,8 @@ export async function createOwnerKernel(config: KernelConfig, owner: Parameters<
   const signer = typeof owner === "string" ? addressToEmptyAccount(owner) : owner;
   const sudo = await signerToEcdsaValidator(publicClient, { entryPoint, kernelVersion, signer });
   const account = await createKernelAccount(publicClient, { entryPoint, kernelVersion, plugins: { sudo } });
-  const client = createKernelAccountClient({ account, chain: sepolia, client: publicClient, bundlerTransport: http(config.bundlerUrl, { retryCount: 0, timeout: 30_000 }), paymaster: requiredKernelPaymaster(config.sponsorship) });
-  return { publicClient, account, client, sudo, sponsorship: config.sponsorship };
+  const client = createKernelAccountClient({ account, chain: sepolia, client: publicClient, pollingInterval: 5_000, bundlerTransport: http(config.bundlerUrl, { retryCount: 0, timeout: 30_000 }), userOperation: { estimateFeesPerGas: kernelFeeEstimator(config.bundlerUrl) } });
+  return { publicClient, account, client, sudo, maxOperationGasWei: config.maxOperationGasWei ?? defaultOperationGasCapWei };
 }
 
 export async function createPermissionPlugin(config: KernelConfig, policy: KernelGrantPolicy) {

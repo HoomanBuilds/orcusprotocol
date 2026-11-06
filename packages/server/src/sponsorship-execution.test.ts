@@ -42,28 +42,28 @@ function fixture() {
   return { store, user, platform, prepared };
 }
 
-describe("Platform sponsorship wiring with explicit signer fixtures", () => {
-  it("passes the same user's fresh action and capped sponsor to the delegated signer", async () => {
+describe("Platform self-funded execution with explicit signer fixtures", () => {
+  it("passes the same user's fresh action without ever requesting sponsorship", async () => {
     const h = fixture(), sponsor = { maxOperationGasWei: "1000", getPaymasterData: vi.fn() };
     boundary.sponsor.mockReturnValue(sponsor);
     boundary.submit.mockResolvedValue({ status: "confirmed", transactionHash, userOperationHash });
     try {
       await expect(h.platform.submit(h.user, { actionId: h.prepared.id })).resolves.toMatchObject({ action: { status: "confirmed", userOperationHash } });
-      expect(boundary.sponsor).toHaveBeenCalledWith(h.store, h.user, expect.objectContaining({ id: h.prepared.id }));
-      expect(boundary.submit.mock.calls[0][5]).toBe(sponsor);
+      expect(boundary.sponsor).not.toHaveBeenCalled();
+      expect(boundary.submit.mock.calls[0][5]).toBeUndefined();
       expect(boundary.submit.mock.calls[0][4]).toBeTypeOf("function");
     } finally { h.store.db.close(); }
   });
-  it("records missing sponsor configuration as not submitted rather than an unknown trade", async () => {
+  it("records insufficient smart-account gas as not submitted", async () => {
     const h = fixture();
-    boundary.sponsor.mockImplementation(() => { throw Object.assign(new ApiError("SPONSORSHIP_UNCONFIGURED", "Sponsor is unavailable.", 503), { phase: "not-submitted" }); });
+    boundary.submit.mockRejectedValue(Object.assign(new ApiError("SMART_ACCOUNT_GAS_INSUFFICIENT", "Fund the trading account.", 402), { phase: "not-submitted" }));
     try {
-      await expect(h.platform.submit(h.user, { actionId: h.prepared.id })).rejects.toMatchObject({ code: "SPONSORSHIP_UNCONFIGURED", phase: "not-submitted" });
-      expect(boundary.submit).not.toHaveBeenCalled();
+      await expect(h.platform.submit(h.user, { actionId: h.prepared.id })).rejects.toMatchObject({ code: "SMART_ACCOUNT_GAS_INSUFFICIENT", phase: "not-submitted" });
+      expect(boundary.sponsor).not.toHaveBeenCalled();
       expect(h.store.get<StoredAction>(h.user.id, "action", h.prepared.id)).toMatchObject({ status: "rejected" });
     } finally { h.store.db.close(); }
   });
-  it("retains the exact operation hash if a sponsored submission has an unknown outcome", async () => {
+  it("retains the exact operation hash if a self-funded submission has an unknown outcome", async () => {
     const h = fixture();
     boundary.sponsor.mockReturnValue({ maxOperationGasWei: "1000", getPaymasterData: vi.fn() });
     boundary.submit.mockImplementation(async (_prepared, _key, _grant, onSubmitted) => {

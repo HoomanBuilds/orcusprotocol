@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { encodeFunctionData, parseAbi, slice, type Hex } from "viem";
-import { buildKernelPolicies, kernelGrantPolicySchema, resolveKernelBundlerUrl, type KernelGrantPolicy } from "./kernel";
+import { buildKernelPolicies, kernelFeeEstimator, kernelGrantPolicySchema, resolveKernelBundlerUrl, type KernelGrantPolicy } from "./kernel";
+
+afterEach(() => vi.unstubAllGlobals());
 
 const policy: KernelGrantPolicy = {
   accountAddress: "0x1111111111111111111111111111111111111111",
@@ -12,14 +14,24 @@ const policy: KernelGrantPolicy = {
 const abi = parseAbi(["function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96) params) returns (uint256)", "function multicall(uint256 deadline,bytes[] data) returns (bytes[])"]);
 
 describe("explicit bundler provider selection", () => {
+  it("requests real Pimlico fee estimates without invoking a paymaster method", async () => {
+    const fetch = vi.fn(async (_url: string, input: RequestInit) => {
+      const request = JSON.parse(input.body as string);
+      expect(request.method).toBe("pimlico_getUserOperationGasPrice");
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { fast: { maxFeePerGas: "0xa", maxPriorityFeePerGas: "0x1" } } }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    await expect(kernelFeeEstimator("https://bundler.example/rpc")()).resolves.toEqual({ maxFeePerGas: 10n, maxPriorityFeePerGas: 1n });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
   it("defaults to the generic operator bundler and never silently selects ZeroDev", () => {
     expect(resolveKernelBundlerUrl({ BUNDLER_RPC_URL: "http://localhost:4337", ZERODEV_RPC_URL: "https://rpc.zerodev.app/secondary" })).toBe("http://localhost:4337");
     expect(() => resolveKernelBundlerUrl({ ZERODEV_RPC_URL: "https://rpc.zerodev.app/secondary" })).toThrow("BUNDLER_RPC_URL");
   });
-  it("selects the hosted secondary only by explicit configuration", () => {
-    expect(resolveKernelBundlerUrl({ ORCUS_GAS_SPONSOR_PROVIDER: "zerodev", BUNDLER_RPC_URL: "http://localhost:4337", ZERODEV_RPC_URL: "https://rpc.zerodev.app/secondary" })).toBe("https://rpc.zerodev.app/secondary");
-    expect(() => resolveKernelBundlerUrl({ ORCUS_GAS_SPONSOR_PROVIDER: "zerodev", BUNDLER_RPC_URL: "http://localhost:4337" })).toThrow("ZERODEV_RPC_URL");
-    expect(() => resolveKernelBundlerUrl({ ORCUS_GAS_SPONSOR_PROVIDER: "unknown", BUNDLER_RPC_URL: "http://localhost:4337" })).toThrow("Select operator or zerodev");
+  it("ignores stale sponsor provider configuration", () => {
+    expect(resolveKernelBundlerUrl({ ORCUS_GAS_SPONSOR_PROVIDER: "zerodev", BUNDLER_RPC_URL: "http://localhost:4337", ZERODEV_RPC_URL: "https://rpc.zerodev.app/secondary" })).toBe("http://localhost:4337");
+    expect(resolveKernelBundlerUrl({ ORCUS_GAS_SPONSOR_PROVIDER: "unknown", BUNDLER_RPC_URL: "http://localhost:4337" })).toBe("http://localhost:4337");
+    expect(() => resolveKernelBundlerUrl({ BUNDLER_RPC_URL: "http://remote.example" })).toThrow("HTTPS");
   });
 });
 
