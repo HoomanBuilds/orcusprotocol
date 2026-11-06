@@ -1,30 +1,40 @@
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { getHealth, getMarkets, engineConfig } from "@orcus/engine";
 import type { Venue } from "@orcus/core";
 import { entryPoint } from "@orcus/wallets/kernel";
 import { sponsorshipSummary } from "../packages/server/src/sponsorship";
 import { doctorBundlerConfiguration } from "./lib/doctor-bundler";
+import { doctorRuntimeConfiguration } from "./lib/doctor-runtime";
 
+const checkConfigOnly = process.argv.includes("--check-config");
+if (process.argv.slice(2).some(argument => argument !== "--check-config")) throw new Error("Usage: npm run doctor -- [--check-config]");
 const health = getHealth();
 console.log("Orcus configuration and read-only connectivity check");
 console.log("No transactions, storage uploads or billable inference are submitted.");
+console.log("Required hackathon configuration:");
+for (const check of doctorRuntimeConfiguration(process.env, fileURLToPath(new URL("../", import.meta.url)))) {
+  console.log(`${check.name}: ${check.configured ? "configured" : "missing or invalid"}. ${check.message}`);
+  if (!check.configured) process.exitCode = 1;
+}
 for (const [name, capability] of Object.entries(health)) {
   if (typeof capability !== "object" || !capability) continue;
-  console.log(`${name}: ${capability.configured ? "configured" : "not configured"}. ${capability.message}`);
+  console.log(`${name} configuration${name === "storage" ? " (optional)" : ""}: ${capability.configured ? "configured" : "not configured"}. ${capability.message}`);
 }
-console.log(`Worker token: ${process.env.ORCUS_INTERNAL_TOKEN ? "configured" : "missing"}`);
-console.log(`Production keystore: ${process.env.ORCUS_MASTER_KEY ? "configured" : "not configured; development-only local key available"}`);
+if (!health.compute.configured) process.exitCode = 1;
 const bundler = doctorBundlerConfiguration({ ORCUS_GAS_SPONSOR_PROVIDER: process.env.ORCUS_GAS_SPONSOR_PROVIDER, BUNDLER_RPC_URL: process.env.BUNDLER_RPC_URL, ZERODEV_RPC_URL: process.env.ZERODEV_RPC_URL });
 const bundlerUrl = bundler.url;
 console.log(`Smart-account bundler: ${bundler.status}${bundler.provider ? ` (${bundler.provider})` : ""}`);
-if (bundler.status === "invalid") process.exitCode = 1;
+if (bundler.status !== "configured") process.exitCode = 1;
 const sponsorship = sponsorshipSummary();
-console.log(`Ethereum gas sponsorship: ${sponsorship.status}. ${sponsorship.message}`);
+console.log(`Sponsored Uniswap configuration: ${sponsorship.status}. ${sponsorship.message}`);
+if (!sponsorship.configured) process.exitCode = 1;
+console.log("Optional capabilities: strict TEE verification, 0G Storage, automatic compute top-up and testnet service payments are not launch prerequisites. Real-money payments and mainnet trading remain disabled.");
 console.log("Trading scope: Ethereum Sepolia spot and Hyperliquid testnet. No mainnet trading or automatic bridges.");
 console.log("Customer funding: trading capital stays separate from agent service costs; backend 0G credits do not pay Ethereum gas.");
 console.log("External-wallet deposits: the owner approves the transfer and pays its network fee; smart-account sponsorship does not cover this transfer.");
 
-if (bundlerUrl) {
+if (!checkConfigOnly && bundlerUrl) {
   try {
     const read = async (method: string) => {
       const response = await fetch(bundlerUrl, {
@@ -45,7 +55,7 @@ if (bundlerUrl) {
   }
 }
 
-await Promise.all((["hyperliquid", "uniswap"] as Venue[]).map(async venue => {
+if (!checkConfigOnly) await Promise.all((["hyperliquid", "uniswap"] as Venue[]).map(async venue => {
   try {
     const markets = await getMarkets(venue);
     console.log(`${venue} reads: ${markets.length} market(s), real observation received.`);
@@ -56,7 +66,9 @@ await Promise.all((["hyperliquid", "uniswap"] as Venue[]).map(async venue => {
 }));
 
 const config = engineConfig();
-if (config.cre.enabled) {
+if (!checkConfigOnly && config.cre.enabled) {
   const result = spawnSync(config.cre.cliPath, ["version"], { timeout: 10_000, encoding: "utf8" });
   console.log(`CRE binary: ${result.status === 0 ? "available" : "unavailable"}. Login and workflow execution require a separate check.`);
+  if (result.status !== 0) process.exitCode = 1;
 }
+console.log(checkConfigOnly ? "Configuration check only: no connectivity, provider credit, paid inference, funding or operation acceptance was verified." : "Readiness scope: public market and configured bundler reads only. Provider credits, paid inference, storage payer funding and sponsored operation acceptance remain unverified.");
