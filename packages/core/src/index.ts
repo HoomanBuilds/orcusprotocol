@@ -360,6 +360,7 @@ export interface ChatMessage {
   requestId?: string;
   proposedAction?: TradeRequest;
   automationProposal?: unknown;
+  automationId?: string;
   actionId?: string;
   privacy?: "unverified" | "independently-attested-private" | "gateway-reported-private";
   privacyEvidence?: unknown;

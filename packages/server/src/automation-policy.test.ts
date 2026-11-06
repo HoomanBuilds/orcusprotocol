@@ -56,6 +56,14 @@ function harness(persistent = false) {
 }
 
 describe("reviewed bounded automation policy", () => {
+  it("persists accepted assistant proposals for restored conversations without duplicate jobs", () => {
+    const h=harness(),now=Date.now(),proposal={kind:"trade",accountId:h.account.id,name:"Reviewed",request:h.request,intervalSeconds:60};
+    h.store.put("message",{id:"assistant-draft",userId:h.user.id,role:"assistant",content:"Review this draft",automationProposal:proposal,createdAt:now,updatedAt:now});
+    const job=h.platform.createAutomation(h.user,proposal,"chat-automation:assistant-draft");
+    expect(h.platform.agentState(h.user).messages.find(message=>message.id==="assistant-draft")?.automationId).toBe(job.id);
+    expect(h.platform.createAutomation(h.user,proposal,"chat-automation:assistant-draft").id).toBe(job.id);
+    expect(h.store.list(h.user.id,"automation")).toHaveLength(1);
+  });
   it("rejects free text, implicit schedules, unsupported conditions and mismatched markets", () => {
     const h = harness();
     expect(() => h.platform.createAutomation(h.user, { accountId: h.account.id, name: "Unsafe", instruction: "Buy if RSI is below 30" })).toThrow("typed trade");
