@@ -78,7 +78,7 @@ export function automationMarketMatches(venue: Venue, requestSymbol: string, con
 const automationFields = {
   kind: z.enum(["trade", "alert"]).default("trade"),
   accountId: z.string().min(1).max(100),
-  name: z.string().min(1).max(80),
+  name: z.string().trim().min(1).max(80),
   instruction: z.string().min(1).max(2000).optional(),
   intervalSeconds: z.number().int().min(60).max(86_400).optional(),
   request: tradeRequestSchema.optional(),
@@ -406,6 +406,7 @@ export interface Automation {
   executionCount?: number;
   policySchemaVersion?: 1;
   condition?: z.infer<typeof automationConditionSchema>;
+  lastOutcome?: { status: "waiting" | "armed" | "submitted" | "notified" | "rejected" | "failed"; reason: string; observedAt: number; actionId?: string };
   nextRunAt: number;
   policyVersion: number;
   lastEvaluation?: CreEvaluation;
