@@ -9,6 +9,7 @@ export { uploadMemory, downloadMemory, encryptMemory, decryptMemory } from "./st
 export { evaluateStrategy, parseCreOutput } from "./automation/cre";
 export { engineConfig } from "./config";
 export { EngineError } from "./errors";
+export { submitComputeFunding, reconcileComputeFunding, readComputeVaultBalance } from "./budget";
 export type { AccountPortfolio, SubmissionResult, PlannerContext } from "./types";
 
 export function getHealth(): HealthStatus {
