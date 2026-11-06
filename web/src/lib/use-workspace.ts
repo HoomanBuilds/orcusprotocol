@@ -43,6 +43,10 @@ export interface ActionPreview {
 }
 
 const emptySession: Session = { user: null, agent: null, accounts: [] };
+async function selectedOwnerIs(address: string) {
+  try { return (await currentWalletAddress()).toLowerCase() === address.toLowerCase(); }
+  catch { return false; }
+}
 const emptyPortfolio: Portfolio = {
   accounts: [],
   balances: [],
@@ -72,11 +76,14 @@ export function useWorkspace() {
   const [preview, setPreview] = useState<ActionPreview | null>(null);
   const [preparing, setPreparing] = useState(false);
   const [executing, setExecuting] = useState(false);
+  const [controlling, setControlling] = useState(false);
   const refreshingRef = useRef(false);
+  const refreshQueuedRef = useRef(false);
   const sessionRevision = useRef(0);
   const connectingRef = useRef(false);
   const preparingRef = useRef(false);
   const executingRef = useRef(false);
+  const controllingRef = useRef(false);
 
   const clearPrivate = useCallback(() => {
     sessionRevision.current += 1;
@@ -90,16 +97,18 @@ export function useWorkspace() {
     setPreview(null);
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (refreshingRef.current) return;
+  const refresh = useCallback(async (): Promise<void> => {
+    if (refreshingRef.current) { refreshQueuedRef.current = true; return; }
     refreshingRef.current = true;
     const revision = sessionRevision.current;
     setRefreshing(true);
     try {
       const current = await api<Session>("/api/session");
       if (revision !== sessionRevision.current) return;
-      setSession(current);
       if (current.user) {
+        if (!await selectedOwnerIs(current.user.address)) throw new ApiError("OWNER_CHANGED", "The selected wallet does not match this session.", 401);
+        if (revision !== sessionRevision.current) return;
+        setSession(current);
         const results = await Promise.allSettled([
           api<Portfolio>("/api/portfolio"),
           api<{ actions: ActionRecord[] }>("/api/activity"),
@@ -108,6 +117,8 @@ export function useWorkspace() {
           api<OperatingBudget>("/api/budget"),
           api<WalletExecutionConfig>("/api/wallet-config"),
         ]);
+        if (revision !== sessionRevision.current) return;
+        if (!await selectedOwnerIs(current.user.address)) throw new ApiError("OWNER_CHANGED", "The selected wallet changed while loading this session.", 401);
         if (revision !== sessionRevision.current) return;
         if (results[0].status === "fulfilled")
           setPortfolio(results[0].value as Portfolio);
@@ -130,12 +141,13 @@ export function useWorkspace() {
           setError(displayError(failed.reason));
       } else clearPrivate();
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 401) clearPrivate();
+      if (cause instanceof ApiError && cause.status === 401) { clearPrivate(); void post("/api/auth/logout", {}).catch(() => undefined); setNotice("Sign in with the selected owner wallet to load its accounts."); }
       else setError(displayError(cause));
     } finally {
       refreshingRef.current = false;
       setRefreshing(false);
       setLoading(false);
+      if (refreshQueuedRef.current) { refreshQueuedRef.current = false; void refresh(); }
     }
   }, [clearPrivate]);
 
@@ -191,7 +203,6 @@ export function useWorkspace() {
       }
     ).ethereum;
     const changed = () => {
-      if (!session.user) return;
       clearPrivate();
       void post("/api/auth/logout", {}).catch(() => undefined);
       setNotice("Wallet changed. Sign in again to load its trading accounts.");
@@ -207,15 +218,19 @@ export function useWorkspace() {
     setError(null);
     try {
       const address = await connectWallet();
+      clearPrivate();
+      const revision = sessionRevision.current;
       const challenge = await post<{ id: string; message: string }>(
         "/api/auth/challenge",
         { address },
       );
       const signature = await signLoginMessage(challenge.message);
+      if (revision !== sessionRevision.current || (await currentWalletAddress()).toLowerCase() !== address.toLowerCase()) throw new ApiError("OWNER_CHANGED", "The selected wallet changed during sign-in.", 401);
       const current = await post<Session>("/api/auth/verify", {
         challengeId: challenge.id,
         signature,
       });
+      if (revision !== sessionRevision.current || (await currentWalletAddress()).toLowerCase() !== address.toLowerCase()) { await post("/api/auth/logout", {}); clearPrivate(); throw new ApiError("OWNER_CHANGED", "The selected wallet changed during sign-in.", 401); }
       setSession(current);
       setNotice("Signed in. Trading authorization is a separate approval.");
       await refresh();
@@ -250,7 +265,7 @@ export function useWorkspace() {
       );
       if (revision === sessionRevision.current) setPreview(prepared);
     } catch (cause) {
-      setError(displayError(cause));
+      if (revision === sessionRevision.current) setError(displayError(cause));
     } finally {
       preparingRef.current = false;
       setPreparing(false);
@@ -299,8 +314,14 @@ export function useWorkspace() {
   }
 
   async function control(command: "pause" | "resume" | "take-over") {
+    if (controllingRef.current) return;
+    controllingRef.current = true;
+    setControlling(true);
+    setError(null);
+    const revision = sessionRevision.current;
     try {
       await post("/api/agent/control", { command });
+      if (revision !== sessionRevision.current) return;
       if (command !== "resume") setPreview(null);
       setNotice(
         command === "resume"
@@ -309,7 +330,10 @@ export function useWorkspace() {
       );
       await refresh();
     } catch (cause) {
-      setError(displayError(cause));
+      if (revision === sessionRevision.current) setError(displayError(cause));
+    } finally {
+      controllingRef.current = false;
+      setControlling(false);
     }
   }
 
@@ -343,6 +367,7 @@ export function useWorkspace() {
     setPreview,
     preparing,
     executing,
+    controlling,
     refresh,
     connect,
     disconnect,

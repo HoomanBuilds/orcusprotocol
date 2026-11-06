@@ -132,7 +132,7 @@ export function AgentPanel({
           className="icon-button"
           title={agent?.paused ? "Resume agent" : "Pause agent"}
           aria-label={agent?.paused ? "Resume agent" : "Pause agent"}
-          disabled={!agent}
+          disabled={!agent || w.controlling}
           onClick={() => void w.control(agent?.paused ? "resume" : "pause")}
         >
           {agent?.paused ? <Play size={15} /> : <CirclePause size={16} />}
@@ -285,7 +285,7 @@ export function AgentPanel({
           <input
             type="checkbox"
             checked={autonomous}
-            disabled={!w.session.user || changingMode || sending}
+            disabled={!w.session.user || changingMode || sending || w.controlling}
             onChange={async (event) => {
               const next = event.target.checked;
               setChangingMode(true);

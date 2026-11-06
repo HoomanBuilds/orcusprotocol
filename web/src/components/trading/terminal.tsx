@@ -28,6 +28,7 @@ import { AgentPanel } from "../agent/agent-panel";
 import { AutomationsView } from "../agent/automations-view";
 import { SettingsView } from "../agent/settings-view";
 import { Badge, InlineError, Spinner } from "./primitives";
+import { WalletRoles } from "./wallet-roles";
 
 type View = "trade" | "automations" | "activity" | "settings";
 const views = [
@@ -299,7 +300,7 @@ export function Terminal() {
               )}
               <div className="trading-grid">
                 <MarketChart venue={w.venue} symbol={w.symbol} />
-                <OrderTicket
+                <OrderTicket key={w.session.user?.id ?? "disconnected"}
                   workspace={w}
                   onSetup={() => setView("settings")}
                 />
@@ -341,10 +342,10 @@ export function Terminal() {
                 <button
                   className="text-button"
                   type="button"
-                  disabled={!w.session.user}
+                  disabled={!w.session.user || w.controlling}
                   onClick={() => void w.control("take-over")}
                 >
-                  Take over
+                  {w.controlling ? "Updating control..." : "Take over"}
                   <ArrowUpRight size={12} />
                 </button>
               </div>
@@ -356,12 +357,13 @@ export function Terminal() {
                   <InlineError message={error.message} />
                 </div>
               ))}
-              <AccountTables workspace={w} />
+              <WalletRoles owner={w.session.user?.address} account={w.account} operatingAddress={w.agentData?.agent.operatingAddress ?? w.session.agent?.operatingAddress} />
+              <AccountTables key={w.session.user?.id ?? "disconnected"} workspace={w} />
             </>
           ) : view === "automations" ? (
-            <AutomationsView workspace={w} />
+            <AutomationsView key={w.session.user?.id ?? "disconnected"} workspace={w} />
           ) : view === "settings" ? (
-            <SettingsView workspace={w} />
+            <SettingsView key={w.session.user?.id ?? "disconnected"} workspace={w} />
           ) : (
             <section className="workspace-page">
               <div className="page-heading">
@@ -380,7 +382,7 @@ export function Terminal() {
           )}
         </main>
         {showAgent && (
-          <AgentPanel workspace={w} onSettings={() => setView("settings")} />
+          <AgentPanel key={w.session.user?.id ?? "disconnected"} workspace={w} onSettings={() => setView("settings")} />
         )}
       </div>
       <footer className="app-footer">

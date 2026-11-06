@@ -92,7 +92,7 @@ function PositionRow({
               <button
                 className="button secondary small"
                 type="button"
-                disabled={w.preparing || Number(half(position.size)) <= 0}
+                disabled={w.preparing || w.executing || Number(half(position.size)) <= 0}
                 onClick={() => change("reduce", half(position.size))}
               >
                 Reduce 50%
@@ -110,7 +110,7 @@ function PositionRow({
               <button
                 className="button secondary small"
                 type="button"
-                disabled={w.preparing || Number(trigger) <= 0}
+                disabled={w.preparing || w.executing || Number(trigger) <= 0}
                 onClick={() => change("stop-loss")}
               >
                 Set stop-loss
@@ -118,7 +118,7 @@ function PositionRow({
               <button
                 className="button secondary small"
                 type="button"
-                disabled={w.preparing || Number(trigger) <= 0}
+                disabled={w.preparing || w.executing || Number(trigger) <= 0}
                 onClick={() => change("take-profit")}
               >
                 Set take-profit
@@ -222,6 +222,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
   const [tab, setTab] = useState("positions");
   const positions = w.portfolio.positions;
   const orders = w.portfolio.orders;
+  const stale = w.portfolio.observedAt > 0 && Date.now() - w.portfolio.observedAt > 60_000;
   return (
     <section className="account-tables">
       <div className="table-tabs" role="tablist" aria-label="Account details">
@@ -249,10 +250,11 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
         ))}
         <span className="table-freshness">
           {w.portfolio.observedAt
-            ? `Updated ${time(w.portfolio.observedAt)}`
+            ? `${stale ? "Stale snapshot" : "Updated"} ${time(w.portfolio.observedAt)}`
             : "No account loaded"}
         </span>
       </div>
+      {stale && <p className="warning-note">These account values are stale. Refresh before relying on them; any new action will still require fresh preparation.</p>}
       {!w.session.user ? (
         <Empty
           title="Your accounts, in one place"
@@ -335,7 +337,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
                       <button
                         className="text-button"
                         type="button"
-                        disabled={w.preparing}
+                        disabled={w.preparing || w.executing}
                         onClick={() =>
                           void w.prepare({
                             accountId: order.accountId,
@@ -392,7 +394,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
                     <td>{number(balance.amount, 6)}</td>
                     <td>{usd(balance.usdValue)}</td>
                     <td>
-                      <Badge>Spot / collateral</Badge>
+                      <Badge>{w.session.accounts.find(account => account.id === balance.accountId)?.venue === "hyperliquid" ? "Perpetual collateral" : "Spot holding"}</Badge>
                     </td>
                   </tr>
                 ))}
