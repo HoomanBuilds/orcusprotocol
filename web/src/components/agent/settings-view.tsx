@@ -29,6 +29,7 @@ import { tokenUnits, usd } from "@/lib/format";
 import { fundingRecovery, tradingGasStatus, withFundingRecoveryIntent } from "@/lib/trade-ux";
 import { MemoryControls } from "./memory-controls";
 import { ComputeFundingPanel } from "./compute-funding-panel";
+import { ServicePaymentPanel } from "./service-payment-panel";
 import {
   Address,
   Badge,
@@ -818,6 +819,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
                   "Live credit balance and replenishment require a verified provider funding path. Owner deposits are not earned revenue."}
               </p>
             </article>
+            {w.session.user && <ServicePaymentPanel key={`service:${w.session.user.id}`} owner={w.session.user.address} onRefresh={w.refresh} />}
             {w.session.user && <details className="technical-limits"><summary>Advanced: native compute-account funding</summary><p className="fine-print">Optional operator integration controls, not a requirement for using agent inference. A service-payment checkout is separate from these native deposits.</p><ComputeFundingPanel key={w.session.user.id} onRefresh={w.refresh} /></details>}
             <article className="settings-card">
               <div className="card-heading">

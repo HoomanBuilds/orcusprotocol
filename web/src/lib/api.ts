@@ -78,6 +78,7 @@ const safeErrors: Record<string, string> = {
   AGENT_NOT_APPROVED: "Approve a scoped agent permission for this trading account first.",
   AGENT_NOT_AUTHORIZED: "The agent has no valid permission for this action. Review its account grant.",
   INSUFFICIENT_BUDGET: "The agent expense allowance is exhausted. Review its separate operating budget.",
+  INSUFFICIENT_SERVICE_CREDITS: "Your verified testnet service credits are too low. Add credits or reconcile a pending payment; increasing the expense cap does not add credits.",
   BUDGET_RESERVED: "This cap cannot be below recorded or reserved expenses. Reconcile pending requests first.",
   OPERATING_BALANCE_LOW: "The separate operating wallet needs testnet 0G. Trading principal will not be used.",
   COMPUTE_ACCOUNT_UNVERIFIED: "A fresh native Galileo Router balance for the exact beneficiary is required. Inference-only keys, USD billing, and mainnet accounts cannot fund this path.",

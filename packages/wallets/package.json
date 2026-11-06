@@ -8,6 +8,7 @@
     "./kernel": "./src/kernel.ts",
     "./gas": "./src/gas.ts",
     "./operator-paymaster": "./src/operator-paymaster.ts",
+    "./service-payment": "./src/service-payment.ts",
     "./preflight": "./src/preflight.ts",
     "./server": "./src/server.ts"
   },
