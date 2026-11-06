@@ -20,7 +20,7 @@ export function assertSponsoredOperation(value: Record<string, unknown>, capWei:
 
 export function requiredKernelPaymaster(sponsorship?: KernelGasSponsorship) {
   const sponsor = (estimation: boolean): PaymasterActions["getPaymasterData"] => async input => {
-    if (!sponsorship) throw new WalletActionError("SPONSORSHIP_UNCONFIGURED", "Gas sponsorship is not configured. No transaction was submitted. Owner recovery must use an explicitly reviewed direct account transaction.");
+    if (!sponsorship) throw new WalletActionError("SPONSORSHIP_UNCONFIGURED", "Gas sponsorship is not configured. No transaction was submitted. Owner-paid recovery requires a compatible account client and explicit fee approval.");
     let response;
     try { response = await (estimation ? sponsorship.getPaymasterStubData ?? sponsorship.getPaymasterData : sponsorship.getPaymasterData)(input); }
     catch (error) { if (error instanceof WalletActionError) throw error; throw new WalletActionError("SPONSORSHIP_UNAVAILABLE", "The gas sponsor did not approve this operation. Nothing was submitted; no owner-paid fallback was used."); }

@@ -6,6 +6,7 @@ import { entryPoint } from "@orcus/wallets/kernel";
 import { createSessionSponsorship, listGasSponsorship, noteSponsoredBroadcast, settleSponsoredReceipt, sponsorKernelOperation, sponsorshipSummary, validateSponsoredBroadcast } from "./sponsorship";
 import { Store } from "./store";
 import type { StoredAccount } from "./types";
+import { handleRequest } from "./http";
 
 const mocks = vi.hoisted(() => ({ address: `0x${"1".repeat(40)}`, factory: undefined as string | undefined, factoryData: undefined as string | undefined }));
 vi.mock("@orcus/wallets/kernel", async original => ({ ...await original<typeof import("@orcus/wallets/kernel")>(), createOwnerKernel: async () => ({ account: { address: mocks.address, getFactoryArgs: async () => ({ factory: mocks.factory, factoryData: mocks.factoryData }) } }) }));
@@ -34,6 +35,28 @@ async function fixture(ownerDigit = "2", nonce = "0x0") {
 }
 
 describe("scoped Kernel sponsorship", () => {
+  it("requires an authenticated owner and never exposes provider URLs in public configuration", async () => {
+    const request = new Request("http://localhost:3000/api/paymaster", { method: "POST", headers: { Origin: "http://localhost:3000", "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "zd_sponsorUserOperation", params: [] }) });
+    expect((await handleRequest(request, store)).status).toBe(401);
+    expect(fetch).not.toHaveBeenCalled();
+    const config = await handleRequest(new Request("http://localhost:3000/api/wallet-config"), store);
+    const text = await config.text();
+    expect(text).toContain('"paymasterUrl":"/api/paymaster"');
+    expect(text).not.toContain("test-paymaster-secret");
+    expect(text).not.toContain("test-bundler-secret");
+  });
+  it("serves only the authenticated user's scoped sponsorship over the real HTTP handler", async () => {
+    const h = await fixture(), origin = "http://localhost:3000";
+    const challenge = store.createChallenge(h.user.address, origin), session = store.createSession(challenge.id, h.user.address);
+    const send = (method: string, actionId = h.prepared.id, extraHeaders: Record<string, string> = {}) => handleRequest(new Request(`${origin}/api/paymaster?actionId=${actionId}`, { method: "POST", headers: { Origin: origin, Cookie: `orcus_session=${session.token}`, "Content-Type": "application/json", ...extraHeaders }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: [h.input] }) }), store);
+    expect((await send("eth_sendTransaction")).status).toBe(403);
+    expect((await send("zd_sponsorUserOperation", "not-this-users-action")).status).toBe(403);
+    expect((await send("zd_sponsorUserOperation", h.prepared.id, { Origin: "https://different-origin.invalid" })).status).toBe(403);
+    const response = await send("zd_sponsorUserOperation");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ jsonrpc: "2.0", id: 1, result: { paymaster } });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
   it("only reports configuration and never exposes provider credentials", () => {
     expect(sponsorshipSummary()).toMatchObject({ configured: true, required: true, chainId: 11155111 });
     expect(JSON.stringify(sponsorshipSummary())).not.toContain("secret");

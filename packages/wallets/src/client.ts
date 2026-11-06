@@ -101,7 +101,7 @@ async function recordSubmission(actionId: string, evidence: Record<string, unkno
 }
 
 async function sendOwnerOperation(owner: Awaited<ReturnType<typeof createOwnerKernel>>, calls: Array<{ to: Address; data: Hex; value: bigint }>, assertReady: () => Promise<void>, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void>) {
-  if (!owner.sponsorship) throw new WalletActionError("SPONSORSHIP_UNCONFIGURED", "Gas sponsorship is unavailable. Nothing was signed or submitted. Permission recovery requires an explicitly reviewed direct account transaction.");
+  if (!owner.sponsorship) throw new WalletActionError("SPONSORSHIP_UNCONFIGURED", "Gas sponsorship is unavailable. Nothing was signed or submitted. Owner-paid recovery requires a compatible account client and explicit fee approval.");
   let operation;
   try { operation = await owner.client.prepareUserOperation({ callData: await owner.account.encodeCalls(calls) }); }
   catch { throw new WalletActionError("SPONSORSHIP_UNAVAILABLE", "Sponsored simulation or fee estimation failed. Nothing was submitted; no owner-paid fallback was used."); }

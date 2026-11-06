@@ -16,6 +16,7 @@ import { AgentRun,type AgentRunStatus } from "./agent-runtime";
 import { listStorageExpenses,recordStorageExpense } from "./storage-expenses";
 import { safeAgentToolSteps } from "./agent-evidence";
 import { selectStoragePayer,assertStoragePayerAllowance,publicStoragePayerMetadata } from "./storage-payer";
+import { createSessionSponsorship } from "./sponsorship";
 
 export const accountSchema=z.object({venue:z.enum(["uniswap","hyperliquid"]),address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
 export const automationSchema=z.object({kind:z.enum(["trade","alert"]).default("trade"),accountId:z.string(),name:z.string().min(1).max(80),instruction:z.string().min(1).max(2000).optional(),intervalSeconds:z.number().int().min(60).max(86400).default(300),request:tradeRequestSchema.optional(),condition:z.object({symbol:z.string().min(1).max(50),operator:z.enum(["above","below"]),price:z.string().max(80).regex(/^\d+(?:\.\d+)?$/).refine(value=>/[1-9]/.test(value),"Use a positive alert threshold")}).optional(),expiresAt:z.number().int().optional()}).strict().superRefine((value,ctx)=>{if(value.kind==="alert"&&(!value.condition||value.request))ctx.addIssue({code:"custom",message:"Price alerts require a condition and cannot contain a trade request."});if(value.kind==="trade"&&!value.request&&!value.instruction)ctx.addIssue({code:"custom",message:"Trading strategies require an instruction or an explicitly approved recurring request."});});
@@ -342,7 +343,7 @@ export class Platform {
           const wallets=await import("@orcus/wallets/server") as unknown as Record<string,unknown>;
           if(typeof wallets.submitKernelSessionAction!=="function")throw new ApiError("SESSION_UNCONFIGURED","Kernel delegated execution is not configured.",503);
           assertAuthority();
-          result=await (wallets.submitKernelSessionAction as (...args:unknown[])=>Promise<typeof result>)(fresh,key,permission.authorization,(evidence:{userOperationHash:string})=>{action=this.store.update<StoredAction>(user.id,"action",action!.id,{status:"pending",userOperationHash:evidence.userOperationHash});},assertAuthority);
+          result=await (wallets.submitKernelSessionAction as (...args:unknown[])=>Promise<typeof result>)(fresh,key,permission.authorization,(evidence:{userOperationHash:string})=>{action=this.store.update<StoredAction>(user.id,"action",action!.id,{status:"pending",userOperationHash:evidence.userOperationHash});},assertAuthority,createSessionSponsorship(this.store,user,fresh));
         }else {assertAuthority();result=await callEngine("submitAgentAction",fresh,current,key,{assertAuthority});}
         action=this.store.update<StoredAction>(user.id,"action",action.id,{status:result.status??"pending",transactionHash:result.transactionHash??result.txHash??action.transactionHash,userOperationHash:result.userOperationHash??action.userOperationHash,orderId:result.orderId,evidence:result.evidence});
         return {action:await this.reconcile(user,action)};

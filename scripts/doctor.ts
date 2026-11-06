@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { getHealth, getMarkets, engineConfig } from "@orcus/engine";
 import type { Venue } from "@orcus/core";
 import { entryPoint } from "@orcus/wallets/kernel";
+import { sponsorshipSummary } from "../packages/server/src/sponsorship";
 
 const health = getHealth();
 console.log("Orcus configuration and read-only connectivity check");
@@ -14,6 +15,8 @@ console.log(`Worker token: ${process.env.ORCUS_INTERNAL_TOKEN ? "configured" : "
 console.log(`Production keystore: ${process.env.ORCUS_MASTER_KEY ? "configured" : "not configured; development-only local key available"}`);
 const bundlerUrl = process.env.ZERODEV_RPC_URL?.trim();
 console.log(`Smart-account bundler: ${bundlerUrl ? "configured" : "missing"}`);
+const sponsorship = sponsorshipSummary();
+console.log(`Ethereum gas sponsorship: ${sponsorship.status}. ${sponsorship.message}`);
 console.log("Trading scope: Ethereum Sepolia spot and Hyperliquid testnet. No mainnet trading or automatic bridges.");
 console.log("Customer funding: trading capital stays separate from agent service costs; backend 0G credits do not pay Ethereum gas.");
 console.log("External-wallet deposits: the owner approves the transfer and pays its network fee; smart-account sponsorship does not cover this transfer.");
