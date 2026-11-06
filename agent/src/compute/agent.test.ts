@@ -52,6 +52,19 @@ function personalMemory(threadId: string, content: string) {
 }
 
 describe("personal LangGraph agent", () => {
+  it("preserves native ETH input in a typed proposal without signing or inventing gas sponsorship", async () => {
+    const spot: TradingAccount = { ...account, id: "spot-account", venue: "uniswap", chainId: 11155111, smartAccountAddress: account.address };
+    const request = { accountId: spot.id, venue: "uniswap", type: "swap", symbol: "WETH/USDC", side: "sell", amount: "0.01", slippageBps: 50, mode: "agent", nativeInput: true };
+    const provider = fakeProvider([{ type: "tool", name: "propose_action", arguments: { request } }, final]);
+    const reply = await planWith0G("Swap 0.01 native ETH for USDC.", { account: spot, accounts: [spot] });
+    expect(reply.proposal).toMatchObject(request);
+    expect(reply.toolTrace[0]).toMatchObject({ name: "propose_action", ok: true, result: { executable: false } });
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+    const prompt = JSON.parse(String(provider.fetch.mock.calls[0][1]?.body)).messages[0].content;
+    expect(prompt).toContain("explicit native-wrap grant");
+    expect(prompt).toContain("does not pay Ethereum gas");
+    expect(prompt).toContain("Buying WETH returns WETH, not native ETH");
+  });
   it("repairs a completed malformed response once without repeating its request or losing billing evidence", async () => {
     const provider = fakeProvider([{ type: "remember_preference", content: "unsupported" }, final]);
     const memory = personalMemory("agent:user-a", "Prefers clarity."), afterCall = vi.fn(async () => {});
