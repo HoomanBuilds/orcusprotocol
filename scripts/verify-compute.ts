@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { verifyComputeRestartReplay } from "./lib/compute-restart-proof";
+import { assertSuccessfulComputeFinal } from "./lib/compute-final-proof";
 
 if (!process.argv.includes("--allow-paid-inference")) throw new Error("This check spends real compute credits. Run with --allow-paid-inference to consent.");
 const target = new URL(process.env.ORCUS_VERIFY_APP_URL ?? "http://localhost:3000");
@@ -41,6 +42,7 @@ try {
   assert.ok(reply.modelCalls > 0 && reply.modelCalls <= 6);
   assert.equal(reply.message.actionId, undefined);
   assert.equal(reply.message.proposedAction, undefined);
+  assertSuccessfulComputeFinal(reply,"remember_preference",[/spot/i,/leverage/i]);
   if (privateMode) assert.equal(reply.message.privacy, "gateway-reported-private");
   const memory = await request("memory?query=leverage");
   assert.ok(memory.notes.length > 0);
@@ -69,6 +71,7 @@ try {
       assert.ok(result.modelCalls > 0 && result.modelCalls <= 6);
       assert.equal(result.action, undefined);
       assert.equal(result.message.actionId, undefined);
+      assertSuccessfulComputeFinal(result,scenario.tool,scenario.name==="memory-recall"?[/spot/i,/leverage/i]:[]);
       assert.ok(result.message.toolSteps?.some((step: { name: string; ok: boolean }) => step.name === scenario.tool && step.ok), `${scenario.name} did not use its real scoped tool successfully`);
       if (privateMode) assert.equal(result.message.privacy, "gateway-reported-private");
       if (scenario.name === "draft-limit-order") { assert.equal(result.proposal.type, "limit"); assert.equal(result.proposal.accountId, account.id); }
