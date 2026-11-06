@@ -60,7 +60,6 @@ function AgentMap() {
       <article className={`${styles.mapCard} ${styles.mapRules}`}><span className={styles.smallLabel}>CONDITIONS</span><div className={styles.mapBrand}><ProtocolMark name="chainlink"/><strong>Chainlink CRE</strong></div><p>Local workflow checks</p></article>
       <article className={`${styles.mapCard} ${styles.mapVenues}`}><span className={styles.smallLabel}>EXECUTION</span><div className={styles.mapVenueMarks}>{(["uniswap", "hyperliquid", "ostium"] as const).map(name => <span key={name}><ProtocolMark name={name}/><small>{name === "uniswap" ? "Uniswap" : name === "hyperliquid" ? "Hyperliquid" : "Ostium"}</small></span>)}</div></article>
     </div>
-    <div className={styles.mapCaption}><span>One agent. Connected tools.</span><span>You authorize the actions.</span></div>
   </div>;
 }
 
@@ -98,15 +97,14 @@ export default function LandingPage() {
         <article className={styles.strategyCard}><div className={styles.cardHeading}><span>02 / STRATEGIES</span><h3>Give your idea a plan.</h3></div><div className={styles.strategyVisual}><span>When conditions match</span><i/><span>Check my limits</span><i/><span>Take the authorized action</span></div></article>
         <article className={styles.activityCard}><div className={styles.cardHeading}><span>03 / CONTINUITY</span><h3>Pick up where you left off.</h3></div><div className={styles.activityVisual}><div><span/><p>Research<small>Saved to revisit</small></p></div><div><span/><p>Strategy draft<small>Ready for review</small></p></div><div><span/><p>Your next move<small>Always your call</small></p></div></div></article>
       </div>
-      <p className={styles.illustrationNote}>Illustrative interface</p>
     </section>
 
     <section className={styles.mapSection} id="agent"><div className={styles.sectionHeading}><span className={styles.eyebrow}>INSIDE ORCUS</span><h2>Connected by design.<br/><em>Directed by you.</em></h2></div><AgentMap/></section>
 
-    <section className={styles.marketsSection} id="markets"><div className={styles.marketHeading}><h2>Keep your horizons <em>open.</em></h2><span>Spot. Perpetuals. Global markets.</span></div><div className={styles.venueStrip}>{(["uniswap", "hyperliquid", "ostium"] as const).map((name, index) => <div key={name}><ProtocolMark name={name}/><span>{["Uniswap", "Hyperliquid", "Ostium"][index]}<small>{["Sepolia spot", "Testnet perpetuals", "Arbitrum Sepolia"][index]}</small></span></div>)}</div><AssetMarquee/><p className={styles.marketDisclaimer}>Illustrative asset examples. Availability varies by venue.</p></section>
+    <section className={styles.marketsSection} id="markets"><div className={styles.marketHeading}><h2>Keep your horizons <em>open.</em></h2><span>Spot. Perpetuals. Global markets.</span></div><div className={styles.venueStrip}>{(["uniswap", "hyperliquid", "ostium"] as const).map((name, index) => <div key={name}><ProtocolMark name={name}/><span>{["Uniswap", "Hyperliquid", "Ostium"][index]}<small>{["Sepolia spot", "Testnet perpetuals", "Arbitrum Sepolia"][index]}</small></span></div>)}</div><AssetMarquee/></section>
 
     <section className={styles.controlSection} id="control"><div><span className={styles.eyebrow}>ALWAYS YOUR CALL</span><h2>Delegate.<br/><em>Without letting go.</em></h2><OpenApp>Find your next move</OpenApp></div><div className={styles.controlRows}>{[["01", "Scoped permissions", "Only the access you grant."], ["02", "Spending limits", "Set your boundaries first."], ["03", "Manual takeover", "Pause. Revoke. Take the controls."]].map(([n, title, copy]) => <div key={n}><span>{n}</span><div><h3>{title}</h3><p>{copy}</p></div><span className={styles.controlPoint}/></div>)}</div></section>
 
-    <footer className={styles.footer}><div className={styles.footerTop}><a href="#top" aria-label="Orcus home"><Brand/></a><span>Your next move starts here.</span><OpenApp>Open workspace</OpenApp></div><details className={styles.footerScope} id="scope"><summary>Before you begin <Plus size={16}/></summary><div className={styles.questions}>{questions.map(([question, answer]) => <details key={question}><summary>{question}<Plus size={16}/></summary><p>{answer}</p></details>)}</div></details><div className={styles.footerBottom}><span>Orcus / 2026</span><span>Testnet prototype. Trading involves risk.</span><a href="#top">Back to top <ArrowUpRight size={14}/></a></div></footer>
+    <footer className={styles.footer}><div className={styles.footerTop}><a href="#top" aria-label="Orcus home"><Brand/></a><span>Your next move starts here.</span><OpenApp>Open workspace</OpenApp></div><details className={styles.footerScope} id="scope"><summary>Before you begin <Plus size={16}/></summary><div className={styles.questions}>{questions.map(([question, answer]) => <details key={question}><summary>{question}<Plus size={16}/></summary><p>{answer}</p></details>)}</div></details><div className={styles.footerBottom}><span>Orcus / 2026</span><span>Trading involves risk.</span><a href="#top">Back to top <ArrowUpRight size={14}/></a></div></footer>
   </main>;
 }

@@ -10,6 +10,7 @@ describe("Orcus landing page", () => {
     const markup = renderToStaticMarkup(<LandingPage/>);
     expect(markup).not.toContain("A little more perspective.");
     expect(markup).not.toContain("Testnet preview");
+    for (const text of ["Illustrative asset examples. Availability varies by venue.", "Testnet prototype", "One agent. Connected tools.", "You authorize the actions.", "Illustrative interface"]) expect(markup).not.toContain(text);
   });
 
   it("explains shared control without overstating readiness or privacy", () => {
@@ -34,7 +35,7 @@ describe("Orcus landing page", () => {
 
   it("connects the agent to its real tools and user authorization", () => {
     const markup = renderToStaticMarkup(<LandingPage/>);
-    for (const text of ["Orcus agent connections", "You set the boundaries.", "0G Compute", "0G Storage backup optional", "Chainlink CRE", "Local workflow checks", "Uniswap", "Hyperliquid", "Ostium", "You authorize the actions."]) expect(markup).toContain(text);
+    for (const text of ["Orcus agent connections", "You set the boundaries.", "0G Compute", "0G Storage backup optional", "Chainlink CRE", "Local workflow checks", "Uniswap", "Hyperliquid", "Ostium"]) expect(markup).toContain(text);
     expect(markup).toContain("SHARED<br/>POSITIONS");
     expect(markup).toContain("Manual trading + authorized agent control");
   });
@@ -76,8 +77,6 @@ describe("Orcus landing page", () => {
 
   it("labels illustrations without inventing prices or trading actions", () => {
     const markup = renderToStaticMarkup(<LandingPage/>);
-    expect(markup).toContain("Illustrative interface");
-    expect(markup).toContain("Illustrative asset examples. Availability varies by venue.");
     expect(markup).toContain("Illustrative market chart, not live prices");
     expect(markup).not.toMatch(/<input|<textarea|<iframe|<script|Connect Wallet|Approve USDC|Mark Price|Funding Rate|APY|24H Fees/);
   });
