@@ -42,7 +42,7 @@ Set `ORCUS_MASTER_KEY` before starting in production. Development creates an own
 | Integration | Configuration and user action |
 | --- | --- |
 | 0G inference | Exact chat-completions URL, API key and model from your credited account; authorize an operating expense cap in settings. Router balance additionally needs a management key scoped to `account:read` |
-| Uniswap | Public Sepolia RPC, server-side bundler and funded gas-sponsorship policy, owner-created smart account and explicitly transferred test assets; delegation requires a bounded owner-signed session grant |
+| Uniswap | Public Sepolia RPC, generic server-side bundler and operator-funded paymaster, owner-created smart account and explicitly transferred test assets; delegation requires a bounded owner-signed session grant |
 | Hyperliquid | Owner wallet and funded Hyperliquid testnet account; approve the separate agent address only if autonomous trading is wanted |
 | 0G memory | Configure a funded operator Galileo signer and enable storage. The platform pays native gas/storage under per-backup and shared daily caps; users do not need 0G. Advanced agent-paid mode remains optional |
 | Chainlink CRE | Official CLI, its required build toolchain, authenticated CLI access and the workflow directory; see the workflow's own setup instructions |
@@ -59,7 +59,11 @@ Uniswap execution uses a Kernel account with bounded call, expiry and gas polici
 - Buying WETH returns WETH, not native ETH. Native ETH output, automatic unwrapping and cross-chain routes are not enabled.
 - Hyperliquid uses its own testnet account, collateral and trading fees. Ethereum smart-account sponsorship is not its deposit or gas mechanism.
 
-ZeroDev is the infrastructure provider used by the existing Kernel wallet library, not another hackathon sponsor or a customer account requirement. Operators must configure the server-side bundler and paymaster endpoints plus a funded provider sponsorship policy. Normal users do not need a ZeroDev login or native 0G for trading. Provider configuration alone is not proof of successful sponsored execution.
+Our platform wallet is the primary gas funder. Set `ORCUS_GAS_SPONSOR_PROVIDER=operator` (the default), a Sepolia ERC-4337 v0.7 `BUNDLER_RPC_URL`, `ORCUS_PAYMASTER_ADDRESS` and the server-only `ORCUS_GAS_SPONSOR_PRIVATE_KEY`. Deploying the paymaster and funding its EntryPoint ETH deposit are separate operator actions. The signer approves exact, short-lived, capped operations; it is not the user's owner key or agent trading key. Keep the paymaster owner separate from its hot approval signer in production.
+
+The existing open-source Kernel SDK and user account addresses are retained. ZeroDev's hosted infrastructure is an optional secondary, enabled only by `ORCUS_GAS_SPONSOR_PROVIDER=zerodev` plus `ZERODEV_RPC_URL` and `ZERODEV_PAYMASTER_RPC_URL`. A failed operator request never switches providers or charges the user's gas balance automatically. Browser wallet traffic uses authenticated same-origin proxies; provider endpoints and approval keys stay server-side. Normal users need neither a ZeroDev account nor native 0G for this sponsored trading path. Configuration alone does not prove a deployed, funded or bundler-accepted operation.
+
+As checked on November 6, 2026, ZeroDev's [pricing page](https://www.zerodev.app/pricing) lists a $0 testnet-only Sandbox with 10,000 monthly credits, 20 credits per bundled operation, and a $69/month Launch plan. The table also lists an 8% gas-sponsorship premium without making its testnet billing treatment clear. Do not assume unlimited free sponsorship. These hosted-service terms do not apply to our operator paymaster, although its underlying Sepolia ETH and bundler infrastructure still need funding/configuration.
 
 ## Personal agent and automation
 
