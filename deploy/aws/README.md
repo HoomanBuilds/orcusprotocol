@@ -101,7 +101,7 @@ CRE_WORKFLOW_DIR=/opt/orcus/workflows/cre
 CRE_TARGET=staging-settings
 ```
 
-Set `CRE_API_KEY` privately in `.env`, or authenticate as `orcus` with the CLI's user-controlled browser login. Check `cre whoami` first from `/opt/orcus`; if authentication is missing, choose your own API key or complete `cre login` yourself, then recheck. CLI authentication and organization access are separate from installing the binary. Do not request deployment access or run CRE secret/lifecycle operations for this hosting setup.
+Set `CRE_API_KEY` privately in the root `.env`, or authenticate as `orcus` with the CLI's user-controlled browser login. The check below runs `cre whoami` before simulation using the same allowlisted environment as the managed runner. If authentication is missing, choose your own API key or complete `cre login` yourself as `orcus`, then recheck. CLI authentication and organization access are separate from installing the binary. Do not request deployment access or run CRE secret/lifecycle operations for this hosting setup.
 
 Before starting the app, run as `orcus` with the same PATH:
 
@@ -112,14 +112,17 @@ export PATH=/var/lib/orcus/.bun/bin:/var/lib/orcus/.cre/bin:/usr/local/bin:/usr/
 cd /opt/orcus
 npm run demo:setup -- --check
 npm run doctor
-cd workflows/cre
-cre workflow simulate strategy --target local-simulation --non-interactive --trigger-index 0
-cd /opt/orcus
+node --import tsx deploy/aws/check-cre.mjs
 npm run build
 exit
 ```
 
-All checks must pass before claiming the complete demo is ready. The CRE command performs actual read-only local simulation and needs authentication/network access. It does not broadcast a transaction, deploy a workflow or prove hosted DON consensus. See the [workflow runbook](../../workflows/cre/README.md) for exact dependency and integration behavior. Do not run a manual simulation in the live app's workflow directory while its web service is processing evaluations.
+The wrapper opaquely parses the root `.env` with Node, then forwards only the existing CRE child-environment allowlist. Explicit empty `--env` and `--public-env` files prevent the CLI from implicitly loading another dotenv. Do not source `.env` in Bash or pass the app's whole dotenv to the CLI. Authentication details and raw failure output are withheld; success prints one validated actual `ORCUS_CRE_LOCAL_RESULT` line. The fixed simulation is `cre workflow simulate strategy --target local-simulation --non-interactive --trigger-index 0`, run from `workflows/cre` with those private file flags.
+
+All checks must pass before claiming the complete demo is ready. This is an actual read-only local simulation requiring authentication/network access, not a broadcast, workflow deployment or hosted DON proof. See the [workflow runbook](../../workflows/cre/README.md) for exact dependency and integration behavior. Do not run this check while the live web service is processing evaluations in the same workflow directory.
+
+The compatible official CRE SDK 1.23.0 remains pinned; npm reports two high entries (Zod 3.25.76 and its SDK dependent) from the single [GHSA-mrhx-c7xc-m3w5 advisory](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
+No compatible patched Zod 3/SDK is published, and no override or fake fix was applied: this is a known limited hackathon dependency risk, not production certification. See the [dated verification record](../../docs/research/verification-2026-11-06.md).
 
 ## 5. Install and start both services
 
