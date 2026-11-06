@@ -212,6 +212,31 @@ export interface ChatMessage {
   toolSteps?: Array<{ name: string; ok: boolean; observedAt: number; requestId?: string }>;
 }
 
+export interface AgentRequest {
+  id: string;
+  requestId: string;
+  runId: string;
+  userMessageId: string;
+  message: string;
+  accountId?: string;
+  autonomous: boolean;
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  stage: string;
+  tool?: string;
+  modelCalls: number;
+  toolCalls: number;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  startedAt?: number;
+  heartbeatAt?: number;
+  completedAt?: number;
+  response?: ChatMessage;
+  actionId?: string;
+  errorCode?: string;
+  error?: string;
+}
+
 export interface Automation {
   id: string;
   userId: string;
