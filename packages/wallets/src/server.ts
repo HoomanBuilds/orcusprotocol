@@ -62,8 +62,8 @@ async function submitSessionAction(prepared: PreparedAction, key: Hex, authoriza
   if (getAddress(account.address) !== getAddress(prepared.account.address)) throw new WalletActionError("SESSION_AUTHORITY_MISMATCH", "Serialized session account mismatch.");
   const client = createKernelAccountClient({ account, chain: sepolia, client: publicClient, bundlerTransport: http(network.bundlerUrl, { retryCount: 0, timeout: 30_000 }) });
   const calls = prepared.transactions!.map(tx => {
-    if (tx.chainId !== sepolia.id || !isHex(tx.data) || BigInt(tx.value) !== 0n) throw new Error("Session swaps cannot transfer native value.");
-    return { to: getAddress(tx.to), data: tx.data as Hex, value: 0n };
+    if (tx.chainId !== sepolia.id || !isHex(tx.data) || !/^\d+$/.test(tx.value)) throw new Error("Session swaps require validated Sepolia call data and exact non-negative values.");
+    return { to: getAddress(tx.to), data: tx.data as Hex, value: BigInt(tx.value) };
   });
   let operation;
   try { operation = await client.prepareUserOperation({ callData: await account.encodeCalls(calls) }); }

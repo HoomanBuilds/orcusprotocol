@@ -46,7 +46,7 @@ export class Platform {
     const accounts=this.accounts(user);
     return this.store.list<StoredPermission>(user.id,"permission").filter(permission=>permission.status==="active"&&permission.expiresAt>Date.now()).map(permission=>{
       const account=accounts.find(item=>item.id===permission.accountId);
-      return{id:permission.id,accountId:permission.accountId,venue:account?.venue,allowedActions:permission.allowedActions,allowedSymbols:permission.allowedSymbols,maxTradeUsd:permission.maxTradeUsd,expiresAt:permission.expiresAt,enforcement:permission.enforcement,controlRevision:permission.controlRevision,...(permission.policy?{onchain:{kind:"kernel-fixed-output-bands",router:permission.policy.router,recipient:permission.policy.accountAddress,swaps:permission.policy.swaps.map(swap=>({tokenIn:swap.tokenIn,tokenOut:swap.tokenOut,feeTier:swap.feeTier,maximumInputAtoms:swap.maxAmountIn,minimumOutputAtoms:swap.minAmountOut})),limitation:"Each permitted input cap has a fixed minimum output floor. A smaller input may be outside the band even below the USD cap. Propose an exact permitted amount when appropriate or ask the owner to regrant; never lower the minimum output or claim arbitrary up-to-cap amounts are executable."}}:{})};
+      return{id:permission.id,accountId:permission.accountId,venue:account?.venue,allowedActions:permission.allowedActions,allowedSymbols:permission.allowedSymbols,maxTradeUsd:permission.maxTradeUsd,expiresAt:permission.expiresAt,enforcement:permission.enforcement,controlRevision:permission.controlRevision,...(permission.policy?{onchain:{kind:"kernel-fixed-output-bands",router:permission.policy.router,recipient:permission.policy.accountAddress,nativeWrap:permission.policy.nativeWrap,swaps:permission.policy.swaps.map(swap=>({tokenIn:swap.tokenIn,tokenOut:swap.tokenOut,feeTier:swap.feeTier,maximumInputAtoms:swap.maxAmountIn,minimumOutputAtoms:swap.minAmountOut})),limitation:"Each permitted input cap has a fixed minimum output floor. A smaller input may be outside the band even below the USD cap. Propose an exact permitted amount when appropriate or ask the owner to regrant; never lower the minimum output or claim arbitrary up-to-cap amounts are executable."}}:{})};
     });
   }
   createAccount(user:User,input:unknown){
@@ -177,7 +177,7 @@ export class Platform {
     }
     return results;
   }
-  async permission(user:User,input:{accountId:string;action:string;permissionId?:string;expiresAt?:number;maxTradeUsd?:string;allowedSymbols?:string[];allowedActions?:TradeRequest["type"][];authorization?:unknown}){
+  async permission(user:User,input:{accountId:string;action:string;permissionId?:string;expiresAt?:number;maxTradeUsd?:string;allowNativeInput?:boolean;allowedSymbols?:string[];allowedActions?:TradeRequest["type"][];authorization?:unknown}){
     this.expirePermissions(user);
     let account=this.account(user,input.accountId);
     if(input.action==="revoke"||input.action==="rotate"){
@@ -191,7 +191,7 @@ export class Platform {
       const signer=createSigner(this.store,user.id,`trading:${account.id}`);
       const maxTradeUsd=input.maxTradeUsd??"100";
       if(decimalProductMicros(maxTradeUsd,"1")<=0n)throw new ApiError("INVALID_TRADE_CAP","Set a positive trade cap.");
-      const policy=account.venue==="uniswap"?await this.kernelPolicy(account,signer.address,maxTradeUsd,expiresAt):undefined;
+      const policy=account.venue==="uniswap"?await this.kernelPolicy(account,signer.address,maxTradeUsd,expiresAt,input.allowNativeInput===true):undefined;
       const permission=this.store.put("permission",{id:id(),userId:user.id,accountId:account.id,agentAddress:signer.address,allowedSymbols:input.allowedSymbols??[],allowedActions:input.allowedActions??(account.venue==="uniswap"?["swap"]:["market","limit","cancel","reduce","close","stop-loss","take-profit"]),maxTradeUsd,expiresAt,status:"pending",enforcement:account.venue==="hyperliquid"?"application":"account",controlRevision:account.controlRevision,policy,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredPermission);
       for(const previous of this.store.list<StoredPermission>(user.id,"permission"))if(previous.accountId===account.id&&previous.id!==permission.id&&previous.status==="pending")this.store.update<StoredPermission>(user.id,"permission",previous.id,{status:"revoked",supersededBy:permission.id});
       return {permission,agentAddress:signer.address,agentName:"Orcus Agent",policy,authorization:account.venue==="hyperliquid"?{agentAddress:signer.address,agentName:"Orcus Agent",expiresAfter:expiresAt}:undefined};
@@ -221,7 +221,7 @@ export class Platform {
     const valid=await (wallets.verifyKernelEnrollment as (input:unknown)=>Promise<boolean>)({ownerAddress:account.ownerAddress,smartAccountAddress:account.smartAccountAddress??account.address,agentAddress:permission.agentAddress,authorization,permission});
     if(!valid)throw new ApiError("INVALID_SESSION_APPROVAL","The permission approval does not match this owner, account and bounded signer.",403);
   }
-  async kernelPolicy(account:StoredAccount,agentAddress:string,maxTradeUsd:string,expiresAt:number):Promise<KernelGrantPolicy>{
+  async kernelPolicy(account:StoredAccount,agentAddress:string,maxTradeUsd:string,expiresAt:number,allowNativeInput=false):Promise<KernelGrantPolicy>{
     if(!account.smartAccountAddress)throw new ApiError("SMART_ACCOUNT_REQUIRED","Create and fund your user-owned smart account before granting spot execution.",409);
     const cfg=await callEngine<{uniswap:{router:string;weth:string;usdc:string}}>("engineConfig");
     const markets=await callEngine<Market[]>("getMarkets","uniswap"),market=markets.find(item=>item.symbol==="WETH/USDC");
@@ -239,7 +239,7 @@ export class Platform {
       if(minAmountOut<=0n)throw new ApiError("DUST_PERMISSION","The quoted minimum output is too small for a safe session.");
       swaps.push({tokenIn,tokenOut,feeTier:500,maxAmountIn:maxAmountIn.toString(),minAmountOut:minAmountOut.toString()});
     }
-    return {accountAddress:account.smartAccountAddress,agentAddress,router:cfg.uniswap.router,swaps,issuedAt:Date.now(),expiresAt,maxGasWei:"3000000000000000"};
+    return {accountAddress:account.smartAccountAddress,agentAddress,router:cfg.uniswap.router,swaps,issuedAt:Date.now(),expiresAt,maxGasWei:"3000000000000000",...(allowNativeInput?{nativeWrap:{weth:cfg.uniswap.weth,maxAmountWei:wethAtoms.toString()}}:{})};
   }
   async withAccountLease<T>(accountId:string,run:(assertLease:()=>void)=>Promise<T>):Promise<T>{
     const holder=id(),scope=`account:${accountId}`;
@@ -255,6 +255,7 @@ export class Platform {
     if(account.status!=="authorized"||!permission)throw new ApiError("AGENT_NOT_AUTHORIZED","Authorize this agent for the selected account first.",403);
     if(permission.allowedSymbols.length&&!permission.allowedSymbols.includes(request.symbol))throw new ApiError("SYMBOL_NOT_AUTHORIZED","This instrument is outside the agent's approved symbols.",403);
     if(!permission.allowedActions.includes(request.type))throw new ApiError("ACTION_NOT_AUTHORIZED","This action is outside the agent's approved permissions.",403);
+    if(request.nativeInput&&!permission.policy?.nativeWrap)throw new ApiError("NATIVE_WRAP_NOT_AUTHORIZED","Ask the owner to opt in to bounded native ETH wrapping before the agent spends native trading funds.",403);
     if(request.type!=="cancel"){
       const markets=await callEngine<Market[]>("getMarkets",request.venue);
       const market=markets.find(item=>item.symbol===request.symbol||item.baseAsset===request.symbol.split(/[\/-]/)[0]);

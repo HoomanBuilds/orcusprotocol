@@ -50,6 +50,25 @@ async function harness(){
 }
 
 describe("shared-account server acceptance with explicit venue fixtures",()=>{
+  it("requires explicit native-input opt-in and binds the exact wrap cap into enrollment",async()=>{
+    const h=await harness();
+    try{
+      const connected=await h.request("accounts","POST",{venue:"uniswap",smartAccountAddress:"0x7777777777777777777777777777777777777777"}),account=connected.result.data;
+      const config={router:"0x3333333333333333333333333333333333333333",weth:"0x4444444444444444444444444444444444444444",usdc:"0x5555555555555555555555555555555555555555"};
+      h.engine.mockImplementation(async(name,...args)=>{
+        if(name==="engineConfig")return{uniswap:config};
+        if(name==="getMarkets")return[{venue:"uniswap",symbol:"WETH/USDC",baseAsset:"WETH",quoteAsset:"USDC",midPrice:"2000",observedAt:Date.now()}];
+        if(name==="prepareAction"){const request=tradeRequestSchema.parse(args[0]);return{request:{...request,tokenOutDecimals:request.side==="buy"?18:6},quote:{minimumOut:request.side==="buy"?"0.004975":"9.95"}}as PreparedAction;}
+        throw new Error(`Unexpected native permission fixture ${name}`);
+      });
+      const input={accountId:account.id,action:"prepare",maxTradeUsd:"10"};
+      expect((await h.request("permissions","POST",input)).result.data.policy.nativeWrap).toBeUndefined();
+      const granted=await h.request("permissions","POST",{...input,allowNativeInput:true}),policy=granted.result.data.policy;
+      expect(policy.nativeWrap).toEqual({weth:config.weth,maxAmountWei:"5000000000000000"});
+      const altered={...policy,nativeWrap:{...policy.nativeWrap,maxAmountWei:"5000000000000001"}};
+      expect((await h.request("permissions","POST",{accountId:account.id,action:"activate",permissionId:granted.result.data.permission.id,authorization:{policy:altered,approval:"fixture"}})).result.error.code).toBe("INVALID_SESSION_POLICY");
+    }finally{h.close();}
+  });
   it("exposes public execution constraints to planning without signatures or keys",async()=>{
     const h=await harness();
     try{

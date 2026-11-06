@@ -13,4 +13,10 @@ describe("action boundary", () => {
     expect(tradeRequestSchema.safeParse({ ...action, slippageBps: 501 }).success).toBe(false);
     expect(tradeRequestSchema.safeParse({ ...action, privateKey: "not-allowed" }).success).toBe(false);
   });
+  it("keeps native ETH input explicit and never silently treats WETH output as ETH",()=>{
+    const native={...action,venue:"uniswap",type:"swap",symbol:"WETH/USDC",side:"sell",nativeInput:true};
+    expect(tradeRequestSchema.parse(native).nativeInput).toBe(true);
+    for(const invalid of [{...native,venue:"hyperliquid"},{...native,type:"market"},{...native,side:"buy"},{...native,symbol:"USDC/WETH"}])expect(tradeRequestSchema.safeParse(invalid).success).toBe(false);
+    expect(tradeRequestSchema.parse(action).nativeInput).toBeUndefined();
+  });
 });

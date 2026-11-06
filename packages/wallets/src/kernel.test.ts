@@ -35,4 +35,15 @@ describe("bounded Kernel swap policy", () => {
     expect(kernelGrantPolicySchema.safeParse({ ...policy, expiresAt: policy.issuedAt }).success).toBe(false);
     expect(kernelGrantPolicySchema.safeParse({ ...policy, expiresAt: policy.issuedAt + 86_400_001 }).success).toBe(false);
   });
+  it("allows only an explicitly opted-in, bounded WETH deposit without expanding router value",()=>{
+    const existing=buildKernelPolicies(policy)[0].policyParams;
+    if(existing.type!=="call")throw new Error("Missing call policy");
+    expect(existing.permissions?.every(permission=>permission.valueLimit===0n)).toBe(true);
+    const opted=buildKernelPolicies({...policy,nativeWrap:{weth:policy.swaps[0].tokenIn,maxAmountWei:"1000"}})[0].policyParams;
+    if(opted.type!=="call")throw new Error("Missing call policy");
+    expect(opted.permissions?.at(-1)).toMatchObject({target:policy.swaps[0].tokenIn,selector:"0xd0e30db0",valueLimit:1000n,rules:[]});
+    expect(opted.permissions?.slice(0,-1).every(permission=>permission.valueLimit===0n)).toBe(true);
+    expect(()=>buildKernelPolicies({...policy,nativeWrap:{weth:policy.swaps[0].tokenIn,maxAmountWei:"1001"}})).toThrow("approved WETH input band");
+    expect(()=>buildKernelPolicies({...policy,nativeWrap:{weth:policy.swaps[0].tokenOut,maxAmountWei:"1000"}})).toThrow("approved WETH input band");
+  });
 });

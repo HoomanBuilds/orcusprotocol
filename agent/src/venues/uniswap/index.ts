@@ -14,6 +14,7 @@ const routerAbi = parseAbi([
   "function multicall(uint256 deadline,bytes[] data) payable returns (bytes[] results)",
 ]);
 const quoterAbi = parseAbi(["function quoteExactInputSingle((address tokenIn,address tokenOut,uint256 amountIn,uint24 fee,uint160 sqrtPriceLimitX96)) returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)"]);
+const wethAbi = parseAbi(["function deposit() payable"]);
 
 function client() { return createPublicClient({ chain: sepolia, transport: http(engineConfig().uniswap.rpcUrl, { timeout: 15_000, retryCount: 1 }) }); }
 
@@ -57,6 +58,7 @@ async function quoteTokens(action: TradeRequest) {
   const outputDefault = action.side === "buy" ? baseToken : quoteToken;
   const tokenIn = getAddress(action.tokenIn ?? inputDefault);
   const tokenOut = getAddress(action.tokenOut ?? outputDefault);
+  if(action.nativeInput&&(!isAddressEqual(tokenIn,cfg.weth)||!isAddressEqual(tokenOut,cfg.usdc)))throw new EngineError("NATIVE_INPUT_PAIR_UNSUPPORTED","Native ETH input must wrap the verified WETH token and swap into USDC.");
   if (isAddressEqual(tokenIn, tokenOut)) throw new EngineError("SAME_TOKEN", "Choose two different swap assets.");
   const supported = [cfg.weth, cfg.usdc].map(a => a.toLowerCase());
   if (![tokenIn, tokenOut].every(a => supported.includes(a.toLowerCase()))) throw new EngineError("UNSUPPORTED_TOKEN", "This build supports verified Sepolia WETH and USDC for swaps.");
@@ -74,10 +76,13 @@ async function quoteTokens(action: TradeRequest) {
 export async function prepareUniswapAction(input: TradeRequest, account: TradingAccount): Promise<PreparedAction> {
   const action = tradeRequestSchema.parse(input);
   assertAccount(account);
+  if(action.nativeInput&&!account.smartAccountAddress)throw new EngineError("NATIVE_INPUT_ACCOUNT_REQUIRED","Atomic native ETH swaps require your smart trading account. Create and fund it, or wrap ETH separately before a WETH swap.");
   if (action.accountId !== account.id) throw new EngineError("ACCOUNT_MISMATCH", "The action does not belong to this trading account.");
   if (action.type !== "swap") throw new EngineError("UNSUPPORTED_ACTION", "Use a spot swap for Uniswap; perpetual orders belong to Hyperliquid.");
   const cfg = engineConfig().uniswap;
   const { rpc, tokenIn, tokenOut, inputDecimals, outputDecimals, amountIn } = await quoteTokens(action);
+  if(action.nativeInput&&inputDecimals!==18)throw new EngineError("NATIVE_WRAPPER_PRECISION","The verified native ETH wrapper must use 18 decimals.");
+  if(action.nativeInput&&await rpc.getBalance({address:getAddress(account.address)})<amountIn)throw new EngineError("INSUFFICIENT_NATIVE_BALANCE","The trading account does not have enough native Sepolia ETH for this exact wrap amount. Keep gas funds unless the operation is sponsored.",402);
   const fee = action.feeTier ?? 500;
   const [pool, routerCode, quoterCode] = await Promise.all([
     rpc.readContract({ address: cfg.factory, abi: factoryAbi, functionName: "getPool", args: [tokenIn, tokenOut, fee] }),
@@ -97,12 +102,13 @@ export async function prepareUniswapAction(input: TradeRequest, account: Trading
   const calldata = encodeFunctionData({ abi: routerAbi, functionName: "multicall", args: [BigInt(Math.floor(expiresAt / 1000)), [swapData]] });
   const allowance = await rpc.readContract({ address: tokenIn, abi: erc20Abi, functionName: "allowance", args: [getAddress(account.address), cfg.router] });
   const transactions: NonNullable<PreparedAction["transactions"]> = [];
+  if(action.nativeInput)transactions.push({to:tokenIn,data:encodeFunctionData({abi:wethAbi,functionName:"deposit"}),value:amountIn.toString(),chainId:cfg.chainId,label:`Wrap exactly ${action.amount} ETH into WETH`});
   if (allowance < amountIn) {
     if (allowance > 0n) transactions.push({ to: tokenIn, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [cfg.router, 0n] }), value: "0", chainId: cfg.chainId, label: "Reset existing token allowance" });
     transactions.push({ to: tokenIn, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [cfg.router, amountIn] }), value: "0", chainId: cfg.chainId, label: `Approve exactly ${action.amount} ${isAddressEqual(tokenIn, getAddress(cfg.weth)) ? "WETH" : "USDC"}` });
   }
   transactions.push({ to: cfg.router, data: calldata, value: "0", chainId: cfg.chainId, label: "Swap on Uniswap V3 with bounded output and deadline" });
-  return { id: randomUUID(), request: { ...action, tokenIn, tokenOut, tokenInDecimals: inputDecimals, tokenOutDecimals: outputDecimals, feeTier: fee }, account, kind: account.smartAccountAddress ? "user-operation" : "evm", transactions, quote: { amountIn: action.amount, amountOut: formatUnits(amountOut, outputDecimals), minimumOut: formatUnits(minimumOut, outputDecimals), fee: `${fee / 10_000}%`, observedAt: Date.now() }, expiresAt, controlRevision: account.controlRevision, warnings: ["Sepolia tokens have no monetary value. Testnet pool prices do not represent live market prices.", `Quoted gas estimate: ${gas.toString()} units.`, ...(account.smartAccountAddress ? [] : ["This is owner-only execution. Agent swaps require a funded, permissioned smart account."])] };
+  return { id: randomUUID(), request: { ...action, tokenIn, tokenOut, tokenInDecimals: inputDecimals, tokenOutDecimals: outputDecimals, feeTier: fee }, account, kind: account.smartAccountAddress ? "user-operation" : "evm", transactions, quote: { amountIn: action.amount, amountOut: formatUnits(amountOut, outputDecimals), minimumOut: formatUnits(minimumOut, outputDecimals), fee: `${fee / 10_000}%`, observedAt: Date.now() }, expiresAt, controlRevision: account.controlRevision, warnings: ["Sepolia tokens have no monetary value. Testnet pool prices do not represent live market prices.", `Quoted gas estimate: ${gas.toString()} units.`, ...(action.nativeInput?["Native ETH is wrapped and swapped in one atomic account batch. Output is USDC. Gas requires separate ETH unless sponsorship succeeds."]:[]), ...(account.smartAccountAddress ? [] : ["This is owner-only execution. Agent swaps require a funded, permissioned smart account."])] };
 }
 
 export async function getUniswapMarkets(): Promise<Market[]> {
@@ -115,6 +121,7 @@ export async function getUniswapMarkets(): Promise<Market[]> {
 
 const operationEventAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash,address indexed sender,address indexed paymaster,uint256 nonce,bool success,uint256 actualGasCost,uint256 actualGasUsed)"]);
 const transferEventAbi = parseAbi(["event Transfer(address indexed from,address indexed to,uint256 value)"]);
+const depositEventAbi = parseAbi(["event Deposit(address indexed dst,uint256 wad)"]);
 interface SettlementLog { address: string; data: Hex; topics: readonly Hex[] }
 export interface SwapReconciliationInput { transactionHash?: string; txHash?: string; userOperationHash?: string; prepared?: PreparedAction }
 
@@ -145,9 +152,12 @@ export function verifySwapSettlement(action: SwapReconciliationInput, account: T
   const input = getAddress(prepared.request.tokenIn), output = getAddress(prepared.request.tokenOut), owner = getAddress(account.address);
   const amountIn = decimalToAtoms(prepared.quote.amountIn, prepared.request.tokenInDecimals);
   const minimumOut = decimalToAtoms(prepared.quote.minimumOut, prepared.request.tokenOutDecimals);
-  let spent = 0n, received = 0n;
+  let spent = 0n, received = 0n,wrapped = 0n;
   for (const log of operationLogs) {
     if (!isAddressEqual(getAddress(log.address), input) && !isAddressEqual(getAddress(log.address), output)) continue;
+    if(prepared.request.nativeInput&&isAddressEqual(getAddress(log.address),input)){
+      try{const event=decodeEventLog({abi:depositEventAbi,data:log.data,topics:log.topics as[Hex,...Hex[]]});if(isAddressEqual(event.args.dst,owner))wrapped+=event.args.wad;}catch{}
+    }
     try {
       const event = decodeEventLog({ abi: transferEventAbi, data: log.data, topics: log.topics as [Hex, ...Hex[]] });
       if (isAddressEqual(getAddress(log.address), input) && isAddressEqual(event.args.from, owner)) spent += event.args.value;
@@ -155,6 +165,7 @@ export function verifySwapSettlement(action: SwapReconciliationInput, account: T
     } catch { continue; }
   }
   if (spent !== amountIn || received < minimumOut) throw new EngineError("SWAP_SETTLEMENT_NOT_VERIFIED", "The receipt does not prove the quoted input and protected output for this account.");
+  if(prepared.request.nativeInput&&(!account.smartAccountAddress||wrapped!==amountIn))throw new EngineError("NATIVE_WRAP_NOT_VERIFIED","The same account operation must prove the exact native ETH deposit as well as its protected swap output.");
   return true;
 }
 

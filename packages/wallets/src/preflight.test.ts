@@ -18,6 +18,12 @@ function prepared(amountIn = 1000n, amountOutMinimum = 900n): PreparedAction {
     transactions: [{ to: address("3"), value: "0", chainId: 11155111, data: encodeFunctionData({ abi: swapCallAbi, functionName: "multicall", args: [BigInt((now + 60_000) / 1000), [data]] }) }],
   };
 }
+function nativePrepared(){
+  const action=prepared();action.account.smartAccountAddress=action.account.address;
+  action.request={...action.request,symbol:"WETH/USDC",nativeInput:true,tokenInDecimals:18,amount:"0.000000000000001"};action.quote!.amountIn=action.request.amount;
+  action.transactions!.unshift({to:address("4"),value:"1000",chainId:11155111,data:encodeFunctionData({abi:swapCallAbi,functionName:"deposit"})});
+  return action;
+}
 
 describe("swap preflight", () => {
   it("accepts a quote inside its exact owner-approved size/output band", () => {
@@ -48,6 +54,24 @@ describe("swap preflight", () => {
   it("recognizes nested wallet rejection without treating RPC timeouts as rejection", () => {
     expect(isOwnerRejection({ cause: { code: 4001 } })).toBe(true);
     expect(isOwnerRejection(new Error("RPC timeout"))).toBe(false);
+  });
+  it("accepts atomic native input only under a separate explicit wrapping grant",()=>{
+    const action=nativePrepared();
+    expect(inspectPreparedSwap(action,now).amountIn).toBe(1000n);
+    expect(()=>assertKernelPolicyCompatible(action,policy,now)).toThrow("does not explicitly approve");
+    expect(assertKernelPolicyCompatible(action,{...policy,nativeWrap:{weth:address("4"),maxAmountWei:"1000"}},now).amountIn).toBe(1000n);
+    expect(()=>assertKernelPolicyCompatible(action,{...policy,nativeWrap:{weth:address("4"),maxAmountWei:"999"}},now)).toThrow("does not explicitly approve");
+  });
+  it("rejects native overspend, duplicate wraps, arbitrary destinations and value on router calls",()=>{
+    for(const mutate of [
+      (action:PreparedAction)=>{action.transactions![0].value="1001";},
+      (action:PreparedAction)=>{action.transactions![0].to=address("7");},
+      (action:PreparedAction)=>{action.transactions![0].data=`${action.transactions![0].data}00`;},
+      (action:PreparedAction)=>{action.transactions!.at(-1)!.value="1";},
+      (action:PreparedAction)=>{action.transactions!.unshift({...action.transactions![0]});},
+      (action:PreparedAction)=>{delete action.account.smartAccountAddress;},
+      (action:PreparedAction)=>{action.request.nativeInput=false;},
+    ]){const action=nativePrepared();mutate(action);expect(()=>inspectPreparedSwap(action,now)).toThrow();}
   });
 });
 

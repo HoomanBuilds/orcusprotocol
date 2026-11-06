@@ -18,6 +18,7 @@ export const kernelGrantPolicySchema = z.object({
   issuedAt: z.number().int().positive(),
   expiresAt: z.number().int().positive(),
   maxGasWei: atoms,
+  nativeWrap: z.object({weth:address,maxAmountWei:atoms}).strict().optional(),
 }).strict().refine(policy => policy.expiresAt > policy.issuedAt && policy.expiresAt - policy.issuedAt <= 86_400_000, "Permission must expire within 24 hours");
 export type KernelGrantPolicy = z.infer<typeof kernelGrantPolicySchema>;
 export interface KernelAuthorization { approval: string; policy: KernelGrantPolicy }
@@ -59,6 +60,10 @@ export function buildKernelPolicies(input: KernelGrantPolicy) {
       },
     ];
   });
+  if(policy.nativeWrap){
+    if(!policy.swaps.some(swap=>getAddress(swap.tokenIn)===getAddress(policy.nativeWrap!.weth)&&BigInt(swap.maxAmountIn)>=BigInt(policy.nativeWrap!.maxAmountWei)))throw new Error("The native wrapping cap must fit an approved WETH input band.");
+    permissions.push({target:getAddress(policy.nativeWrap.weth),selector:toFunctionSelector("deposit()"),valueLimit:BigInt(policy.nativeWrap.maxAmountWei),rules:[]});
+  }
   return [
     toCallPolicy({ policyVersion: CallPolicyVersion.V0_0_4, permissions }),
     toTimestampPolicy({ validAfter: Math.floor(policy.issuedAt / 1000), validUntil: Math.floor(policy.expiresAt / 1000) }),

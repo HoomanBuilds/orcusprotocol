@@ -21,11 +21,14 @@ export const tradeRequestSchema = z.object({
   tokenInDecimals: z.number().int().min(0).max(36).optional(),
   tokenOutDecimals: z.number().int().min(0).max(36).optional(),
   feeTier: z.union([z.literal(100), z.literal(500), z.literal(3000), z.literal(10000)]).optional(),
+  nativeInput: z.boolean().optional(),
   orderId: z.string().max(100).optional(),
   reduceOnly: z.boolean().default(false),
   leverage: z.number().int().min(1).max(20).optional(),
   mode: z.enum(["manual", "agent"]).default("manual"),
-}).strict();
+}).strict().superRefine((value,context)=>{
+  if(value.nativeInput&&(value.venue!=="uniswap"||value.type!=="swap"||value.side!=="sell"||value.symbol.toUpperCase()!=="WETH/USDC"))context.addIssue({code:"custom",message:"Native ETH input supports only selling ETH into the WETH/USDC spot pool. Buying returns WETH, not native ETH.",path:["nativeInput"]});
+});
 export type TradeRequest = z.infer<typeof tradeRequestSchema>;
 export type ActionInput = TradeRequest;
 

@@ -151,7 +151,7 @@ export async function executePreparedAction(prepared: PreparedAction): Promise<{
   inspectPreparedSwap(prepared);
   const kernel = await ownerKernel(await browserKernelConfig(), owner);
   if (getAddress(kernel.account.address) !== getAddress(prepared.account.address)) throw new Error("The prepared trading account does not belong to this wallet.");
-  const calls = prepared.transactions!.map(tx => ({ to: getAddress(tx.to), data: tx.data as Hex, value: 0n }));
+  const calls = prepared.transactions!.map(tx => ({ to: getAddress(tx.to), data: tx.data as Hex, value: BigInt(tx.value) }));
   const result = await sendOwnerOperation(kernel, calls, async () => { inspectPreparedSwap(prepared); await accountControl(prepared.account, prepared.controlRevision); await assertOwner(owner, sepolia); }, evidence => recordSubmission(prepared.id, evidence));
   if (result.status === "rejected") throw new WalletActionError("SWAP_REVERTED", "The swap reverted onchain. Check activity before retrying.", "reverted", result);
   return { ...result, response: { userOperationHash: result.userOperationHash } };

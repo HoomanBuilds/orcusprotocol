@@ -153,7 +153,7 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     }
     if (path === "permissions" && method === "GET") return json({ data: { permissions: platform.agentState(user).permissions } });
     if (path === "permissions" && method === "POST") {
-      const input = z.object({ accountId: z.string().min(1).max(100), action: z.enum(["prepare", "activate", "revoke", "rotate"]), permissionId:z.string().min(1).max(100).optional(),expiresAt: z.number().int().optional(), maxTradeUsd: decimal.optional(), allowedSymbols: z.array(z.string().max(50)).max(30).optional(), allowedActions: z.array(actionTypes).max(10).optional(), authorization: z.unknown().optional() }).strict().parse(await readBody(request));
+      const input = z.object({ accountId: z.string().min(1).max(100), action: z.enum(["prepare", "activate", "revoke", "rotate"]), permissionId:z.string().min(1).max(100).optional(),expiresAt: z.number().int().optional(), maxTradeUsd: decimal.optional(), allowNativeInput:z.boolean().optional(),allowedSymbols: z.array(z.string().max(50)).max(30).optional(), allowedActions: z.array(actionTypes).max(10).optional(), authorization: z.unknown().optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.permission(user, input) });
     }
     if (path === "automations" && method === "GET") return json({ data: platform.automations(user) });

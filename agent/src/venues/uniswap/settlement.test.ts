@@ -8,6 +8,7 @@ const account: TradingAccount = { id: "account", userId: "user", venue: "uniswap
 const input = "0x3333333333333333333333333333333333333333", output = "0x4444444444444444444444444444444444444444", pool = "0x5555555555555555555555555555555555555555";
 const prepared: PreparedAction = { id: "action", account, request: { accountId: account.id, venue: "uniswap", type: "swap", symbol: "WETH/USDC", side: "buy", amount: "10", slippageBps: 50, reduceOnly: false, mode: "agent", tokenIn: input, tokenOut: output, tokenInDecimals: 6, tokenOutDecimals: 18 }, kind: "user-operation", expiresAt: Date.now() + 60_000, controlRevision: 1, quote: { amountIn: "10", amountOut: "0.01", minimumOut: "0.009", observedAt: Date.now() } };
 const transferAbi = parseAbi(["event Transfer(address indexed from,address indexed to,uint256 value)"]);
+const depositAbi = parseAbi(["event Deposit(address indexed dst,uint256 wad)"]);
 const operationAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash,address indexed sender,address indexed paymaster,uint256 nonce,bool success,uint256 actualGasCost,uint256 actualGasUsed)"]);
 const userOperationHash = keccak256(toHex("unit-test-operation"));
 const transaction = { from: pool, to: entryPoint.address, input: "0x" as Hex };
@@ -27,5 +28,14 @@ describe("smart-account swap settlement", () => {
   it("does not count transfers from an earlier bundled operation", () => {
     expect(() => verifySwapSettlement({ prepared }, account, transaction, [...swaps, operation(pool), operation(account.address as Hex)])).toThrow("does not prove");
     expect(() => verifySwapSettlement({ prepared }, account, transaction, [operation(account.address as Hex)])).toThrow("does not prove");
+  });
+  it("proves native ETH deposit and swap transfers in the same successful account operation",()=>{
+    const native={...prepared,request:{...prepared.request,side:"sell"as const,nativeInput:true,tokenInDecimals:18,tokenOutDecimals:6,amount:"0.001"},quote:{amountIn:"0.001",amountOut:"2",minimumOut:"1.99",observedAt:Date.now()}};
+    const deposit={address:input,topics:encodeEventTopics({abi:depositAbi,eventName:"Deposit",args:{dst:account.address as Hex}})as Hex[],data:encodeAbiParameters([{type:"uint256"}],[1_000_000_000_000_000n])};
+    const nativeSwaps=[transfer(input,account.address as Hex,pool,1_000_000_000_000_000n),transfer(output,pool,account.address as Hex,2_000_000n)],end=operation(account.address as Hex);
+    expect(verifySwapSettlement({prepared:native},account,transaction,[deposit,...nativeSwaps,end])).toBe(true);
+    expect(()=>verifySwapSettlement({prepared:native},account,transaction,[...nativeSwaps,end])).toThrow("exact native ETH deposit");
+    expect(()=>verifySwapSettlement({prepared:native},account,transaction,[deposit,deposit,...nativeSwaps,end])).toThrow("exact native ETH deposit");
+    expect(()=>verifySwapSettlement({prepared:native},account,transaction,[deposit,operation(pool),...nativeSwaps,end])).toThrow("exact native ETH deposit");
   });
 });
