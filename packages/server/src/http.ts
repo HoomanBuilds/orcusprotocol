@@ -9,6 +9,7 @@ import { getStore, type Store } from "./store";
 import { listGasSponsorship, noteSponsoredBroadcast, reconcileGasSponsorship, settleSponsoredReceipt, sponsorKernelOperation, sponsoredOperationHash, sponsorshipSummary, validateSponsoredBroadcast } from "./sponsorship";
 import { entryPoint } from "@orcus/wallets/kernel";
 import { gasSponsorConfig } from "./sponsorship-config";
+import { cancelServicePayment, createServicePayment, reconcileServicePayment, recordServicePaymentSubmission, servicePaymentSummary } from "./service-payments";
 
 const COOKIE = "orcus_session";
 const address = z.string().regex(/^0x[\da-fA-F]{40}$/);
@@ -189,6 +190,12 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if (path === "budget" && method === "POST") {
       const input = z.object({ limitUsd: decimal.optional(), capUsd: decimal.optional(), lowBalanceUsd: decimal.optional(), autoReplenish: z.boolean().optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.setBudget(user, input) });
+    }
+    if (path === "budget/payments" && method === "GET") return json({ data: servicePaymentSummary(store, user) });
+    if (path === "budget/payments/intent" && method === "POST") return json({ data: await createServicePayment(store, user, await readBody(request)) }, 201);
+    if (["budget/payments/submit", "budget/payments/reconcile", "budget/payments/cancel"].includes(path) && method === "POST") {
+      const input = z.object({ intentId: z.string().min(1).max(100), transactionHash: z.string().regex(/^0x[\da-fA-F]{64}$/).optional() }).strict().parse(await readBody(request));
+      return json({ data: path.endsWith("/submit") ? recordServicePaymentSubmission(store, user, input.intentId, input.transactionHash) : path.endsWith("/reconcile") ? await reconcileServicePayment(store, user, input.intentId, input.transactionHash) : cancelServicePayment(store, user, input.intentId) });
     }
     if(path==="budget/funding"&&method==="GET")return json({data:platform.computeFunding(user)});
     if(path==="budget/funding/policy"&&method==="POST")return json({data:await platform.setComputeFunding(user,await readBody(request))});

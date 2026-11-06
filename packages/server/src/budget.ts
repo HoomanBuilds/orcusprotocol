@@ -2,6 +2,7 @@ import type { OperatingBudget } from "@orcus/core";
 import { ApiError } from "./errors";
 import { id, type Store } from "./store";
 import { parseRouterBilling } from "@orcus/engine/budget";
+import { reserveServiceCredits, settleServiceCredits } from "./service-credits";
 
 export function micros(value:string):number {
   if (!/^(?:0|[1-9]\d{0,5})(?:\.\d{1,6})?$/.test(value)) throw new ApiError("INVALID_AMOUNT","Use a non-negative USD amount with at most six decimal places.");
@@ -28,18 +29,21 @@ export function reserveBudget(store:Store,userId:string,reference:string,amountU
   return store.db.transaction(()=>{
     if(store.db.prepare("SELECT id FROM expenses WHERE user_id=? AND reference=?").get(userId,reference))return false;
     const amount=micros(amountUsd);
+    reserveServiceCredits(store,userId,reference,amount);
     const result=store.db.prepare("UPDATE budgets SET reserved_micros=reserved_micros+? WHERE user_id=? AND cap_micros-spent_micros-reserved_micros>=?").run(amount,userId,amount);
     if(result.changes!==1)throw new ApiError("INSUFFICIENT_BUDGET","Agent operating budget exhausted. Set an authorized cap or reconcile pending requests.",402);
     store.db.prepare("INSERT INTO expenses(id,user_id,reference,kind,amount_micros,status,created_at) VALUES(?,?,?,?,?,?,?)").run(id(),userId,reference,"compute-reservation",amount,"reserved",Date.now());
     return true;
-  })();
+  }).immediate();
 }
 export function settleReservation(store:Store,userId:string,reference:string,status:"released"|"unknown"|"settled",evidence?:unknown,actualUsd?:string) {
   store.db.transaction(()=>{
     const row=store.db.prepare("SELECT * FROM expenses WHERE user_id=? AND reference=?").get(userId,reference) as {amount_micros:number;status:string}|undefined;
     if(!row||!["reserved","unknown"].includes(row.status))return;
-    if(status==="unknown"){store.db.prepare("UPDATE expenses SET status=?,evidence=? WHERE user_id=? AND reference=?").run(status,JSON.stringify(evidence??null),userId,reference);return;}
+    if(status==="unknown"){settleServiceCredits(store,userId,reference,"unknown",0);store.db.prepare("UPDATE expenses SET status=?,evidence=? WHERE user_id=? AND reference=?").run(status,JSON.stringify(evidence??null),userId,reference);return;}
     const charge=status==="settled"&&actualUsd!==undefined?micros(actualUsd):0;
+    if(charge>row.amount_micros){settleServiceCredits(store,userId,reference,"unknown",0);store.db.prepare("UPDATE expenses SET status='unknown',evidence=? WHERE user_id=? AND reference=?").run(JSON.stringify({billingStatus:"exceeds-reservation",evidence}),userId,reference);return;}
+    settleServiceCredits(store,userId,reference,status,charge);
     store.db.prepare("UPDATE budgets SET reserved_micros=MAX(0,reserved_micros-?),spent_micros=spent_micros+? WHERE user_id=?").run(row.amount_micros,charge,userId);
     store.db.prepare("UPDATE expenses SET status=?,amount_micros=?,evidence=? WHERE user_id=? AND reference=?").run(status,charge,JSON.stringify(evidence??null),userId,reference);
   })();

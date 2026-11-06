@@ -1,0 +1,58 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createPublicClient, createWalletClient, getAddress, http, parseAbi } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { sepolia } from "viem/chains";
+import { engineConfig } from "../agent/src/config";
+import { Store } from "../packages/server/src/store";
+import { createServicePayment, reconcileServicePayment, recordServicePaymentSubmission, servicePaymentSummary, type ServicePaymentIntent } from "../packages/server/src/service-payments";
+import { reserveBudget, setBudget, settleReservation } from "../packages/server/src/budget";
+import { withSepoliaFork } from "./lib/sepolia-fork";
+
+process.env.ORCUS_FORK_BLOCK ??= "12075053";
+await withSepoliaFork(async ({ rpcUrl, rpc }) => {
+  process.env.SEPOLIA_RPC_URL = rpcUrl;
+  process.env.ORCUS_SERVICE_PAYMENT_MODE = "testnet";
+  const owner = privateKeyToAccount(generatePrivateKey()), treasury = privateKeyToAccount(generatePrivateKey());
+  process.env.ORCUS_SERVICE_PAYMENT_TREASURY = treasury.address;
+  const client = createPublicClient({ chain: sepolia, transport: http(rpcUrl) }), wallet = createWalletClient({ account: owner, chain: sepolia, transport: http(rpcUrl) });
+  const token = getAddress(engineConfig().uniswap.usdc), abi = parseAbi(["function masterMinter() view returns(address)", "function configureMinter(address minter,uint256 minterAllowedAmount) returns(bool)", "function mint(address to,uint256 amount) returns(bool)", "function transfer(address to,uint256 amount) returns(bool)"]);
+  const minter = await client.readContract({ address: token, abi, functionName: "masterMinter" });
+  await rpc("anvil_impersonateAccount", [minter]);
+  await rpc("anvil_setBalance", [minter, "0xde0b6b3a7640000"]);
+  await rpc("anvil_setBalance", [owner.address, "0xde0b6b3a7640000"]);
+  const minterWallet = createWalletClient({ account: minter, chain: sepolia, transport: http(rpcUrl) });
+  await client.waitForTransactionReceipt({ hash: await minterWallet.writeContract({ address: token, abi, functionName: "configureMinter", args: [owner.address, 2_000_000n] }) });
+  await client.waitForTransactionReceipt({ hash: await wallet.writeContract({ address: token, abi, functionName: "mint", args: [owner.address, 2_000_000n] }) });
+  await rpc("anvil_stopImpersonatingAccount", [minter]);
+  await rpc("evm_setNextBlockTimestamp", [Math.max(Number((await client.getBlock()).timestamp) + 1, Math.floor(Date.now() / 1000))]);
+  await rpc("evm_mine");
+  const directory = mkdtempSync(join(tmpdir(), "orcus-payment-fork-")), path = join(directory, "payments.sqlite");
+  let store = new Store(path);
+  try {
+    const user = store.ensureUser(owner.address), intent = await createServicePayment(store, user, { amountUsd: "1", requestId: "fork-owner-approved-payment" });
+    setBudget(store, user.id, "1", "0.1", false);
+    assert.throws(() => reserveBudget(store, user.id, "before-payment", "0.01"), /credits are too low/);
+    recordServicePaymentSubmission(store, user, intent.id);
+    const transactionHash = await wallet.writeContract({ address: token, abi, functionName: "transfer", args: [treasury.address, 1_000_000n] });
+    recordServicePaymentSubmission(store, user, intent.id, transactionHash);
+    await client.waitForTransactionReceipt({ hash: transactionHash });
+    await rpc("evm_mine");
+    assert.equal((await reconcileServicePayment(store, user, intent.id)).status, "credited");
+    assert.equal(servicePaymentSummary(store, user).credits.remainingUsd, "1.000000");
+    assert.equal(reserveBudget(store, user.id, "one-model-call", "0.1"), true);
+    settleReservation(store, user.id, "one-model-call", "unknown");
+    assert.equal(servicePaymentSummary(store, user).credits.reservedUsd, "0.100000");
+    store.db.close(); store = new Store(path);
+    assert.equal((await reconcileServicePayment(store, user, intent.id)).status, "credited");
+    settleReservation(store, user.id, "one-model-call", "settled", { source: "isolated-test-provider-billing", requestId: "fork-model-fixture" }, "0.02");
+    settleReservation(store, user.id, "one-model-call", "settled", { source: "duplicate-fixture" }, "0.02");
+    const balance = servicePaymentSummary(store, user).credits;
+    assert.deepEqual(balance, { paidUsd: "1.000000", spentUsd: "0.020000", reservedUsd: "0.000000", releasedUsd: "0.080000", remainingUsd: "0.980000", refundedUsd: "0.000000" });
+    store.put("service-payment", { ...intent, id: "fork-duplicate-proof", status: "prepared" } satisfies ServicePaymentIntent);
+    await assert.rejects(reconcileServicePayment(store, user, "fork-duplicate-proof", transactionHash), /already granted credits/);
+    console.log(JSON.stringify({ scope: "isolated-sepolia-fork", testOnly: true, publicNetworkWrites: 0, protocolDeployments: 0, actualForkedCircleUSDCTransfer: true, transactionHash, verified: ["exact successful USDC transfer with two confirmations", "unpaid credit refusal", "one-time receipt credit", "reserved unknown compute billing", "expense settlement and unused reservation release", "restart-safe payment and expense idempotency", "global payment-event replay rejection"], credits: balance, notProven: ["public wallet payment", "actual paid inference attached to this fixture", "real service revenue", "mainnet collection"] }, null, 2));
+  } finally { store.db.close(); rmSync(directory, { recursive: true, force: true }); }
+});
