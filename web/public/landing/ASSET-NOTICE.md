@@ -5,7 +5,7 @@ Orcus is an independent project and is not affiliated with Suzi or SendAI.
 
 ## Original garden hero
 
-The active hero uses `garden-hero-v1.webm` (VP9), `garden-hero-v1.mp4`
+The previous generated option, retained for rollback, uses `garden-hero-v1.webm` (VP9), `garden-hero-v1.mp4`
 (H.264 fallback), and `garden-hero-v1-poster.webp`. Both video exports are
 1920 x 1080, 24 fps, 240 frames, and ten seconds long. The WebP is an unchanged
 1920 x 1080 still from the exported poster, encoded locally with libwebp at
@@ -120,3 +120,21 @@ substituted.
 
 `../workspace/orcus.svg` is the workspace pink variant of this project's own
 existing Orcus icon. It does not modify the public landing's original assets.
+
+## Tethra preview hero
+
+The active comparison hero is `tethra-hero-v1.mp4`, copied byte-for-byte at the
+user's request from the local Tethra project's `web/public/bg-hero.mp4`, referenced
+by its `web/components/landing/hero-section.tsx`. Only that media is reused, not
+Tethra's branding, text, interface or runtime code. The clip's original creator
+and redistribution license have not been independently verified. This local
+reuse does not claim Orcus ownership or grant a new license; resolve permission
+before public release.
+
+The 3,313,698-byte clip is H.264, 1920 x 1080, 24 fps, 192 frames and eight seconds.
+Its existing AAC audio is retained unchanged, but playback is always muted.
+SHA-256: `1ab42316c6f6caf1c5e9a81a343ee8715a2938f4cc4f5e6051c7e9228109ac78`.
+`tethra-hero-v1-poster.webp` is its first frame, encoded at the original
+1920 x 1080 dimensions with libwebp quality 82 and compression level 6. No
+unprovided WebM alternative is implied. The garden exports and earlier reference
+media remain separate inactive rollback options with their own provenance above.
