@@ -93,7 +93,7 @@ try {
     const uniswap = await geometry();
     assert.equal(uniswap.chart, null); assert.equal(uniswap.overflow, false); assert.ok(uniswap.depth.height > 0);
     await screenshot(`${viewport.name}-uniswap`);
-    await rpc("Page.navigate", { url: origin.href }); await until("document.querySelector('h1')?.textContent==='Overview'");
+    await rpc("Page.navigate", { url: new URL("/overview", origin).href }); await until("document.querySelector('h1')?.textContent==='Overview'");
     const overview = await geometry(); assert.equal(overview.overflow, false); assert.equal(overview.brandImage, false);
     await screenshot(`${viewport.name}-overview`);
     results.push({ viewport, hyperliquid, uniswap, overview });
