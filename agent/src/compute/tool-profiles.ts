@@ -1,8 +1,8 @@
 import { EngineError } from "../errors";
 
-const readTools = ["read_markets", "read_portfolio", "analyze_market", "search_memory"] as const;
+const readTools = ["read_markets", "read_portfolio", "analyze_market", "read_market_context", "search_memory"] as const;
 const profileTools = {
-  interactive: [...readTools, "remember_preference", "forget_memory", "propose_action", "propose_automation"],
+  interactive: [...readTools, "search_research", "remember_preference", "forget_memory", "propose_action", "propose_automation"],
   strategy: [...readTools, "propose_action"],
 } as const;
 

@@ -127,10 +127,10 @@ describe("personal LangGraph agent", () => {
     expect(reply.toolTrace[0]?.ok).toBe(true);
   });
   it("proposes a typed scheduled trade without executing or creating a job", async () => {
-    const scheduled = { kind: "trade", accountId: account.id, name: "Hourly ETH", intervalSeconds: 3600, request: { ...proposal, type: "market", side: "buy", reduceOnly: false } };
+    const scheduled = { kind: "trade", accountId: account.id, name: "Hourly ETH", intervalSeconds: 3600, executionMode: "recurring", maxExecutions: 5, request: { ...proposal, type: "market", side: "buy", reduceOnly: false } };
     const provider = fakeProvider([{ type: "tool", name: "propose_automation", arguments: { automation: scheduled } }, final]);
     const memory = personalMemory("agent:user-a", "Use conservative amounts.");
-    const reply = await planWith0G("Buy 0.01 ETH every hour until my authorization expires.", { account, accounts: [account], ...memory });
+    const reply = await planWith0G("Buy 0.01 ETH every hour five times, within my authorization expiry.", { account, accounts: [account], ...memory });
     expect(reply.automationProposal).toMatchObject(scheduled);
     expect(reply.automationProposal?.expiresAt).toBeUndefined();
     expect(reply.proposal).toBeUndefined();
@@ -149,6 +149,25 @@ describe("personal LangGraph agent", () => {
     expect(reply.automationProposal?.expiresAt).toBeGreaterThanOrEqual(started + 86_400_000);
     expect(reply.automationProposal).not.toHaveProperty("request");
     expect(reply.proposal).toBeUndefined();
+  });
+  it("permits a reviewed native Ostium alert draft without activating or trading", async () => {
+    const ostium = { ...account, venue: "ostium" as const, id: "ostium-account" };
+    const draft = { kind: "alert", accountId: ostium.id, name: "Gold alert", executionMode: "once", maxExecutions: 1, condition: { symbol: "XAU/USD", operator: "above", price: "4000" } };
+    const tool = buildAgentTools({ account: ostium, accounts: [ostium] }, "Alert once when gold is above 4000.").get("propose_automation")!;
+    await expect(tool.run({ automation: draft })).resolves.toMatchObject({ created: false, executable: false, automationProposal: draft });
+  });
+  it("does not publish unobserved prices even when the model labels them general", async () => {
+    fakeProvider([{ type: "final", message: "ETH is 9000.", basis: "general", requiresClarification: false }]);
+    const reply = await planWith0G("What is the current ETH price?", { account });
+    expect(reply.requiresClarification).toBe(true);
+    expect(reply.message).not.toContain("9000");
+    expect(reply.proposal).toBeUndefined();
+  });
+  it("preserves a greeting without pretending live research occurred", async () => {
+    fakeProvider([{ type: "final", message: "Hello. How can I help?", basis: "general", requiresClarification: false }]);
+    const reply = await planWith0G("Hello", {});
+    expect(reply.message).toContain("Hello");
+    expect(reply.requiresClarification).toBe(false);
   });
   it.each([
     { kind: "trade", accountId: "other-account", name: "Wrong owner", intervalSeconds: 300, request: proposal },
