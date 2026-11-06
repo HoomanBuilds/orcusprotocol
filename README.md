@@ -133,6 +133,8 @@ The separately approved testnet-write mode additionally requires `--allow-testne
 
 The November 6 approved test passed with a 19.84522 mock-USDC position and 0.017865 mock-USDC total fees. It ended flat with no open orders, revoked only the fresh test agent and retained the existing named agent. See the [dated execution evidence](docs/research/verification-2026-11-06.md). Browser extension interaction and mainnet execution are not claimed by this SDK-based proof.
 
+For functional browser acceptance, start a separate local app with an isolated `ORCUS_DATA_DIR` and no inference credentials, then run `npm run verify:browser -- http://localhost:3124`. The verifier requires Chromium (or `CHROMIUM_PATH`) and a loopback URL. It uses disposable injected-wallet signing against the actual local HTTP/SQLite implementation, checks rejection, account-role separation, pause/resume, expired automation and owner-switch races, and permits no trade signatures or inference calls. It is not a real extension, funded-trading or deployment certification.
+
 Use `ORCUS_VERIFY_APP_URL=http://localhost:3100` when the app runs on another port. This creates an unfunded synthetic owner, verifies inference, saved preferences, request IDs and settled billing, and never submits trades. The generated test owner has no retained signing key; its test records remain in local application data.
 
 `doctor` checks configuration and performs read-only market requests. It does not submit transactions, upload storage objects or spend inference credits. An installed SDK or configured endpoint is not evidence of live authorization or successful execution.

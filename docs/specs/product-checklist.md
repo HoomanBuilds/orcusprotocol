@@ -29,10 +29,10 @@ The low-friction trading pass adds shared manual/agent gas sponsorship, an authe
 
 ## 1. Wallet connection and personal agent
 
-- [ ] `C1.1` Connect the user's wallet and load supported balances, positions and orders. Never request a seed phrase or private key.
+- [x] `C1.1` Connect the user's wallet and load supported balances, positions and orders. Never request a seed phrase or private key. Local Chromium acceptance verified signed HTTP login, actual owned account registration and supported live public account reads with a disposable injected wallet; real-extension behavior remains separate.
 - [x] `C1.2` Create a personal agent with its own preferences, memory and separate signing credentials. Do not reuse one execution key across users.
 - [x] `C1.3` Create an agent operating wallet with a limited expense budget, separate from trading capital.
-- [ ] `C1.4` Show the owner wallet, trading accounts and operating wallet distinctly. One dashboard does not imply one shared address across every venue.
+- [x] `C1.4` Show the owner wallet, trading accounts and operating wallet distinctly. One dashboard does not imply one shared address across every venue. Component and actual local-browser checks verify all three labels, including the venue account sharing its owner's address honestly.
 
 ## 2. User ownership and agent authorization
 
@@ -59,7 +59,7 @@ The low-friction trading pass adds shared manual/agent gas sponsorship, an authe
 - [ ] `C4.3` Support both approval-required actions and autonomous execution within explicitly granted permissions.
 - [x] `C4.4` Let the agent manage manually opened positions in an authorized account, including supported positions opened outside our interface. The live testnet proof opened once with the owner signer; the native agent placed protective orders and closed that exact account's position.
 - [x] `C4.5` Let users manually manage positions opened by the agent. Do not create separate user-only and agent-only portfolios.
-- [ ] `C4.6` Require clarification or confirmation for ambiguous instructions such as "close it" when multiple positions could match.
+- [x] `C4.6` Require clarification or confirmation for ambiguous instructions such as "close it" when multiple positions could match. The proposal tool requires exactly one explicit instrument token; substring collisions such as "whether"/ETH, multiple named positions and mismatched targets are rejected in regression fixtures.
 
 ## 5. Shared execution and safe handoff
 
@@ -74,7 +74,7 @@ The low-friction trading pass adds shared manual/agent gas sponsorship, an authe
 ## 6. Background automation
 
 - [ ] `C6.1` Run a durable worker and actual CRE workflow for conditional monitoring, scheduled purchases, alerts and approved strategies. The worker schedules bounded simulations and reconciles execution; automation must not depend on the browser remaining open.
-- [ ] `C6.2` Show active, paused, expired, insufficient-budget and failed states for each automation.
+- [x] `C6.2` Show active, paused, expired, insufficient-budget and failed states for each automation. Local browser acceptance verifies expired resume is disabled and rejected by the actual API; state fixtures cover owner pause, budget and safe runner-error recovery without exposing provider details.
 - [ ] `C6.3` Define the caller, gas payer and retry policy for each execution. Avoid duplicate trades after a restart or timeout.
 - [ ] `C6.4` Pause unsafe new actions on stale data, expired authorization or unavailable dependencies. Preserve manual controls and previously placed protective orders where the venue permits.
 
