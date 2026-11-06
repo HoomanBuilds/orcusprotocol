@@ -5,7 +5,7 @@ import type { AgentToolProfile } from "./tool-profiles";
 import type { PrivateInferenceEvidence, PrivateVerification } from "./privacy";
 
 export interface ModelUsage { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
-export interface ModelEvidence { callId: string; requestId?: string; responseId?: string; providerAddress?: string; usage?: ModelUsage; billing?: unknown; privacy?: PrivateInferenceEvidence; receivedAt: number }
+export interface ModelEvidence { callId: string; modelId?: string; requestId?: string; responseId?: string; providerAddress?: string; usage?: ModelUsage; billing?: unknown; privacy?: PrivateInferenceEvidence; receivedAt: number }
 export interface AgentMemoryNote { id: string; kind: string; content: string; importance: number; source: string; createdAt: number; updatedAt: number; lastAccessedAt?: number }
 export interface MemoryStore {
   search(query: string, limit?: number): Promise<AgentMemoryNote[]>;
@@ -15,6 +15,7 @@ export interface MemoryStore {
 export interface ToolTrace { name: string; arguments: unknown; result: unknown; ok: boolean; observedAt: number; requestId?: string }
 export interface AgentMessage { role: "user" | "assistant"; content: string }
 export interface AgentCheckpoint {
+  modelId?: string;
   version: 1;
   threadId: string;
   runId: string;
@@ -37,6 +38,7 @@ export interface AgentCheckpoint {
   updatedAt: number;
 }
 export interface AgentContext extends PlannerContext {
+  modelId?: string;
   privateVerification?: PrivateVerification;
   toolProfile?: AgentToolProfile;
   threadId?: string;
@@ -56,6 +58,7 @@ export interface AgentContext extends PlannerContext {
   onProgress?(event: { stage: "recall" | "thinking" | "tool" | "completed" | "failed" | "budget-stop"; tool?: string; message?: string; modelCalls?: number; toolCalls?: number }): Promise<void>;
 }
 export interface PlannerReply {
+  modelId?: string;
   message: string;
   proposal?: TradeRequest;
   automationProposal?: AutomationProposal;

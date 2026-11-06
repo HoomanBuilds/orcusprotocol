@@ -9,6 +9,7 @@ export { planWith0G, getComputeBalance } from "./compute";
 export { uploadMemory, downloadMemory, encryptMemory, decryptMemory, reconcileStorageExpense } from "./storage";
 export { evaluateStrategy, parseCreOutput } from "./automation/cre";
 export { engineConfig } from "./config";
+export { getAgentModels, validateAgentModel, permittedAgentModel } from "./compute/models";
 export { EngineError } from "./errors";
 export { submitComputeFunding, reconcileComputeFunding, readComputeVaultBalance } from "./budget";
 export type { AccountPortfolio, SubmissionResult, PlannerContext } from "./types";

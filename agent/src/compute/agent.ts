@@ -12,13 +12,14 @@ import { invokeProfileTool, resolveToolProfile } from "./tool-profiles";
 import { rejectCredentialMaterial } from "./input-guard";
 import { createPrivateInferenceSession } from "./privacy";
 import { compactToolObservation, groundFinalAnswer } from "./grounding";
+import { validateAgentModel } from "./models";
 import type { AgentCheckpoint, AgentContext, AgentMessage, ModelEvidence, ModelUsage, PlannerReply, ToolTrace } from "./types";
 
 const decisionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tool"), name: z.string().min(1).max(60), arguments: z.record(z.string(), z.unknown()) }).strict(),
   z.object({ type: z.literal("final"), message: z.string().min(1).max(12_000), requiresClarification: z.boolean().default(false), basis: z.enum(["observed", "general"]).default("observed"), sourceIds: z.array(z.string().min(1).max(80)).max(5).optional() }).strict(),
 ]);
-const evidenceSchema = z.object({ callId: z.string(), requestId: z.string().optional(), responseId: z.string().optional(), providerAddress: z.string().optional(), billing: z.unknown().optional(), privacy: z.unknown().optional(), usage: z.object({ prompt_tokens: z.number().optional(), completion_tokens: z.number().optional(), total_tokens: z.number().optional() }).optional(), receivedAt: z.number() });
+const evidenceSchema = z.object({ callId: z.string(), modelId: z.string().optional(), requestId: z.string().optional(), responseId: z.string().optional(), providerAddress: z.string().optional(), billing: z.unknown().optional(), privacy: z.unknown().optional(), usage: z.object({ prompt_tokens: z.number().optional(), completion_tokens: z.number().optional(), total_tokens: z.number().optional() }).optional(), receivedAt: z.number() });
 const State = new StateSchema({
   messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() })),
   decision: decisionSchema.nullable(),
@@ -54,7 +55,7 @@ export async function runPersonalAgent(message: string, context: AgentContext = 
   const cfg = engineConfig().compute;
   const url = requireConfigured(cfg.url, "ZEROG_COMPUTE_CHAT_URL or ZEROG_COMPUTE_BASE_URL");
   const apiKey = requireConfigured(cfg.apiKey, "ZEROG_COMPUTE_API_KEY");
-  const model = requireConfigured(cfg.model, "ZEROG_COMPUTE_MODEL");
+  const model = await validateAgentModel(context.modelId ?? requireConfigured(cfg.model, "ZEROG_COMPUTE_MODEL"));
   const privateSession = context.requirePrivate ? await createPrivateInferenceSession({ url, model, verification: context.privateVerification ?? "independent-gateway", verifierPath: process.env.ZEROG_PRIVATE_VERIFIER_PATH, appComposePath: process.env.ZEROG_PRIVATE_APP_COMPOSE_PATH, expectedComposePath: process.env.ZEROG_PRIVATE_EXPECTED_COMPOSE_PATH, expectedNetwork: process.env.ZEROG_PRIVATE_NETWORK === "testnet" ? "testnet" : "mainnet" }) : undefined;
   const privacyPolicy = privateSession?.verification ?? "public";
   const accounts = context.accounts ?? (context.account ? [context.account] : []);
@@ -67,6 +68,7 @@ export async function runPersonalAgent(message: string, context: AgentContext = 
   const maxTotalTokens = boundedNumber(context.maxTotalTokens, toolProfile === "interactive" ? 12_000 : 6000, 24_000);
   const deadline = Date.now() + boundedNumber(context.timeoutMs, 75_000, 120_000);
   const checkpoint = await loadCheckpoint(context);
+  if (checkpoint?.runId === runId && checkpoint.modelId !== model) throw new EngineError("RUN_MODEL_MISMATCH", "This saved run belongs to another or unknown model. Start a new request instead of replaying it with a different model.", 409);
   if (checkpoint?.runId === runId && (checkpoint.privacyPolicy ?? "public") !== privacyPolicy) throw new EngineError("RUN_PRIVACY_MISMATCH", "This saved agent run does not satisfy the requested privacy policy. Start a new request.", 409);
   if (checkpoint?.runId === runId && (checkpoint.toolProfile ?? "interactive") !== toolProfile) throw new EngineError("RUN_PROFILE_MISMATCH", "This run ID belongs to another agent tool profile. No cached proposal was reused.", 409);
   if (checkpoint?.runId === runId && checkpoint.messageDigest !== messageDigest) throw new EngineError("RUN_INPUT_MISMATCH", "This agent run ID was already used for another instruction.", 409);
@@ -100,7 +102,7 @@ export async function runPersonalAgent(message: string, context: AgentContext = 
     `Current permission constraints (not an authorization grant): ${JSON.stringify(compactObservation(context.permissions ?? [], 4000))}. Respect the provided amount bands. A smaller swap may still fail a fixed onchain minimum-output floor; ask for an owner regrant instead of weakening the minimum output or claiming arbitrary sizes are permitted.`,
     `Current UTC time: ${new Date().toISOString()}`,
   ].join("\n");
-  const checkpointFor = (state: StateValue, status: AgentCheckpoint["status"], reply?: PlannerReply): AgentCheckpoint => ({ version: 1, threadId, runId, messageDigest, toolProfile, privacyPolicy, status, modelCalls: state.modelCalls, toolCalls: state.toolCalls, tokenCount: state.tokenCount, formatErrors: state.formatErrors, messages: boundedMessages(state.messages), toolTrace: state.toolTrace as ToolTrace[], evidence: state.evidence as ModelEvidence[], proposal: state.proposal ?? undefined, automationProposal: state.automationProposal ?? undefined, summary: state.answer.slice(0, 2000), reply, inferencePending: state.inferencePending, updatedAt: Date.now() });
+  const checkpointFor = (state: StateValue, status: AgentCheckpoint["status"], reply?: PlannerReply): AgentCheckpoint => ({ version: 1, modelId: model, threadId, runId, messageDigest, toolProfile, privacyPolicy, status, modelCalls: state.modelCalls, toolCalls: state.toolCalls, tokenCount: state.tokenCount, formatErrors: state.formatErrors, messages: boundedMessages(state.messages), toolTrace: state.toolTrace as ToolTrace[], evidence: state.evidence as ModelEvidence[], proposal: state.proposal ?? undefined, automationProposal: state.automationProposal ?? undefined, summary: state.answer.slice(0, 2000), reply, inferencePending: state.inferencePending, updatedAt: Date.now() });
   const progress = async (event: Parameters<NonNullable<AgentContext["onProgress"]>>[0]) => context.onProgress?.(event);
   let latestState: StateValue | undefined;
   const graph = new StateGraph(State)
@@ -198,7 +200,7 @@ export async function runPersonalAgent(message: string, context: AgentContext = 
     const proposalTool = state.automationProposal ? "propose_automation" : "propose_action";
     const proposalRequestId = state.proposal || state.automationProposal ? [...state.toolTrace as ToolTrace[]].reverse().find(trace => trace.name === proposalTool && trace.ok)?.requestId : undefined;
     const privacyEvidence = evidence.at(-1)?.privacy;
-    const reply: PlannerReply = { message, proposal: state.proposal as TradeRequest | null ?? undefined, automationProposal: state.automationProposal ?? undefined, requiresClarification: state.requiresClarification, requestId: proposalRequestId ?? requestIds.at(-1), requestIds, usage: addUsage(evidence), privacy: privacyEvidence?.status ?? "unverified", privacyEvidence, provider: "0G", evidenceStatus: requestIds.length ? "recorded" : "missing-request-id", framework: "langgraph", toolTrace: state.toolTrace as ToolTrace[], modelCalls: state.modelCalls, memory: { recalled: state.recalled, checkpointed: Boolean(context.checkpoints), threadId: context.threadId } };
+    const reply: PlannerReply = { modelId: model, message, proposal: state.proposal as TradeRequest | null ?? undefined, automationProposal: state.automationProposal ?? undefined, requiresClarification: state.requiresClarification, requestId: proposalRequestId ?? requestIds.at(-1), requestIds, usage: addUsage(evidence), privacy: privacyEvidence?.status ?? "unverified", privacyEvidence, provider: "0G", evidenceStatus: requestIds.length ? "recorded" : "missing-request-id", framework: "langgraph", toolTrace: state.toolTrace as ToolTrace[], modelCalls: state.modelCalls, memory: { recalled: state.recalled, checkpointed: Boolean(context.checkpoints), threadId: context.threadId } };
     await saveCheckpoint(context, checkpointFor(state, "completed", reply));
     await progress({ stage: "completed", message: "Personal agent run completed.", modelCalls: state.modelCalls, toolCalls: state.toolCalls });
     return reply;

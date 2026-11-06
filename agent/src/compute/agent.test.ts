@@ -201,6 +201,14 @@ describe("personal LangGraph agent", () => {
     expect(second).toEqual(first);
     expect(provider.modelCalls()).toBe(1);
   });
+  it("binds checkpoints and evidence to the exact model without replay after a config change",async()=>{
+    const provider=fakeProvider([{type:"final",message:"Spot is immediate exchange.",basis:"general",requiresClarification:false}]);
+    const memory=personalMemory("model-thread","Prefers clarity"),context={...memory,evaluationId:"model-bound"};
+    const reply=await planWith0G("Explain spot trading.",context);
+    expect(reply.modelId).toBe("unit-test-model");expect(memory.lastCheckpoint()).toMatchObject({modelId:"unit-test-model",evidence:[{modelId:"unit-test-model"}]});
+    vi.stubEnv("ZEROG_COMPUTE_MODEL","new-configured-model");
+    await expect(planWith0G("Explain spot trading.",context)).rejects.toMatchObject({code:"RUN_MODEL_MISMATCH"});expect(provider.modelCalls()).toBe(1);
+  });
   it("does not replay a model step with unknown billable outcome", async () => {
     const provider = fakeProvider([final]);
     const message = "Explain spot trading.", memory = personalMemory("agent:user-a", "Prefers clarity.");

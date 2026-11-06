@@ -4,6 +4,12 @@ import { invoke0G } from "./transport";
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("0G response evidence", () => {
+  it("records billing but refuses a different returned model without retrying",async()=>{
+    const fetcher=vi.fn(async()=>Response.json({model:"different-model",choices:[{message:{content:'{"type":"final","message":"Wrong model"}'}}],x_0g_trace:{request_id:"mismatch"}}));vi.stubGlobal("fetch",fetcher);
+    const afterCall=vi.fn(async()=>{});
+    await expect(invoke0G({url:"https://router-api.0g.ai/v1/chat/completions",apiKey:"fixture-key",model:"qwen3.5-plus",messages:[],callId:"run:model:0",maxTokens:100,timeoutMs:1000,context:{modelBudget:{maxCostUsd:"0.01",beforeCall:async()=>{},afterCall}}})).rejects.toMatchObject({code:"MODEL_RESPONSE_MISMATCH"});
+    expect(afterCall).toHaveBeenCalledWith(expect.objectContaining({outcome:"completed",model:"qwen3.5-plus"}));expect(fetcher).toHaveBeenCalledOnce();
+  });
   it("records Router request IDs and exact billing separately from provider response IDs", async () => {
     const billing = { currency: "0g", input_cost: "10", output_cost: "20", total_cost: "30", total_cost_usd_micro: "2" };
     const fetch = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => Response.json({ id: "provider-response", choices: [{ message: { content: '{"type":"final","message":"Done"}' } }], usage: { prompt_tokens: 17, completion_tokens: 5, total_tokens: 22 }, x_0g_trace: { request_id: "router-request", provider: `0x${"1".repeat(40)}`, billing } }));
