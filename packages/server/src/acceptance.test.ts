@@ -50,6 +50,17 @@ async function harness(){
 }
 
 describe("shared-account server acceptance with explicit venue fixtures",()=>{
+  it("exposes public execution constraints to planning without signatures or keys",async()=>{
+    const h=await harness();
+    try{
+      const user=h.store.getUser(h.account.ownerAddress)!,platform=new Platform(h.store),now=Date.now();
+      const permission:StoredPermission={id:"policy",userId:user.id,accountId:h.account.id,agentAddress:h.account.agentAddress,allowedActions:["swap"],allowedSymbols:["WETH/USDC"],maxTradeUsd:"100",status:"active",enforcement:"account",controlRevision:0,expiresAt:now+60_000,createdAt:now,updatedAt:now,authorization:{approval:"not-for-the-model"},policy:{accountAddress:h.account.address,agentAddress:h.account.agentAddress,router:"0x3333333333333333333333333333333333333333",issuedAt:now,expiresAt:now+60_000,maxGasWei:"1000",swaps:[{tokenIn:"0x4444444444444444444444444444444444444444",tokenOut:"0x5555555555555555555555555555555555555555",feeTier:500,maxAmountIn:"100000000",minAmountOut:"1000"}]}};
+      h.store.put("permission",permission);
+      const constraints=platform.plannerPermissions(user);
+      expect(constraints[0]).toMatchObject({allowedActions:["swap"],onchain:{kind:"kernel-fixed-output-bands",swaps:[{maximumInputAtoms:"100000000",minimumOutputAtoms:"1000"}]}});
+      expect(JSON.stringify(constraints)).not.toContain("not-for-the-model");expect(JSON.stringify(constraints)).not.toContain("authorization");
+    }finally{h.close();}
+  });
   it("supports owner-open, agent-close, takeover and agent-open, owner-close on one account",async()=>{
     const h=await harness();
     try{

@@ -36,6 +36,14 @@ export class Platform {
   }
   session(user:User){this.expirePermissions(user);return {user,agent:this.agent(user),accounts:this.accounts(user)};}
   agentState(user:User){this.expirePermissions(user);return {agent:this.agent(user),messages:this.store.list<StoredMessage>(user.id,"message").reverse(),permissions:this.store.list<StoredPermission>(user.id,"permission").map(({authorization,...permission})=>permission)};}
+  plannerPermissions(user:User){
+    this.expirePermissions(user);
+    const accounts=this.accounts(user);
+    return this.store.list<StoredPermission>(user.id,"permission").filter(permission=>permission.status==="active"&&permission.expiresAt>Date.now()).map(permission=>{
+      const account=accounts.find(item=>item.id===permission.accountId);
+      return{id:permission.id,accountId:permission.accountId,venue:account?.venue,allowedActions:permission.allowedActions,allowedSymbols:permission.allowedSymbols,maxTradeUsd:permission.maxTradeUsd,expiresAt:permission.expiresAt,enforcement:permission.enforcement,controlRevision:permission.controlRevision,...(permission.policy?{onchain:{kind:"kernel-fixed-output-bands",router:permission.policy.router,recipient:permission.policy.accountAddress,swaps:permission.policy.swaps.map(swap=>({tokenIn:swap.tokenIn,tokenOut:swap.tokenOut,feeTier:swap.feeTier,maximumInputAtoms:swap.maxAmountIn,minimumOutputAtoms:swap.minAmountOut})),limitation:"Each permitted input cap has a fixed minimum output floor. A smaller input may be outside the band even below the USD cap. Propose an exact permitted amount when appropriate or ask the owner to regrant; never lower the minimum output or claim arbitrary up-to-cap amounts are executable."}}:{})};
+    });
+  }
   createAccount(user:User,input:unknown){
     const data=accountSchema.parse(input),address=getAddress(data.smartAccountAddress??data.address??user.address),chainId=data.chainId??(data.venue==="uniswap"?11155111:421614);
     if(chainId!==(data.venue==="uniswap"?11155111:421614))throw new ApiError("UNSUPPORTED_NETWORK","Only configured Sepolia and Hyperliquid testnet accounts are supported.");
@@ -283,7 +291,7 @@ export class Platform {
     try{
       const agent=this.agent(user),portfolio=await this.portfolio(user),history=this.store.list<StoredMessage>(user.id,"message",9).reverse();
       if(history.at(-1)?.role==="user"&&history.at(-1)?.content===message)history.pop();
-      const result=await callEngine<AgentReply>("planWith0G",message,{...runtime.context(),toolProfile,evaluationId:reference,account,accounts:this.accounts(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired});
+      const result=await callEngine<AgentReply>("planWith0G",message,{...runtime.context(),toolProfile,evaluationId:reference,account,accounts:this.accounts(user),permissions:this.plannerPermissions(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired});
       if(typeof result.message!=="string"||!result.message.trim())throw new ApiError("INVALID_AI_RESULT","The model did not return a valid response. No action was taken.",502);
       if(result.proposal){
         const selected=account??(this.accounts(user).length===1?this.accounts(user)[0]:undefined);
