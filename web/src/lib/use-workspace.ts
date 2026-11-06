@@ -23,6 +23,7 @@ import { tradingGasStatus, type WalletExecutionConfig } from "./trade-ux";
 import { readDepositRecovery } from "./deposit-recovery";
 import { actionReviewIssue, venueSymbol, type AgentRequestSummary, type FundingSnapshot, type PaymentSnapshot, type TradingDeposit } from "./workspace-model";
 import { createLogoutQueue } from "./session-state";
+import { DEMO_MODE_KEY, isDemoMode, setDemoMode } from "./demo-mode";
 import {
   connectWallet,
   currentWalletAddress,
@@ -60,6 +61,7 @@ const emptyPortfolio: Portfolio = {
 };
 
 function useWorkspaceState() {
+  const [demoMode, setDemoModeState] = useState(false);
   const [session, setSession] = useState<Session>(emptySession);
   const [ostiumAllowances, setOstiumAllowances] = useState<OstiumAllowanceIntent[]>([]);
   const selectedSymbols = useRef<Partial<Record<Venue, string>>>({});
@@ -125,10 +127,12 @@ function useWorkspaceState() {
     const revision = sessionRevision.current;
     setRefreshing(true);
     try {
+      const demo = isDemoMode();
+      setDemoModeState(demo);
       const current = await api<Session>("/api/session");
       if (revision !== sessionRevision.current) return;
       if (current.user) {
-        if (!await selectedOwnerIs(current.user.address)) throw new ApiError("OWNER_CHANGED", "The selected wallet does not match this session.", 401);
+        if (!demo && !await selectedOwnerIs(current.user.address)) throw new ApiError("OWNER_CHANGED", "The selected wallet does not match this session.", 401);
         if (revision !== sessionRevision.current) return;
         if (ownerRef.current && ownerRef.current !== current.user.id) { clearPrivate(); refreshQueuedRef.current = true; return; }
         ownerRef.current = current.user.id;
@@ -146,7 +150,7 @@ function useWorkspaceState() {
           api<{ intents: OstiumAllowanceIntent[] }>("/api/ostium/allowances"),
         ]);
         if (revision !== sessionRevision.current) return;
-        if (!await selectedOwnerIs(current.user.address)) throw new ApiError("OWNER_CHANGED", "The selected wallet changed while loading this session.", 401);
+        if (!demo && !await selectedOwnerIs(current.user.address)) throw new ApiError("OWNER_CHANGED", "The selected wallet changed while loading this session.", 401);
         if (revision !== sessionRevision.current) return;
         if (results[0].status === "fulfilled")
           setPortfolio(results[0].value as Portfolio);
@@ -171,7 +175,7 @@ function useWorkspaceState() {
         const keys = ["portfolio", "activity", "agent", "automations", "budget", "wallet", "requests", "payments", "funding", "nativeAllowances"];
         setResourceErrors(Object.fromEntries(results.flatMap((result, index) => result.status === "rejected" ? [[keys[index], displayError(result.reason)]] : [])));
         const deposits: TradingDeposit[] = [];
-        for (const account of current.accounts) {
+        for (const account of demo ? [] : current.accounts) {
           try {
             const recovery = readDepositRecovery(localStorage, sessionStorage, account.ownerAddress, account.id);
             if (recovery) deposits.push({ accountId: account.id, status: recovery.status, transactionHash: recovery.transactionHash });
@@ -192,6 +196,14 @@ function useWorkspaceState() {
       setLoading(false);
       if (refreshQueuedRef.current) { refreshQueuedRef.current = false; void refresh(); }
     }
+  }, [clearPrivate]);
+
+  useEffect(() => {
+    const modeChanged = (event: StorageEvent) => {
+      if (event.key === DEMO_MODE_KEY || event.key === null) { clearPrivate(); window.location.reload(); }
+    };
+    window.addEventListener("storage", modeChanged);
+    return () => window.removeEventListener("storage", modeChanged);
   }, [clearPrivate]);
 
   useEffect(() => {
@@ -251,6 +263,7 @@ function useWorkspaceState() {
       }
     ).ethereum;
     const changed = () => {
+      if (isDemoMode()) return;
       clearPrivate();
       void logoutQueue.current.logout().catch(() => undefined);
       setNotice("Wallet changed. Sign in again to load its trading accounts.");
@@ -294,6 +307,7 @@ function useWorkspaceState() {
   }
 
   async function disconnect() {
+    if (isDemoMode()) { changeDemoMode(false); return; }
     clearPrivate();
     try {
       await logoutQueue.current.logout();
@@ -396,9 +410,19 @@ function useWorkspaceState() {
     setPreview({ action, execution: action.prepared! });
   }
 
+  function changeDemoMode(enabled: boolean) {
+    try {
+      setDemoMode(enabled);
+      clearPrivate();
+      window.location.reload();
+    } catch (cause) { setError(displayError(cause)); }
+  }
+
   const activeMarket = markets.find((market) => market.symbol === symbol);
   const account = session.accounts.find((item) => item.venue === venue);
   return {
+    demoMode,
+    changeDemoMode,
     session,
     health,
     portfolio,

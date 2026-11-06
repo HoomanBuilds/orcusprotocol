@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, ArrowUpRight, Bot, CandlestickChart, ChevronDown, CircleHelp, GitBranch, LayoutDashboard, LogOut, Menu, RefreshCw, Settings2, ShieldCheck, Wallet, X } from "lucide-react";
+import { Activity, ArrowUpRight, Bot, CandlestickChart, CircleHelp, GitBranch, LayoutDashboard, Menu, RefreshCw, Settings2, ShieldCheck, X } from "lucide-react";
 import { useWorkspace } from "@/lib/use-workspace";
 import { activityEntries } from "@/lib/workspace-model";
-import { shortAddress } from "@/lib/format";
 import { ActionPreview } from "../trading/action-preview";
-import { InlineError, Spinner } from "../trading/primitives";
+import { InlineError } from "../trading/primitives";
+import { AccountControl } from "./account-control";
 
 export const workspacePages = [
   { href: "/", title: "Overview", icon: LayoutDashboard },
@@ -50,7 +50,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       <div className="sidebar-bottom"><div className="sidebar-environment"><ShieldCheck size={18}/><div><strong>Testnet workspace</strong><small>No mainnet trading</small></div></div><Link href="/landing" prefetch={false}><CircleHelp size={16}/>About Orcus<ArrowUpRight size={13}/></Link></div>
     </aside>
     <div className="workspace-body">
-      <header className="workspace-topbar"><div className="workspace-breadcrumb"><button className="icon-button workspace-menu-toggle" type="button" aria-label={menuOpen ? "Close workspace navigation" : "Open workspace navigation"} aria-expanded={menuOpen} aria-controls="mobile-workspace-navigation" onClick={() => setMenuOpen(value => !value)}>{menuOpen ? <X size={21}/> : <Menu size={21}/>}</button><span>Workspace</span><span className="breadcrumb-divider">/</span><strong>{page.title}</strong></div><div className="workspace-header-actions"><span className="workspace-service-badge"><i className={`dot ${readyServices === (w.health?.ostium ? 6 : 5) ? "good" : "warn"}`}/>{readyServices === undefined ? "Checking services" : readyServices === (w.health?.ostium ? 6 : 5) ? "Integrations configured" : "Setup required"}</span><button className="icon-button refresh-control" type="button" disabled={w.refreshing} aria-label="Refresh accounts" title="Refresh accounts" onClick={() => void w.refresh()}><RefreshCw size={17} className={w.refreshing ? "spin" : ""}/></button>{w.session.user ? <><Link href="/settings" className="wallet-button"><span className="wallet-indicator"/><span>{shortAddress(w.session.user.address)}</span><ChevronDown size={13}/></Link><button className="icon-button logout" type="button" aria-label="Sign out" title="Sign out" onClick={() => void w.disconnect()}><LogOut size={17}/></button></> : <button className="button primary connect-button" type="button" disabled={w.connecting} onClick={() => void w.connect()}>{w.connecting ? <Spinner/> : <Wallet size={16}/>}<span>{w.connecting ? "Sign in with wallet" : "Connect wallet"}</span></button>}</div></header>
+      <header className="workspace-topbar"><div className="workspace-breadcrumb"><button className="icon-button workspace-menu-toggle" type="button" aria-label={menuOpen ? "Close workspace navigation" : "Open workspace navigation"} aria-expanded={menuOpen} aria-controls="mobile-workspace-navigation" onClick={() => setMenuOpen(value => !value)}>{menuOpen ? <X size={21}/> : <Menu size={21}/>}</button><span>Workspace</span><span className="breadcrumb-divider">/</span><strong>{page.title}</strong></div><div className="workspace-header-actions"><span className="workspace-service-badge"><i className={`dot ${readyServices === (w.health?.ostium ? 6 : 5) ? "good" : "warn"}`}/>{readyServices === undefined ? "Checking services" : readyServices === (w.health?.ostium ? 6 : 5) ? "Integrations configured" : "Setup required"}</span><button className="icon-button refresh-control" type="button" disabled={w.refreshing} aria-label="Refresh accounts" title="Refresh accounts" onClick={() => void w.refresh()}><RefreshCw size={17} className={w.refreshing ? "spin" : ""}/></button><AccountControl/></div></header>
       <nav id="mobile-workspace-navigation" className="mobile-workspace-navigation" aria-label="Mobile navigation" hidden={!menuOpen}>{navigation}</nav>
       <div className="workspace-content-wrap">
         {(w.error || w.notice) && <div className="workspace-notices"><InlineError message={w.error} onDismiss={() => w.setError(null)}/>{w.notice && <div className="notice" role="status"><ShieldCheck size={17}/><span>{w.notice}</span><button className="icon-button" type="button" aria-label="Dismiss notification" onClick={() => w.setNotice(null)}><X size={16}/></button></div>}</div>}

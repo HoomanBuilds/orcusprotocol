@@ -1,0 +1,9 @@
+.desktop { display: flex; gap: 8px; align-items: center; }
+.mobile { display: none; position: relative; }
+.mobile > summary { display: flex; align-items: center; list-style: none; cursor: pointer; user-select: none; }
+.mobile > summary::-webkit-details-marker { display: none; }
+.menu { position: absolute; right: 0; top: calc(100% + 10px); z-index: 70; min-width: 188px; display: grid; padding: 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 14px 35px #0006; }
+.menu > button, .menu > a { padding: 12px; border: 0; background: transparent; color: var(--fg); text-align: left; font-size: 13px; border-radius: 6px; }
+.menu > button:hover, .menu > a:hover { background: #ffffff09; }
+.menu > span { padding: 10px 12px; color: var(--muted); font-size: 11px; }
+@media (max-width: 760px) { .desktop { display: none; } .mobile { display: block; } }
