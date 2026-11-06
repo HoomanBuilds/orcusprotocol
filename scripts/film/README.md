@@ -43,3 +43,9 @@ Pass `--browser /path/to/chromium` if needed. Shot pacing remains at the recorde
 Outputs are `silent-master.mkv`, `narrated-master.mkv`, `orcus-walkthrough-sarah.mp4`, `poster.png`, `timeline.json`, `narration-manifest.json`, chapter metadata, and `verification.json` with ffprobe results. The MP4 has navigation chapters and AAC narration; the narrated master keeps PCM audio. Originals and separate voice segments remain available.
 
 Review the full film at normal speed and inspect transition frames. Verify screen legibility, narration synchronization, genuine click results, truthful demo labels, source confidentiality, duration, codecs and audio streams before sharing. No render alone proves that a trading transaction completed.
+
+## First-cut verification
+
+The first rendered cut is 145.667 seconds, H.264 at 1920 x 1080 and 30 fps, with stereo 48 kHz AAC narration and eight navigation chapters. The silent master contains video only; the narrated MKV retains PCM audio. ffprobe found no subtitle stream. Measured integrated audio loudness is -18.0 LUFS with a -3.4 dBFS true peak. Selected exact-time frames and chapter transitions were visually reviewed; these technical checks do not represent a full subjective listening review.
+
+The seven source clips total 117.42 seconds. Capture recorded explicit demo entry and exit, real session restoration, zero paid inference requests, zero public trading writes, and no unexpected blocked requests or wallet signing attempts. Demo account positions and completed sample actions are presentation fixtures, historic research is reused with its original evidence, and the strategy remains an unactivated review. The film is not public settlement proof. Original capture frames, narration, edit spans, character ledger, masters and manifests remain alongside the generated output outside Git.
