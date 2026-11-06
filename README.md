@@ -38,6 +38,10 @@ npm run dev
 
 Open `http://localhost:3000`. Root commands load the root `.env`; do not put secrets in source code or public environment variables.
 
+### Landing preview
+
+The public-facing landing preview is at `http://localhost:3000/landing`. The existing trading app at `/` and its APIs are unchanged. Artwork and fonts are hosted locally; the [landing asset notice](web/public/landing/ASSET-NOTICE.md) records sources and unresolved artwork licensing. This route does not publish or deploy the app.
+
 In a second terminal, run the persistent automation worker after setting the same `ORCUS_INTERNAL_TOKEN` for both processes:
 
 ```sh
