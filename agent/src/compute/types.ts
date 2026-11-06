@@ -12,7 +12,7 @@ export interface MemoryStore {
   remember(input: { content: string; kind?: "note" | "preference"; importance?: number }): Promise<AgentMemoryNote>;
   forget(id: string): Promise<boolean>;
 }
-export interface ToolTrace { name: string; arguments: unknown; result: unknown; ok: boolean; observedAt: number; requestId?: string }
+export interface ToolTrace { observationId?: string; name: string; arguments: unknown; result: unknown; ok: boolean; observedAt: number; requestId?: string }
 export interface AgentMessage { role: "user" | "assistant"; content: string }
 export interface AgentCheckpoint {
   modelId?: string;

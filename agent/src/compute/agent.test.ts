@@ -52,6 +52,20 @@ function personalMemory(threadId: string, content: string) {
 }
 
 describe("personal LangGraph agent", () => {
+  it("grounds successful memory operations in tool-local evidence rather than requiring a market URL",async()=>{
+    const memory=personalMemory("local-memory-proof","I prefer spot trading without leverage.");
+    fakeProvider([{type:"tool",name:"remember_preference",arguments:{content:"I prefer spot trading without leverage.",sourceQuote:"I prefer spot trading without leverage."}},{type:"final",message:"Saved your preference.",basis:"observed",requiresClarification:false,sourceIds:["unit-provider-response-1"]}]);
+    const reply=await planWith0G("Remember: I prefer spot trading without leverage.",memory);
+    expect(reply.requiresClarification).toBe(false);expect(reply.message).toContain("Saved your preference");
+    expect(reply.toolTrace[0].observationId).toMatch(/^observation:[a-f0-9]{24}$/);
+    expect(memory.lastCheckpoint().toolTrace[0].observationId).toBe(reply.toolTrace[0].observationId);
+  });
+  it("preserves a typed preview when the model cites the successful proposal's request ID",async()=>{
+    const request={accountId:account.id,venue:"hyperliquid",type:"limit",symbol:"ETH",side:"buy",amount:"0.001",price:"1000",mode:"agent",slippageBps:50};
+    fakeProvider([{type:"tool",name:"propose_action",arguments:{request}},{type:"final",message:"The requested preview is ready. No trade was executed.",basis:"observed",requiresClarification:false,sourceIds:["unit-provider-response-1"]}]);
+    const reply=await planWith0G("Preview a limit buy of 0.001 ETH at 1000 USDC. Do not execute it.",{account,accounts:[account]});
+    expect(reply.requiresClarification).toBe(false);expect(reply.proposal).toMatchObject(request);expect(reply.message).toContain("requested limit buy draft");
+  });
   it("preserves native ETH input in a typed proposal without signing or inventing gas sponsorship", async () => {
     const spot: TradingAccount = { ...account, id: "spot-account", venue: "uniswap", chainId: 11155111, smartAccountAddress: account.address };
     const request = { accountId: spot.id, venue: "uniswap", type: "swap", symbol: "WETH/USDC", side: "sell", amount: "0.01", slippageBps: 50, mode: "agent", nativeInput: true };
