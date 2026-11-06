@@ -7,7 +7,8 @@ Sponsor targets: 0G inference and encrypted memory, Uniswap spot execution, and 
 ## Project documentation
 
 - [Implementation plan](docs/plans/implementation-plan.md): architecture, reuse decisions, build order, dependency gates and acceptance tests.
-- [Product checklist](docs/specs/product-checklist.md): 57 current acceptance items, including the replacement CRE requirements.
+- [Product checklist](docs/specs/product-checklist.md): 75 scoped implementation and acceptance items, including the routed workspace and venue coverage.
+- [AWS hackathon hosting](deploy/aws/README.md): one EC2 instance, the web app, the worker and optional HTTPS.
 - [Reuse inventory](docs/research/reuse-inventory.md): inspected source paths and revisions, adaptations, known hazards and baseline-test results.
 - [Verified flows and remaining gates](docs/research/verification-2026-11-06.md): real inference, billing and isolated-fork receipts.
 
@@ -37,6 +38,16 @@ npm run dev
 ```
 
 Open `http://localhost:3000`. Root commands load the root `.env`; do not put secrets in source code or public environment variables.
+
+### Simple AWS testnet demo
+
+The hosting target is a single EC2 machine, not a production infrastructure project. The [runbook](deploy/aws/README.md) prepares native Node/Bun/CRE tools, two systemd services and optional Caddy HTTPS. It does not create AWS resources or add a backup service.
+
+Before first hosted startup, use `npm run demo:setup -- --app-url https://YOUR_HOST --data-dir /var/lib/orcus/data`. It fills missing runtime secrets without printing them, preserves existing credentials and refuses a conflicting existing key. The public origin stays separate from the worker's loopback `ORCUS_INTERNAL_APP_URL`.
+
+Run `npm run demo:setup -- --check` and `npm run doctor` after privately configuring the provider credentials and testnet gas sponsor. `npm run doctor -- --check-config` performs configuration checks without network calls. A successful configuration check is not proof of paid inference or a settled trade. Keep the same local data directory and key during ordinary restarts so conversations, accounts and pending work remain available.
+
+Strict independent TEE, earned-revenue funding, automatic compute top-ups and real-money payments are not prerequisites for this hackathon launch. Unsupported or unverified optional modes remain disabled or explicitly labelled; existing wallet authorization and spending limits still apply.
 
 ### Landing preview
 

@@ -359,6 +359,8 @@ Use seeded test scenarios and controlled failures, but label simulation/fork evi
 
 ## 8. Known gates, not hidden assumptions
 
+Hackathon hosting scope: use the [single-EC2 plan](aws-hackathon-hosting.md) and [runbook](../../deploy/aws/README.md), with native web and worker services. `demo:setup` prepares only missing basic runtime settings, and `doctor` distinguishes required configuration from external proof. No production backup, replication, KMS or managed-database work is required for this release. The remaining optional privacy/funding modes below must not be advertised as proven, but are not mandatory for hosting the standard testnet demo.
+
 | Gate | Consequence if unresolved |
 | --- | --- |
 | Current 0G availability and unknown billing | Earlier real inference passed; the latest first request returned 502 with an unknown reservation. Its temporary database was lost after reboot, not reconciled or proved free. Do not retry it or call earlier proof current availability |
