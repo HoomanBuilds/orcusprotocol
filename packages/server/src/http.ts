@@ -6,6 +6,8 @@ import { callEngine } from "./engine";
 import { ApiError } from "./errors";
 import { Platform } from "./platform";
 import { getStore, type Store } from "./store";
+import { listGasSponsorship, noteSponsoredBroadcast, reconcileGasSponsorship, settleSponsoredReceipt, sponsorKernelOperation, sponsoredOperationHash, sponsorshipSummary, validateSponsoredBroadcast } from "./sponsorship";
+import { entryPoint } from "@orcus/wallets/kernel";
 
 const COOKIE = "orcus_session";
 const address = z.string().regex(/^0x[\da-fA-F]{40}$/);
@@ -81,12 +83,19 @@ async function proxyRpc(request: Request, user: User, platform: Platform, bundle
     const sender = (body.params?.[0] as { sender?: unknown } | undefined)?.sender;
     if (typeof sender !== "string" || !platform.accounts(user).some(account => account.venue === "uniswap" && account.smartAccountAddress?.toLowerCase() === sender.toLowerCase())) throw new ApiError("USER_OPERATION_ACCOUNT_MISMATCH", "This user operation is not for your registered trading account.", 403);
   }
+  if (bundler && body.method === "eth_sendUserOperation") {
+    if (body.params?.[1] !== entryPoint.address) throw new ApiError("SPONSORSHIP_ENTRYPOINT_MISMATCH", "Only EntryPoint v0.7 is supported.", 403);
+    await validateSponsoredBroadcast(platform.store, user, body.params?.[0]);
+    await noteSponsoredBroadcast(platform.store, user, body.params?.[0], sponsoredOperationHash(body.params?.[0]));
+  }
   let response: Response;
-  try { response = await fetch(upstream, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) }); }
+  try { response = await fetch(upstream, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000), redirect: "error" }); }
   catch { throw new ApiError("RPC_UNAVAILABLE", "The testnet RPC is temporarily unavailable.", 503); }
   if (!response.ok) throw new ApiError("RPC_UNAVAILABLE", "The testnet RPC could not complete this request.", 503);
   const output = await readBody(new Request("http://localhost/response", { method: "POST", body: response.body, duplex: "half" } as RequestInit), 1_048_576);
+  if ((output as { error?: unknown }).error) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32000, message: "The configured RPC rejected this request. Provider details were withheld." } });
   if (body.method === "eth_chainId" && (output as { result?: string }).result !== "0xaa36a7") throw new ApiError("WRONG_NETWORK", "The configured RPC is not Ethereum Sepolia.", 503);
+  if (bundler && body.method === "eth_getUserOperationReceipt") settleSponsoredReceipt(platform.store, user, (output as { result?: unknown }).result);
   return json(output);
 }
 
@@ -98,7 +107,8 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if (path === "wallet-config" && method === "GET") {
       const config = await callEngine<{ uniswap: { router: string; weth: string; usdc: string; quoter: string; factory: string } }>("engineConfig");
       const { router, weth, usdc, quoter, factory } = config.uniswap;
-      return json({ data: { chainId: 11155111, rpcUrl: "/api/rpc", bundlerUrl: "/api/bundler", smartAccountsConfigured: Boolean(process.env.ZERODEV_RPC_URL), router, weth, usdc, quoter, factory, rpcUrlConfigured: Boolean(process.env.SEPOLIA_RPC_URL ?? process.env.SEPOLIA_RPC) } });
+      const gasSponsorship = sponsorshipSummary();
+      return json({ data: { chainId: 11155111, rpcUrl: "/api/rpc", bundlerUrl: "/api/bundler", smartAccountsConfigured: gasSponsorship.configured, gasSponsorship, router, weth, usdc, quoter, factory, rpcUrlConfigured: Boolean(process.env.SEPOLIA_RPC_URL ?? process.env.SEPOLIA_RPC) } });
     }
     if (path === "markets" && method === "GET") {
       const venue = z.enum(["uniswap", "hyperliquid"]).parse(url.searchParams.get("venue") ?? "hyperliquid");
@@ -131,6 +141,14 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     const user = requireUser(request, store);
     if (path === "rpc" && method === "POST") return proxyRpc(request, user, platform, false);
     if (path === "bundler" && method === "POST") return proxyRpc(request, user, platform, true);
+    if (path === "paymaster" && method === "POST") {
+      const body = rpcSchema.parse(await readBody(request, 262_144));
+      if (body.method !== "zd_sponsorUserOperation" || body.params?.length !== 1) throw new ApiError("RPC_METHOD_REJECTED", "Only scoped gas sponsorship requests are supported.", 403);
+      const scope = z.object({ actionId: z.string().min(1).max(100).optional(), accountAddress: address.optional(), purpose: z.literal("permission-management").optional() }).strict().parse(Object.fromEntries(url.searchParams));
+      return json({ jsonrpc: "2.0", id: body.id, result: await sponsorKernelOperation(store, user, scope, body.params[0]) });
+    }
+    if (path === "gas-sponsorship" && method === "GET") return json({ data: { sponsorship: sponsorshipSummary(), operations: listGasSponsorship(store, user) } });
+    if (path === "gas-sponsorship/reconcile" && method === "POST") { const input = z.object({ id: z.string().min(1).max(100) }).strict().parse(await readBody(request)); return json({ data: await reconcileGasSponsorship(store, user, input.id) }); }
     if (path === "portfolio" && method === "GET") return json({ data: await platform.portfolio(user) });
     if (path === "activity" && method === "GET") return json({ data: await platform.activity(user) });
     if (path === "accounts" && method === "GET") return json({ data: { accounts: platform.accounts(user) } });
