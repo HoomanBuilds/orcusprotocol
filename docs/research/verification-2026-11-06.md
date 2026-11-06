@@ -1,6 +1,6 @@
 # Local verification, 2026-11-06
 
-This is execution evidence, not deployment configuration. Initial trading verification used local forks only. A later, separately authorized Galileo storage test submitted the single public transaction recorded below. No token launch, funded public trade or public contract deployment was performed. Local Uniswap fork hashes are not public explorer receipts.
+This is execution evidence, not deployment configuration. Initial trading verification used local forks only. Later, separately authorized Galileo storage and capped Hyperliquid testnet handoff tests submitted the public testnet actions recorded below. No token launch, mainnet trade or public contract deployment was performed. Local Uniswap fork hashes are not public explorer receipts.
 
 ## Automated verification
 
@@ -117,10 +117,31 @@ Verification totals: 404 application tests and three workflow capability-fixture
 
 The implementation follows the existing SDKs and primary references: [ZeroDev sponsorship](https://docs.zerodev.app/smart-accounts/sponsor-gas/evm), [provider gas policies](https://docs.zerodev.app/api-and-toolings/infrastructure/gas-policies), and [Uniswap Sepolia deployments](https://developers.uniswap.org/docs/protocols/v3/deployments/v3-ethereum-deployments).
 
+## Actual Hyperliquid testnet owner/agent handoff
+
+The approved capped verifier passed against the real Hyperliquid testnet API using owner `0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C`. It allowed one opening request, at most 20 mock USDC notional and at most 1 mock USDC total fees. Existing positions/orders would have stopped the test before any mutation. No deposit, withdrawal, transfer, mainnet operation or second opening was authorized or submitted.
+
+| Step | Venue evidence |
+| --- | --- |
+| Fresh native agent approved | `orcus-d800cf8c3a`, address `0x99230A05D10cCE88E805c0eEd89c47e8467BbaA0`, with a short expiry |
+| Owner opened one ETH long | Order `64660909972`, size `0.0089`, price `2229.8`, opening notional `19.84522` mock USDC |
+| Agent created a reduce-only stop; owner cancelled it | Order `64660915131`, observed open then cancelled |
+| Agent created a reduce-only take-profit; agent cancelled it | Order `64660921462`, observed open then cancelled |
+| Agent closed the owner's same-account position | Order `64660932664`, size `0.0089`, price `2231.1`, observed fully filled |
+| Cleanup and revocation | Zero positions/orders, fresh agent revoked, pre-existing `naryx-testnet` agent retained unchanged |
+
+Actual opening fill hash: `0x45315fb884ec601346ab042d83dd44010200779e1fef7ee5e8fa0b0b43e039fd`. Closing fill hash: `0x5d8f7665fda55d115f09042d83de990105008e4b98a87be3015821b8bca936fc`. Opening/closing fees were `0.00893` and `0.008935` mock USDC, totaling `0.017865`. Balance changed from `185.426761` to `185.420466` mock USDC after realized P&L and fees. These are mock testnet assets, not dollar-valued production results or a profitability claim.
+
+The verifier reused the real preparation, agent submission and reconciliation adapters, and the supported SDK for owner signing. It persisted public action IDs and pending intent before sends, reconciled actual fills and did not retry opening requests. Public-only evidence remains outside Git in the runtime verification directory. A first, zero-write attempt exposed a real compatibility issue: viem's strict EIP-712 struct validation rejects Hyperliquid's colon-containing approval type. Supported ethers signing now handles owner approval/orders without modifying the native schema; wallet/network checks still run around browser signatures. The initial failed journal was preserved separately after verifying no approval or order had been broadcast.
+
+Wallet tests now include actual SDK approval and order signing against an injected browser provider, owner-change rejection before broadcast, plus the verifier's boundary tests. This does not certify a real browser-extension session, an autonomous 0G conversation causing a live trade, native enforcement of application-defined notional limits or mainnet safety. No additional public writes are required to repeat the read-only inspection.
+
+Primary references: [Hyperliquid exchange API](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint) and [native API wallets and nonces](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets).
+
 ## Remaining external acceptance
 
 - CRE CLI authentication will be supplied later. Workflow compilation is not a successful CLI simulation, and no hosted DON execution is claimed.
-- Funded Hyperliquid authorization/trading and external Sepolia bundler execution require owner actions and accounts.
+- The capped native Hyperliquid owner/agent handoff is live testnet-verified. Complete browser-extension acceptance, additional account modes and external Sepolia bundler execution remain separate.
 - Encrypted storage upload/download/restore is now live-verified with a funded platform payer. Actual compute replenishment still needs a matching verified Router account and management-read access. Compute credits and native storage funds are separate.
 - User-facing payment collection remains unimplemented; an allowance is not paid service credit. Capped Uniswap sponsorship uses the platform's operator path by default, but its paymaster deployment, EntryPoint ETH deposit, generic bundler configuration and live external acceptance are not configured or proven. ZeroDev remains an explicit secondary, not an automatic fallback.
 - Dependency-audit findings remain unresolved. The hackathon implementation is not certified production-safe by these functional checks.

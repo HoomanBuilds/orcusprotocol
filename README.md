@@ -115,6 +115,16 @@ npm run verify:storage
 
 A funded upload/download additionally requires `--allow-testnet-storage-fees`, `--expected-payer=<approved address>` and `--expected-flow=<approved Flow address>`. Obtain operator approval before using those flags. The verifier caps gas at 0.003 0G and storage fees at 0.01 0G, uses platform sponsorship for an unfunded synthetic user, reopens the database and restores the actual encrypted backup. It does not deploy a contract. Storage remains disabled by default; the funded test enables it only inside its own process.
 
+Hyperliquid verification defaults to read-only account inspection:
+
+```sh
+npm run verify:hyperliquid -- --expected-owner=0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C
+```
+
+The separately approved testnet-write mode additionally requires `--allow-testnet-trades`, explicit `--max-notional-usdc` (at most 20) and `--max-fees-usdc` (at most 1). It refuses pre-existing positions/orders, verifies the dedicated local test signer matches the exact expected owner, preserves existing agents and creates a fresh short-lived agent. One owner-opened ETH position is managed and closed by that agent, with owner cancellation of an agent's protective order. Public-only runtime evidence is saved before sends; unresolved runs block another opening. This is a dedicated test-wallet verifier, not an owner-private-key onboarding flow for customers.
+
+The November 6 approved test passed with a 19.84522 mock-USDC position and 0.017865 mock-USDC total fees. It ended flat with no open orders, revoked only the fresh test agent and retained the existing named agent. See the [dated execution evidence](docs/research/verification-2026-11-06.md). Browser extension interaction and mainnet execution are not claimed by this SDK-based proof.
+
 Use `ORCUS_VERIFY_APP_URL=http://localhost:3100` when the app runs on another port. This creates an unfunded synthetic owner, verifies inference, saved preferences, request IDs and settled billing, and never submits trades. The generated test owner has no retained signing key; its test records remain in local application data.
 
 `doctor` checks configuration and performs read-only market requests. It does not submit transactions, upload storage objects or spend inference credits. An installed SDK or configured endpoint is not evidence of live authorization or successful execution.
