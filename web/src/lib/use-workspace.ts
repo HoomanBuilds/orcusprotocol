@@ -19,6 +19,7 @@ import type {
 } from "@orcus/core";
 import { api, ApiError, displayError, post } from "./api";
 import { tradingGasStatus, type WalletExecutionConfig } from "./trade-ux";
+import { createLogoutQueue } from "./session-state";
 import {
   connectWallet,
   currentWalletAddress,
@@ -84,6 +85,7 @@ export function useWorkspace() {
   const preparingRef = useRef(false);
   const executingRef = useRef(false);
   const controllingRef = useRef(false);
+  const logoutQueue = useRef(createLogoutQueue(() => post("/api/auth/logout", {})));
 
   const clearPrivate = useCallback(() => {
     sessionRevision.current += 1;
@@ -141,7 +143,8 @@ export function useWorkspace() {
           setError(displayError(failed.reason));
       } else clearPrivate();
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 401) { clearPrivate(); void post("/api/auth/logout", {}).catch(() => undefined); setNotice("Sign in with the selected owner wallet to load its accounts."); }
+      if (revision !== sessionRevision.current) return;
+      if (cause instanceof ApiError && cause.status === 401) { clearPrivate(); void logoutQueue.current.logout().catch(() => undefined); setNotice("Sign in with the selected owner wallet to load its accounts."); }
       else setError(displayError(cause));
     } finally {
       refreshingRef.current = false;
@@ -204,7 +207,7 @@ export function useWorkspace() {
     ).ethereum;
     const changed = () => {
       clearPrivate();
-      void post("/api/auth/logout", {}).catch(() => undefined);
+      void logoutQueue.current.logout().catch(() => undefined);
       setNotice("Wallet changed. Sign in again to load its trading accounts.");
     };
     ethereum?.on?.("accountsChanged", changed);
@@ -217,7 +220,9 @@ export function useWorkspace() {
     setConnecting(true);
     setError(null);
     try {
+      await logoutQueue.current.wait();
       const address = await connectWallet();
+      await logoutQueue.current.wait();
       clearPrivate();
       const revision = sessionRevision.current;
       const challenge = await post<{ id: string; message: string }>(
@@ -225,12 +230,13 @@ export function useWorkspace() {
         { address },
       );
       const signature = await signLoginMessage(challenge.message);
+      await logoutQueue.current.wait();
       if (revision !== sessionRevision.current || (await currentWalletAddress()).toLowerCase() !== address.toLowerCase()) throw new ApiError("OWNER_CHANGED", "The selected wallet changed during sign-in.", 401);
       const current = await post<Session>("/api/auth/verify", {
         challengeId: challenge.id,
         signature,
       });
-      if (revision !== sessionRevision.current || (await currentWalletAddress()).toLowerCase() !== address.toLowerCase()) { await post("/api/auth/logout", {}); clearPrivate(); throw new ApiError("OWNER_CHANGED", "The selected wallet changed during sign-in.", 401); }
+      if (revision !== sessionRevision.current || (await currentWalletAddress()).toLowerCase() !== address.toLowerCase()) { await logoutQueue.current.logout(); clearPrivate(); throw new ApiError("OWNER_CHANGED", "The selected wallet changed during sign-in.", 401); }
       setSession(current);
       setNotice("Signed in. Trading authorization is a separate approval.");
       await refresh();
@@ -243,9 +249,9 @@ export function useWorkspace() {
   }
 
   async function disconnect() {
+    clearPrivate();
     try {
-      await post("/api/auth/logout", {});
-      clearPrivate();
+      await logoutQueue.current.logout();
     } catch (cause) {
       setError(displayError(cause));
     }
