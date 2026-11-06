@@ -16,7 +16,7 @@ export const accountSchema=z.object({venue:z.enum(["uniswap","hyperliquid"]),add
 export const automationSchema=z.object({kind:z.enum(["trade","alert"]).default("trade"),accountId:z.string(),name:z.string().min(1).max(80),instruction:z.string().min(1).max(2000).optional(),intervalSeconds:z.number().int().min(60).max(86400).default(300),request:tradeRequestSchema.optional(),condition:z.object({symbol:z.string().min(1).max(50),operator:z.enum(["above","below"]),price:z.string().max(80).regex(/^\d+(?:\.\d+)?$/).refine(value=>/[1-9]/.test(value),"Use a positive alert threshold")}).optional(),expiresAt:z.number().int().optional()}).strict().superRefine((value,ctx)=>{if(value.kind==="alert"&&(!value.condition||value.request))ctx.addIssue({code:"custom",message:"Price alerts require a condition and cannot contain a trade request."});if(value.kind==="trade"&&!value.request&&!value.instruction)ctx.addIssue({code:"custom",message:"Trading strategies require an instruction or an explicitly approved recurring request."});});
 const terminalStates=new Set(["confirmed","rejected","cancelled"]);
 const evaluationSchema=z.object({id:z.string(),automationId:z.string(),accountId:z.string(),chainId:z.number().int(),decision:z.enum(["allow","reject","no-action"]),reason:z.string(),source:z.literal("local-simulation"),observedAt:z.number().int(),expiresAt:z.number().int(),controlRevision:z.number().int(),policyVersion:z.number().int(),requestId:z.string().optional()}).passthrough();
-type AgentReply={message:string;proposal?:TradeRequest;automationProposal?:unknown;requestId?:string;requestIds?:string[];modelCalls?:number;usage?:unknown;costUsd?:string;requiresClarification?:boolean};
+type AgentReply={message:string;proposal?:TradeRequest;automationProposal?:unknown;requestId?:string;requestIds?:string[];modelCalls?:number;usage?:unknown;costUsd?:string;requiresClarification?:boolean;privacy?:StoredMessage["privacy"];privacyEvidence?:unknown};
 
 export class Platform {
   constructor(readonly store:Store=getStore()){}
@@ -68,11 +68,11 @@ export class Platform {
     const totalEquityUsd=accounts.length>0&&valuations.size===accounts.length&&errors.length===0?formatUnits([...valuations.values()].reduce((sum,value)=>sum+value,0n),6):undefined;
     return {accounts,balances,positions,orders,totalEquityUsd,observedAt:observations.length?Math.min(...observations):Date.now(),errors};
   }
-  control(user:User,input:{command:string;mode?:"approval-required"|"autonomous";preferences?:string;privateInferenceRequired?:boolean}){
+  control(user:User,input:{command:string;mode?:"approval-required"|"autonomous";preferences?:string;privateInferenceRequired?:boolean;privateVerification?:"independent-gateway"|"gateway-reported"}){
     const agent=this.agent(user);if(!["pause","resume","take-over","update"].includes(input.command))throw new ApiError("INVALID_CONTROL","Use pause, resume, take-over or update.");
     const paused=input.command==="pause"||input.command==="take-over"?true:input.command==="resume"?false:agent.paused;
     return this.store.db.transaction(()=>{
-      const updated=this.store.update<StoredAgent>(user.id,"agent",agent.id,{paused,mode:input.mode??agent.mode,preferences:input.preferences??agent.preferences,privateInferenceRequired:input.privateInferenceRequired??agent.privateInferenceRequired,controlRevision:agent.controlRevision+1});
+      const updated=this.store.update<StoredAgent>(user.id,"agent",agent.id,{paused,mode:input.mode??agent.mode,preferences:input.preferences??agent.preferences,privateInferenceRequired:input.privateInferenceRequired??agent.privateInferenceRequired,privateVerification:input.privateVerification??agent.privateVerification??"independent-gateway",controlRevision:agent.controlRevision+1});
       if(input.preferences!==undefined){
         const memory=new AgentMemoryStore(this.store,user.id);
         for(const row of this.store.db.prepare("SELECT id FROM agent_memories WHERE user_id=? AND source='profile' AND source_id=?").all(user.id,agent.id)as{id:string}[])memory.forget(row.id);
@@ -286,12 +286,17 @@ export class Platform {
   }
   async proposal(user:User,message:string,account:StoredAccount|undefined,reference:string,toolProfile:"interactive"|"strategy"="interactive"){
     const cached=this.store.get<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"proposal",reference);
-    if(cached){if((cached.toolProfile??"interactive")!==toolProfile)throw new ApiError("TOOL_PROFILE_MISMATCH","This proposal belongs to a different tool profile. Start a new authorized evaluation.",409);return cached.result as AgentReply;}
+    if(cached){
+      if((cached.toolProfile??"interactive")!==toolProfile)throw new ApiError("TOOL_PROFILE_MISMATCH","This proposal belongs to a different tool profile. Start a new authorized evaluation.",409);
+      const agent=this.agent(user),result=cached.result as AgentReply,required=agent.privateVerification==="gateway-reported"?"gateway-reported-private":"independently-attested-private";
+      if(agent.privateInferenceRequired&&result.privacy!==required)throw new ApiError("PRIVACY_POLICY_CHANGED","This saved result does not satisfy your current private inference policy. Start a new request.",409);
+      return result;
+    }
     const runtime=new AgentRun(this.store,user.id,reference,message,memoryId=>this.forgetMemory(user,memoryId));runtime.start();
     try{
       const agent=this.agent(user),portfolio=await this.portfolio(user),history=this.store.list<StoredMessage>(user.id,"message",9).reverse();
       if(history.at(-1)?.role==="user"&&history.at(-1)?.content===message)history.pop();
-      const result=await callEngine<AgentReply>("planWith0G",message,{...runtime.context(),toolProfile,evaluationId:reference,account,accounts:this.accounts(user),permissions:this.plannerPermissions(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired});
+      const result=await callEngine<AgentReply>("planWith0G",message,{...runtime.context(),toolProfile,evaluationId:reference,account,accounts:this.accounts(user),permissions:this.plannerPermissions(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired,privateVerification:agent.privateVerification??"independent-gateway"});
       if(typeof result.message!=="string"||!result.message.trim())throw new ApiError("INVALID_AI_RESULT","The model did not return a valid response. No action was taken.",502);
       if(result.proposal){
         const selected=account??(this.accounts(user).length===1?this.accounts(user)[0]:undefined);
@@ -341,7 +346,7 @@ export class Platform {
     const agent=this.agent(user),account=input.accountId?this.account(user,input.accountId):undefined;
     if(!priorUserMessage)this.store.put("message",{id:`${reference}:user`,userId:user.id,role:"user",content:input.message,requestFingerprint,accountId:input.accountId,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     const result=await this.proposal(user,input.message,account,reference);
-    let message:StoredMessage=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,createdAt:priorAssistant?.createdAt??Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
+    let message:StoredMessage=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,privacy:result.privacy,privacyEvidence:result.privacyEvidence,createdAt:priorAssistant?.createdAt??Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     let action:StoredAction|undefined;
     if(result.proposal&&input.autonomous&&agent.mode==="autonomous"&&!agent.paused){
       const prepared=await this.prepare(user,result.proposal,`chat:${reference}`,"agent",{instruction:input.message,providerRequestId:result.requestId,messageId:message.id});

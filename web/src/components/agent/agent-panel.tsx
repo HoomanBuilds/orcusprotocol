@@ -100,7 +100,7 @@ export function AgentPanel({
       retry.current = null;
       await w.refresh();
     } catch (cause) {
-      if (cause instanceof ApiError && ["NOT_CONFIGURED", "AUTH_REQUIRED", "INSUFFICIENT_BUDGET", "PRIVATE_INFERENCE_UNVERIFIED"].includes(cause.code)) retry.current = null;
+      if (cause instanceof ApiError && ["NOT_CONFIGURED", "AUTH_REQUIRED", "INSUFFICIENT_BUDGET", "PRIVATE_INFERENCE_UNVERIFIED", "PRIVACY_POLICY_CHANGED", "RUN_PRIVACY_MISMATCH"].includes(cause.code)) retry.current = null;
       setError(displayError(cause));
       setInput(message);
     } finally {
@@ -199,6 +199,7 @@ export function AgentPanel({
                 0G request {message.requestId.slice(0, 14)}...
               </div>
             )}
+            {message.privacy && message.privacy !== "unverified" && <details className="technical-limits"><summary>{message.privacy === "independently-attested-private" ? "Private inference, independently attested" : "Private tier, gateway-reported assurance"}</summary><pre>{JSON.stringify(message.privacyEvidence, null, 2)}</pre></details>}
             {message.proposedAction && (
               <div className="proposal">
                 <div>
@@ -218,7 +219,7 @@ export function AgentPanel({
                     void w.prepare({
                       ...message.proposedAction!,
                       mode: "manual",
-                    }, "agent")
+                    }, "agent", message.id)
                   }
                 >
                   {message.actionId

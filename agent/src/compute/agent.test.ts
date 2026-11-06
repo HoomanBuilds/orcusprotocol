@@ -52,6 +52,22 @@ function personalMemory(threadId: string, content: string) {
 }
 
 describe("personal LangGraph agent", () => {
+  it("repairs a completed malformed response once without repeating its request or losing billing evidence", async () => {
+    const provider = fakeProvider([{ type: "remember_preference", content: "unsupported" }, final]);
+    const memory = personalMemory("agent:user-a", "Prefers clarity."), afterCall = vi.fn(async () => {});
+    const reply = await planWith0G("Explain spot.", { ...memory, evaluationId: "repair", modelBudget: { beforeCall: async () => {}, afterCall } });
+    expect(reply.modelCalls).toBe(2);
+    expect(reply.requestIds).toHaveLength(2);
+    expect(afterCall).toHaveBeenCalledTimes(2);
+    expect(memory.lastCheckpoint()).toMatchObject({ inferencePending: false, formatErrors: 1 });
+  });
+  it("stops after a second invalid response with a known completed inference checkpoint", async () => {
+    const provider = fakeProvider([{ type: "unsupported" }, { type: "unsupported" }]), memory = personalMemory("agent:user-a", "Prefers clarity.");
+    await expect(planWith0G("Explain spot.", { ...memory, evaluationId: "invalid" })).rejects.toMatchObject({ code: "INVALID_MODEL_OUTPUT" });
+    expect(provider.modelCalls()).toBe(2);
+    expect(memory.lastCheckpoint()).toMatchObject({ status: "failed", inferencePending: false });
+    expect(memory.lastCheckpoint().evidence).toHaveLength(2);
+  });
   it("rejects credential-bearing messages before billing, memory or provider access", async () => {
     const provider = fakeProvider([final]), memory = personalMemory("agent:user-a", "Use conservative amounts.");
     const beforeCall = vi.fn(async () => {});
@@ -164,6 +180,13 @@ describe("personal LangGraph agent", () => {
     await expect(planWith0G("Analyze ETH.", { ...memory, requirePrivate: true })).rejects.toMatchObject({ code: "PRIVATE_INFERENCE_UNVERIFIED" });
     expect(provider.modelCalls()).toBe(0);
     expect(memory.checkpoints.load).not.toHaveBeenCalled();
+  });
+  it("does not replay a private checkpoint under a public inference policy", async () => {
+    const provider = fakeProvider([final]), memory = personalMemory("agent:user-a", "Prefers clarity.");
+    await planWith0G("Explain spot trading.", { ...memory, evaluationId: "privacy-bound-run" });
+    const checkpoint = { ...memory.lastCheckpoint(), privacyPolicy: "gateway-reported" };
+    await expect(planWith0G("Explain spot trading.", { ...memory, evaluationId: "privacy-bound-run", checkpoints: { load: async () => checkpoint, save: async () => {} } })).rejects.toMatchObject({ code: "RUN_PRIVACY_MISMATCH" });
+    expect(provider.modelCalls()).toBe(1);
   });
   it("requires an explicit user request before writing long-term preferences", async () => {
     fakeProvider([{ type: "tool", name: "remember_preference", arguments: { content: "Prefers high leverage.", sourceQuote: "Analyze ETH.", kind: "preference", importance: 0.5 } }, final]);

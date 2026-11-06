@@ -2,9 +2,10 @@ import type { TradeRequest } from "@orcus/core";
 import type { PlannerContext } from "../types";
 import type { AutomationProposal } from "./automation";
 import type { AgentToolProfile } from "./tool-profiles";
+import type { PrivateInferenceEvidence, PrivateVerification } from "./privacy";
 
 export interface ModelUsage { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
-export interface ModelEvidence { callId: string; requestId?: string; responseId?: string; providerAddress?: string; usage?: ModelUsage; billing?: unknown; receivedAt: number }
+export interface ModelEvidence { callId: string; requestId?: string; responseId?: string; providerAddress?: string; usage?: ModelUsage; billing?: unknown; privacy?: PrivateInferenceEvidence; receivedAt: number }
 export interface AgentMemoryNote { id: string; kind: string; content: string; importance: number; source: string; createdAt: number; updatedAt: number; lastAccessedAt?: number }
 export interface MemoryStore {
   search(query: string, limit?: number): Promise<AgentMemoryNote[]>;
@@ -19,10 +20,12 @@ export interface AgentCheckpoint {
   runId: string;
   messageDigest: string;
   toolProfile?: AgentToolProfile;
+  privacyPolicy?: "public" | PrivateVerification;
   status: "running" | "completed" | "failed";
   modelCalls: number;
   toolCalls: number;
   tokenCount: number;
+  formatErrors?: number;
   messages: AgentMessage[];
   toolTrace: ToolTrace[];
   evidence: ModelEvidence[];
@@ -34,6 +37,7 @@ export interface AgentCheckpoint {
   updatedAt: number;
 }
 export interface AgentContext extends PlannerContext {
+  privateVerification?: PrivateVerification;
   toolProfile?: AgentToolProfile;
   threadId?: string;
   runId?: string;
@@ -41,6 +45,7 @@ export interface AgentContext extends PlannerContext {
   checkpoints?: { load(threadId: string): Promise<unknown | null>; save(threadId: string, state: unknown): Promise<void> };
   memoryStore?: MemoryStore;
   modelBudget?: {
+    maxCostUsd?: string;
     beforeCall(input: { callId: string; maxTokens: number }): Promise<void>;
     afterCall(input: { callId: string; outcome: "completed" | "rejected" | "unknown"; requestId?: string; usage?: ModelUsage; billing?: unknown }): Promise<void>;
   };
@@ -58,7 +63,8 @@ export interface PlannerReply {
   requestIds: string[];
   usage?: ModelUsage;
   requiresClarification?: boolean;
-  privacy: "unverified";
+  privacy: "unverified" | PrivateInferenceEvidence["status"];
+  privacyEvidence?: PrivateInferenceEvidence;
   provider: "0G";
   evidenceStatus: "recorded" | "missing-request-id";
   framework: "langgraph";

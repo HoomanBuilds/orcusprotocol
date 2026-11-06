@@ -179,6 +179,8 @@ export interface AgentProfile {
   paused: boolean;
   mode: "approval-required" | "autonomous";
   preferences: string;
+  privateInferenceRequired?: boolean;
+  privateVerification?: "independent-gateway" | "gateway-reported";
 }
 
 export interface AgentPermission {
@@ -202,6 +204,8 @@ export interface ChatMessage {
   proposedAction?: TradeRequest;
   automationProposal?: unknown;
   actionId?: string;
+  privacy?: "unverified" | "independently-attested-private" | "gateway-reported-private";
+  privacyEvidence?: unknown;
 }
 
 export interface Automation {
@@ -250,7 +254,10 @@ export interface OperatingBudget {
     balanceNeurons?: string;
     depositBalanceNeurons?: string;
     accountAddress?: string;
-    unit?: "0G" | "unknown";
+    unit?: "0G" | "USD" | "unknown";
+    currency?: "0g" | "usd";
+    chainId?: number;
+    observedAt?: number;
     message: string;
   };
   computeBalanceScope?: "configured-provider-account";

@@ -50,7 +50,7 @@ export class AgentRun{
       checkpoints:{load:async(threadId:string)=>{this.assertLease();return this.memory.loadCheckpoint(threadId);},save:async(threadId:string,state:unknown)=>{this.assertLease();this.memory.saveCheckpoint(threadId,state);}},
       memoryStore:{search:async(query:string,limit?:number)=>this.memory.search(query,limit),remember:async(input:unknown)=>{if(!explicitRemember)throw new ApiError("MEMORY_CONSENT_REQUIRED","Save memory only when the user explicitly asks to remember a preference or note.",403);const value=memoryInputSchema.parse(input);return this.memory.remember(value,"user-request",this.runId);},forget:async(memoryId:string)=>{if(!explicitForget)throw new ApiError("MEMORY_CONSENT_REQUIRED","Forget memory only when the user explicitly requests it.",403);return this.onForget?this.onForget(memoryId):this.memory.forget(memoryId);}},
       onProgress:async(input:Progress)=>{this.progress(input);},
-      modelBudget:{beforeCall:async(input:{callId:string;maxTokens:number})=>{
+      modelBudget:{maxCostUsd:this.reservation,beforeCall:async(input:{callId:string;maxTokens:number})=>{
         this.assertLease();if(!Number.isSafeInteger(input.maxTokens)||input.maxTokens<=0||input.maxTokens>6000)throw new ApiError("MODEL_TOKEN_LIMIT","The inference token bound is invalid.",409);
         const reference=this.callReference(input.callId);
         if(reference===this.runId){if(!this.initialReservation)throw new ApiError("EVALUATION_PENDING","This first model call was already attempted. A duplicate billable call is blocked.",409);this.initialReservation=false;}

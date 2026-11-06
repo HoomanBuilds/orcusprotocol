@@ -66,7 +66,7 @@ export function parseGatewayAttestation(report: string, exitCode: number, gatewa
 }
 
 export function verifierEnvironment(): NodeJS.ProcessEnv {
-  const result: NodeJS.ProcessEnv = {};
+  const result: NodeJS.ProcessEnv = { NODE_ENV: process.env.NODE_ENV ?? "development" };
   for (const name of ["PATH", "HOME", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"]) if (process.env[name]) result[name] = process.env[name];
   return result;
 }

@@ -226,7 +226,7 @@ export function useWorkspace() {
     }
   }
 
-  async function prepare(request: TradeRequest, initiator: "manual" | "agent" = "manual") {
+  async function prepare(request: TradeRequest, initiator: "manual" | "agent" = "manual", messageId?: string) {
     if (preparing || executing) return;
     setPreparing(true);
     setError(null);
@@ -235,7 +235,7 @@ export function useWorkspace() {
     try {
       const prepared = await api<ActionPreview>(
         "/api/actions/prepare",
-        { method: "POST", headers: { "X-Orcus-Initiator": initiator, "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(request) },
+        { method: "POST", headers: { "X-Orcus-Initiator": initiator, "Idempotency-Key": crypto.randomUUID(), ...(messageId ? { "X-Orcus-Message-Id": messageId } : {}) }, body: JSON.stringify(request) },
       );
       if (revision === sessionRevision.current) setPreview(prepared);
     } catch (cause) {

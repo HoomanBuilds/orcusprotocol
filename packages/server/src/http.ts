@@ -139,7 +139,7 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     const runMatch=path.match(/^agent\/runs\/([^/]+)$/);
     if(runMatch&&method==="GET")return json({data:platform.runStatus(user,z.string().max(100).parse(runMatch[1]))});
     if (path === "agent/control" && method === "POST") {
-      const input = z.object({ command: z.enum(["pause", "resume", "take-over", "update"]), mode: z.enum(["approval-required", "autonomous"]).optional(), preferences: z.string().max(4000).optional(), privateInferenceRequired: z.boolean().optional() }).strict().parse(await readBody(request));
+      const input = z.object({ command: z.enum(["pause", "resume", "take-over", "update"]), mode: z.enum(["approval-required", "autonomous"]).optional(), preferences: z.string().max(4000).optional(), privateInferenceRequired: z.boolean().optional(), privateVerification: z.enum(["independent-gateway", "gateway-reported"]).optional() }).strict().parse(await readBody(request));
       return json({ data: platform.control(user, input) });
     }
     if (path === "agent/chat" && method === "POST") {

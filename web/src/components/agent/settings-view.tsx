@@ -149,6 +149,7 @@ function AccountCard({
       await post("/api/permissions", {
         accountId: account.id,
         action: "activate",
+        permissionId: prepared.permission.id,
         authorization,
       });
       setPrepared(null);
@@ -445,6 +446,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
   const [operatingHash, setOperatingHash] = useState<string | null>(null);
   const [preferences, setPreferences] = useState("");
   const [privateOnly, setPrivateOnly] = useState(false);
+  const [privateVerification, setPrivateVerification] = useState<"independent-gateway" | "gateway-reported">("independent-gateway");
   const [memoryStatus, setMemoryStatus] = useState<string | null>(null);
   const [mode, setMode] = useState<"approval-required" | "autonomous">(
     "approval-required",
@@ -457,6 +459,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
     if (agent) {
       setPreferences(agent.preferences);
       setMode(agent.mode);
+      setPrivateVerification(agent.privateVerification ?? "independent-gateway");
       setPrivateOnly(
         Boolean(
           (agent as typeof agent & { privateInferenceRequired?: boolean })
@@ -464,7 +467,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
         ),
       );
     }
-  }, [agent?.id, agent?.preferences, agent?.mode]);
+  }, [agent?.id, agent?.preferences, agent?.mode, agent?.privateInferenceRequired, agent?.privateVerification]);
 
   async function addAccount(venue: "uniswap" | "hyperliquid") {
     setBusy(venue);
@@ -538,6 +541,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
         preferences,
         mode,
         privateInferenceRequired: privateOnly,
+        privateVerification,
       });
       w.setNotice(
         "Agent preferences saved. Existing venue permissions still define its authority.",
@@ -777,13 +781,10 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
                   checked={privateOnly}
                   onChange={(event) => setPrivateOnly(event.target.checked)}
                 />
-                Require verified private inference
+                Require private inference
               </label>
-              <p className="fine-print">
-                When attestation is unverified, private-only requests fail
-                closed. Encryption and public venue trading do not make every
-                action private.
-              </p>
+              {privateOnly && <Field label="Private inference assurance"><select value={privateVerification} onChange={event => setPrivateVerification(event.target.value as typeof privateVerification)}><option value="independent-gateway">Independent hardware and code verification</option><option value="gateway-reported">Trust 0G gateway's sealed-execution report</option></select></Field>}
+              <p className="fine-print">Independent mode verifies the gateway and pins its TLS certificate; it stops if required evidence is unavailable. Gateway-reported mode explicitly trusts 0G&apos;s sealed-execution report and is not independently attested. Neither mode makes public venue trades private.</p>
               <button
                 className="button secondary full"
                 type="button"
