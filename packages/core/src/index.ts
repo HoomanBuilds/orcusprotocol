@@ -58,6 +58,65 @@ export const tradeRequestSchema = z.object({
 export type TradeRequest = z.infer<typeof tradeRequestSchema>;
 export type ActionInput = TradeRequest;
 
+export const automationConditionSchema = z.object({
+  symbol: z.string().min(1).max(50),
+  operator: z.enum(["above", "below"]),
+  price: positiveDecimalSchema.refine(value => /^\d+(?:\.\d{1,18})?$/.test(value), "Price thresholds support at most eighteen decimal places"),
+}).strict();
+export const automationExecutionModeSchema = z.enum(["once", "recurring", "on-crossing"]);
+export type AutomationExecutionMode = z.infer<typeof automationExecutionModeSchema>;
+
+export function automationMarketMatches(venue: Venue, requestSymbol: string, conditionSymbol: string) {
+  if (venue === "ostium") return requestSymbol === conditionSymbol;
+  const base = (value: string) => {
+    const symbol = value.toUpperCase().split(/[\/-]/)[0].replace(/USDC$|USD$/, "");
+    return symbol === "WETH" ? "ETH" : symbol;
+  };
+  return base(requestSymbol) === base(conditionSymbol);
+}
+
+const automationFields = {
+  kind: z.enum(["trade", "alert"]).default("trade"),
+  accountId: z.string().min(1).max(100),
+  name: z.string().min(1).max(80),
+  instruction: z.string().min(1).max(2000).optional(),
+  intervalSeconds: z.number().int().min(60).max(86_400).optional(),
+  request: tradeRequestSchema.optional(),
+  condition: automationConditionSchema.optional(),
+  executionMode: automationExecutionModeSchema.optional(),
+  maxExecutions: z.number().int().min(1).max(1000).optional(),
+  expiresAt: z.number().int().positive().optional(),
+};
+
+export const automationInputSchema = z.object(automationFields).strict().superRefine((value, context) => {
+  const mode = value.executionMode ?? (value.kind === "alert" ? "recurring" : "once");
+  if (value.kind === "alert" && (!value.condition || value.request)) context.addIssue({ code: "custom", message: "Price alerts require a condition and cannot contain a trade request." });
+  if (value.kind === "trade" && !value.request) context.addIssue({ code: "custom", message: "Review a typed trade and its supported condition or schedule before activating. Free-text strategies cannot execute automatically." });
+  if (value.kind === "trade" && !value.condition && value.intervalSeconds === undefined) context.addIssue({ code: "custom", message: "Scheduled trades require an explicit interval." });
+  if (mode === "on-crossing" && !value.condition) context.addIssue({ code: "custom", message: "Crossing execution requires a price condition." });
+  if (mode === "once" && value.maxExecutions !== undefined && value.maxExecutions !== 1) context.addIssue({ code: "custom", message: "Once-only automation has exactly one execution." });
+  if (value.kind === "trade" && mode !== "once" && value.maxExecutions === undefined) context.addIssue({ code: "custom", message: "Repeating trades require an explicit maximum execution count." });
+  if (value.request && value.request.accountId !== value.accountId) context.addIssue({ code: "custom", message: "The trade belongs to a different account." });
+  if (value.request && value.condition && !automationMarketMatches(value.request.venue, value.request.symbol, value.condition.symbol)) context.addIssue({ code: "custom", message: "The condition must name the same market as the reviewed trade. Cross-market triggers are not supported." });
+  if (value.request && value.request.venue !== "ostium" && value.condition && !/^\d+(?:\.\d{1,8})?$/.test(value.condition.price)) context.addIssue({ code: "custom", message: "This price source supports at most eight decimal places." });
+}).transform(value => {
+  const executionMode = value.executionMode ?? (value.kind === "alert" ? "recurring" : "once");
+  return { ...value, executionMode, maxExecutions: executionMode === "once" ? 1 : value.maxExecutions ?? 1000, intervalSeconds: value.intervalSeconds ?? 300 };
+});
+export type AutomationInput = z.infer<typeof automationInputSchema>;
+export const automationUpdateSchema = z.object({
+  status: z.enum(["active", "paused"]).optional(),
+  name: automationFields.name.optional(),
+  instruction: automationFields.instruction,
+  request: tradeRequestSchema.optional(),
+  condition: automationConditionSchema.nullable().optional(),
+  executionMode: automationExecutionModeSchema.optional(),
+  maxExecutions: automationFields.maxExecutions,
+  intervalSeconds: automationFields.intervalSeconds,
+  expiresAt: automationFields.expiresAt,
+}).strict().refine(value => Object.keys(value).length > 0, "Choose an automation change.");
+export type AutomationUpdate = z.infer<typeof automationUpdateSchema>;
+
 export interface User {
   id: string;
   address: string;
@@ -304,7 +363,7 @@ export interface ChatMessage {
   actionId?: string;
   privacy?: "unverified" | "independently-attested-private" | "gateway-reported-private";
   privacyEvidence?: unknown;
-  toolSteps?: Array<{ name: string; ok: boolean; observedAt: number; requestId?: string }>;
+  toolSteps?: Array<{ name: string; ok: boolean; observedAt: number; requestId?: string; sources?: Array<{ id: string; title: string; url: string; retrievedAt: number; publishedAt?: string; network?: string }> }>;
 }
 
 export interface AgentRequest {
@@ -341,7 +400,12 @@ export interface Automation {
   kind?: "trade" | "alert";
   request?: TradeRequest;
   intervalSeconds: number;
-  status: "active" | "paused" | "expired" | "insufficient-budget" | "failed";
+  status: "active" | "paused" | "expired" | "insufficient-budget" | "failed" | "completed";
+  executionMode?: AutomationExecutionMode;
+  maxExecutions?: number;
+  executionCount?: number;
+  policySchemaVersion?: 1;
+  condition?: z.infer<typeof automationConditionSchema>;
   nextRunAt: number;
   policyVersion: number;
   lastEvaluation?: CreEvaluation;
