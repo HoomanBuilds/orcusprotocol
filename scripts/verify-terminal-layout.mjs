@@ -103,6 +103,14 @@ try {
   console.log(JSON.stringify({ passed: true, viewports: results.length, output }));
 } finally {
   await rpc?.("Browser.close").catch(() => {}); socket?.close(); browser.kill("SIGTERM");
-  await new Promise(resolve => { if (browser.exitCode !== null) resolve(); else { browser.once("exit", resolve); setTimeout(resolve, 3000); } });
-  rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  await new Promise(resolve => {
+    if (browser.exitCode !== null || browser.signalCode !== null) { resolve(); return; }
+    const timer = setTimeout(resolve, 3000);
+    browser.once("exit", () => { clearTimeout(timer); resolve(); });
+  });
+  try { rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
+  catch (error) {
+    if (!["ENOTEMPTY", "EBUSY", "EPERM"].includes(error.code)) throw error;
+    console.warn(`Chromium profile is still busy; retained temporary directory: ${profile}`);
+  }
 }
