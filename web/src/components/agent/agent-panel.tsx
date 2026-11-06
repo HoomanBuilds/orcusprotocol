@@ -10,7 +10,6 @@ import {
   CirclePause,
   Play,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react";
 import type { Workspace } from "@/lib/use-workspace";
 import { displayError, post } from "@/lib/api";
@@ -99,9 +98,6 @@ export function AgentPanel({
       <div className="chat-scroll" aria-live="polite">
         {!messages.length && (
           <div className="agent-welcome">
-            <span className="welcome-icon">
-              <Sparkles size={23} />
-            </span>
             <span className="eyebrow">A SECOND PAIR OF EYES</span>
             <h3>
               What are we
@@ -174,7 +170,7 @@ export function AgentPanel({
                 </button>
               </div>
             )}
-            {message.automationProposal !== undefined && <AutomationSuggestion key={`${owner}:${message.id}`} proposal={message.automationProposal} messageId={message.id} workspace={w} />}
+            {message.automationProposal !== undefined && <AutomationSuggestion key={`${owner}:${message.id}`} proposal={message.automationProposal} messageId={message.id} automationId={message.automationId} workspace={w} />}
           </div>
         ))}
         <AgentRequestProgress requests={requests.requests} conversationIds={messages.map(message => message.id)} />
