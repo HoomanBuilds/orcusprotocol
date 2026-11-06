@@ -44,7 +44,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   return <div className={`product-workspace ${pathname === "/trade" ? "trade-route" : pathname === "/agent" ? "agent-route" : ""}`}>
     <a className="workspace-skip" href="#workspace-content">Skip to content</a>
     <aside className="workspace-sidebar">
-      <Link className="workspace-brand" href="/" prefetch={false} aria-label="Orcus overview"><img src="/workspace/orcus.svg" width="31" height="31" alt=""/><span>orcus<span>.</span></span></Link>
+      <Link className="workspace-brand" href="/" prefetch={false} aria-label="Orcus overview"><span>orcus<span>.</span></span></Link>
       <span className="sidebar-label">YOUR WORKSPACE</span>
       <nav className="primary-nav" aria-label="Main navigation">{navigation}</nav>
       <div className="sidebar-bottom"><div className="sidebar-environment"><ShieldCheck size={18}/><div><strong>Testnet workspace</strong><small>No mainnet trading</small></div></div><Link href="/landing" prefetch={false}><CircleHelp size={16}/>About Orcus<ArrowUpRight size={13}/></Link></div>

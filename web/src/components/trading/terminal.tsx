@@ -23,6 +23,7 @@ export function Terminal() {
   const [marketSearch, setMarketSearch] = useState("");
   const [marketOpen, setMarketOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState("market");
+  const mobileView = w.venue === "uniswap" && mobileTab === "book" ? "market" : mobileTab;
   const picker = useRef<HTMLDivElement>(null);
   const market = w.activeMarket;
   const stale = market ? Date.now() - market.observedAt > 60_000 : false;
@@ -36,7 +37,7 @@ export function Terminal() {
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [marketOpen]);
 
-  return <div className="trade-workspace-page" data-mobile-view={mobileTab}>
+  return <div className="trade-workspace-page" data-mobile-view={mobileView}>
     <h1 className="workspace-visually-hidden">Trade</h1>
 
     <section className="workspace-panel trade-market-heading" aria-label="Selected market">
@@ -47,8 +48,17 @@ export function Terminal() {
     </section>
     {w.marketError && <InlineError message={w.marketError}/>}
     {w.venue === "uniswap" && <div className="trade-network-note"><ShieldCheck size={16}/><span>WETH/USDC on Ethereum Sepolia. Native ETH input is an explicit wrap step. A reviewed quote is not a confirmed swap.</span></div>}
-    <nav className="trade-mobile-tabs" aria-label="Terminal sections">{[{ id: "market", label: "Chart" }, { id: "book", label: "Depth" }, { id: "order", label: "Ticket" }, { id: "positions", label: "Accounts" }].map(tab => <button key={tab.id} type="button" aria-pressed={mobileTab === tab.id} className={mobileTab === tab.id ? "selected" : ""} onClick={() => setMobileTab(tab.id)}>{tab.label}</button>)}</nav>
-    <div className="trade-execution-grid"><div className="trade-chart-column"><MarketChart venue={w.venue} symbol={w.symbol}/></div><div className="trade-depth-column">{w.venue === "ostium" ? <OstiumMarketContext market={market} symbol={w.symbol}/> : <MarketContextPanel venue={w.venue} symbol={w.symbol} prepared={w.preview?.execution}/>}</div><div className="trade-ticket-column">{w.venue === "ostium" ? <OstiumOrderTicket key={w.session.user?.id ?? "disconnected"} workspace={w} onSetup={() => router.push("/settings?section=accounts")}/> : <OrderTicket key={w.session.user?.id ?? "disconnected"} workspace={w} onSetup={() => router.push("/settings?section=accounts")}/>}</div><div className="trade-tables-row"><AccountTables key={w.session.user?.id ?? "disconnected"} workspace={w}/></div></div>
+    <nav className="trade-mobile-tabs" aria-label="Terminal sections">{[{ id: "market", label: w.venue === "uniswap" ? "Swap" : "Chart" }, ...(w.venue === "uniswap" ? [] : [{ id: "book", label: "Depth" }]), { id: "order", label: "Ticket" }, { id: "positions", label: "Accounts" }].map(tab => <button key={tab.id} type="button" aria-pressed={mobileView === tab.id} className={mobileView === tab.id ? "selected" : ""} onClick={() => setMobileTab(tab.id)}>{tab.label}</button>)}</nav>
+    <div className="trade-execution-grid" data-venue={w.venue}>
+      <div className="trade-market-stack">
+        <div className="trade-market-grid">
+          {w.venue !== "uniswap" && <div className="trade-chart-column"><MarketChart venue={w.venue} symbol={w.symbol}/></div>}
+          <div className="trade-depth-column">{w.venue === "ostium" ? <OstiumMarketContext market={market} symbol={w.symbol}/> : <MarketContextPanel venue={w.venue} symbol={w.symbol} prepared={w.preview?.execution}/>}</div>
+        </div>
+        <div className="trade-tables-row"><AccountTables key={w.session.user?.id ?? "disconnected"} workspace={w}/></div>
+      </div>
+      <div className="trade-ticket-column">{w.venue === "ostium" ? <OstiumOrderTicket key={w.session.user?.id ?? "disconnected"} workspace={w} onSetup={() => router.push("/settings?section=accounts")}/> : <OrderTicket key={w.session.user?.id ?? "disconnected"} workspace={w} onSetup={() => router.push("/settings?section=accounts")}/>}</div>
+    </div>
     <section className="portfolio-strip trade-portfolio-strip" aria-label="Trading account summary"><div><span>Observed testnet equity</span><strong>{summary.equity === undefined ? "Unavailable" : usd(summary.equity)}</strong></div><div><span>Unrealized P&amp;L</span><strong className={summary.pnl === undefined ? "" : summary.pnl >= 0 ? "positive" : "negative"}>{summary.pnl === undefined ? "Unavailable" : usd(summary.pnl)}</strong></div><div><span>Open positions</span><strong>{summary.observed ? w.portfolio.positions.length : "--"}</strong></div><div><span>Account control</span><strong className="control-caption"><ShieldCheck size={14}/>{w.account?.status === "authorized" && w.agentData?.permissions.some(permission => permission.accountId === w.account?.id && permission.status === "active" && permission.expiresAt > Date.now()) ? "Owner + authorized agent" : "Owner-controlled"}</strong></div><button className="button secondary small" type="button" disabled={!w.session.user || w.controlling} onClick={() => void w.control("take-over")}>{w.controlling ? "Updating control..." : "Take over"}<ArrowUpRight size={14}/></button></section>
     {w.resourceErrors.portfolio && <InlineError message={`Account data is unavailable: ${w.resourceErrors.portfolio}`}/>}{w.portfolio.errors?.map(error => <InlineError message={error.message} key={`${error.accountId}:${error.message}`}/>)}
     <WalletRoles owner={w.session.user?.address} account={w.account} operatingAddress={w.agentData?.agent.operatingAddress ?? w.session.agent?.operatingAddress}/>
