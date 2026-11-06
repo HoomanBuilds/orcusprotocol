@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { payServiceCredits, type ServicePaymentQuote } from "@orcus/wallets/service-payment";
+import type { ServicePaymentQuote } from "@orcus/wallets/service-payment";
+import { payServiceCredits } from "../../lib/wallets";
 import { api, displayError, post } from "../../lib/api";
 import { tokenUnits, usd } from "../../lib/format";
 import { Address, Badge, Field, InlineError, Spinner, Status } from "../trading/primitives";

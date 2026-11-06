@@ -1,3 +1,6 @@
+import { demoResponse } from "./demo-api";
+import { DEMO_READ_ONLY_MESSAGE, demoReadOnlyError, hasDemoTarget, isDemoMode } from "./demo-mode";
+
 export class ApiError extends Error {
   constructor(public code: string, message: string, public status: number) {
     super(message);
@@ -6,6 +9,11 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const demo = isDemoMode();
+  if (demo) {
+    const result = demoResponse(path, options.method);
+    if (result.handled) return result.data as T;
+  } else if (hasDemoTarget(path, options.body)) throw demoReadOnlyError();
   const response = await fetch(path, {
     ...options,
     credentials: "same-origin",
@@ -13,6 +21,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     cache: "no-store",
   });
   const result = await response.json().catch(() => null);
+  if (isDemoMode() !== demo) throw new ApiError("ACCOUNT_CHANGED", "Account mode changed while loading.", 409);
   if (!response.ok || result?.error) throw new ApiError(result?.error?.code ?? "REQUEST_FAILED", result?.error?.message ?? `Request failed (${response.status}). Please try again.`, response.status);
   return (result && Object.hasOwn(result, "data") ? result.data : result) as T;
 }
@@ -20,6 +29,8 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 export const post = <T>(path: string, body: unknown) => api<T>(path, { method: "POST", body: JSON.stringify(body) });
 
 const safeErrors: Record<string, string> = {
+  DEMO_READ_ONLY: DEMO_READ_ONLY_MESSAGE,
+  DEMO_WALLET_BUSY: "Finish or dismiss the current wallet request before changing accounts.",
   OSTIUM_ALLOWANCE_REQUIRED: "Approve the exact USDC allowance in account settings, wait for its receipt, then review this action again.",
   OSTIUM_AUTOMATION_PENDING: "Native Ostium conditional strategies are not ready yet. Manual trading remains separate.",
   OSTIUM_DELEGATE_EXISTS: "Another native delegate is active. Review it in your owner wallet; Orcus will not silently replace it.",
