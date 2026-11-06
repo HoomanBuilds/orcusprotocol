@@ -1,6 +1,5 @@
 import type { OperatingBudget } from "@orcus/core";
 import { ApiError } from "./errors";
-import type { Document } from "./types";
 import { id, type Store } from "./store";
 
 export function micros(value:string):number {
@@ -11,9 +10,9 @@ export function micros(value:string):number {
   return Number(amount);
 }
 export function usd(value:number):string {return `${Math.floor(value/1_000_000)}.${String(value%1_000_000).padStart(6,"0")}`;}
-export function getBudget(store:Store,userId:string):OperatingBudget & {lowBalanceUsd:string;autoReplenish:boolean;expenses:Document[]} {
+export function getBudget(store:Store,userId:string):OperatingBudget & {lowBalanceUsd:string;autoReplenish:boolean;expenses:NonNullable<OperatingBudget["expenses"]>} {
   const row=store.db.prepare("SELECT * FROM budgets WHERE user_id=?").get(userId) as {cap_micros:number;spent_micros:number;reserved_micros:number;low_micros:number;auto_replenish:number};
-  const expenses=store.db.prepare("SELECT id,reference,kind,amount_micros,status,evidence,created_at FROM expenses WHERE user_id=? ORDER BY created_at DESC LIMIT 50").all(userId) as (Document & {amount_micros:number;evidence:string|null})[];
+  const expenses=store.db.prepare("SELECT id,reference,kind,amount_micros,status,evidence,created_at FROM expenses WHERE user_id=? ORDER BY created_at DESC LIMIT 50").all(userId) as {id:string;reference:string;kind:string;amount_micros:number;status:string;evidence:string|null;created_at:number}[];
   return {operatingAddress:"",limitUsd:usd(row.cap_micros),spentUsd:usd(row.spent_micros),reservedUsd:usd(row.reserved_micros),availableUsd:usd(Math.max(0,row.cap_micros-row.spent_micros-row.reserved_micros)),lowBalanceUsd:usd(row.low_micros),autoReplenish:Boolean(row.auto_replenish),computeBalanceStatus:"unconfigured",replenishmentStatus:"unconfigured",warning:"This is an authorized expense cap, not proof of funded compute credits.",expenses:expenses.map(item=>({...item,amountUsd:usd(item.amount_micros),evidence:item.evidence?JSON.parse(item.evidence):null}))};
 }
 export function setBudget(store:Store,userId:string,cap:string,low:string,auto:boolean) {

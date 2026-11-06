@@ -200,6 +200,7 @@ export interface ChatMessage {
   createdAt: number;
   requestId?: string;
   proposedAction?: TradeRequest;
+  automationProposal?: unknown;
   actionId?: string;
 }
 
@@ -243,6 +244,17 @@ export interface OperatingBudget {
   computeBalanceStatus: "verified" | "unavailable" | "unconfigured";
   replenishmentStatus: "idle" | "pending" | "confirmed" | "failed" | "unconfigured";
   warning?: string;
+  providerBalance?: {
+    status: "verified" | "unavailable" | "unconfigured";
+    balance?: string;
+    balanceNeurons?: string;
+    depositBalanceNeurons?: string;
+    accountAddress?: string;
+    unit?: "0G" | "unknown";
+    message: string;
+  };
+  computeBalanceScope?: "configured-provider-account";
+  expenses?: Array<{ id: string; reference: string; status: string; amountUsd: string; created_at: number; evidence?: unknown }>;
 }
 
 export interface CapabilityStatus {
