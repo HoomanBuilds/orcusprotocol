@@ -1,15 +1,33 @@
 .page { display: grid; gap: 24px; min-width: 0; }
 .header { margin-bottom: 0; }
 .header p { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
-.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--line, #34343a); padding: 20px 0; gap: 24px; }
-.metrics > div { display: grid; gap: 7px; min-width: 0; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.metrics > div { display: grid; gap: 12px; min-width: 0; padding: 22px; border: 1px solid #ffffff17; border-radius: 16px; background: linear-gradient(150deg, #ffffff0d, transparent 70%), #1c1c20; box-shadow: inset 0 1px 0 #ffffff16; }
+.metrics > div:first-child { background: linear-gradient(125deg, #d78eb823, transparent 90%), #272128; border-color: #bf8ba83b; }
 .metrics span, .metrics small { color: var(--muted); font-size: 12px; }
-.metrics strong { font-size: clamp(19px, 2vw, 27px); font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.metrics strong { font-size: clamp(22px, 2.4vw, 34px); font-weight: 500; letter-spacing: -.035em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .metrics small { font-size: 11px; }
-.columns { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 30px; align-items: start; }
-.main, .aside { display: grid; gap: 28px; min-width: 0; }
-.aside { border-left: 1px solid var(--line, #34343a); padding-left: 26px; gap: 24px; }
-.section { min-width: 0; }
+.columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: stretch; }
+.main, .aside { display: contents; }
+.main > :global(.overview-market-watch), .accountsSection { grid-column: 1 / -1; }
+.section { min-width: 0; padding: 24px; border: 1px solid #ffffff17; border-radius: 16px; background: linear-gradient(145deg, #ffffff08, transparent 65%), #1c1c20; box-shadow: inset 0 1px 0 #ffffff10; }
+.accountsSection { background: transparent; padding: 4px 0; border: 0; box-shadow: none; }
+.accountGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; }
+.agentCard { background: linear-gradient(135deg, #8d6c9c17, transparent 70%), #1c1c20; }
+.budgetCard { background: linear-gradient(135deg, #71849c14, transparent 70%), #1c1c20; }
+.agentState { display: flex; align-items: center; gap: 9px; margin-top: 24px; }
+.agentState strong { font-size: 20px; font-weight: 500; }
+.stateDot { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: #adcbb7; }
+.stateDot[data-paused="true"] { background: #cfaf7d; }
+.allowance { display: block; font-size: 32px; font-weight: 500; letter-spacing: -.035em; font-variant-numeric: tabular-nums; margin-top: 24px; }
+.connectCard { display: flex; align-items: center; justify-content: space-between; gap: 32px; padding: 30px; border: 1px solid #bf8ba83b; border-radius: 18px; background: linear-gradient(115deg, #d78eb820, transparent 75%), #211e23; box-shadow: inset 0 1px 0 #ffffff16; }
+.eyebrow { color: #c8a9bd; font-size: 10px; letter-spacing: .13em; }
+.connectCard h2 { margin: 12px 0; font-size: clamp(25px, 3vw, 36px); line-height: 1.12; font-weight: 500; letter-spacing: -.035em; }
+.connectCard p { margin: 0; color: var(--muted); font-size: 12px; }
+.venueCollection { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; flex: 0 1 510px; }
+.venueCollection > div { display: grid; justify-items: start; gap: 12px; padding: 20px; border-radius: 13px; border: 1px solid #ffffff17; background: linear-gradient(145deg, #ffffff0d, transparent), #ffffff04; }
+.venueCollection span { font-size: 12px; font-weight: 500; }
+.venueCollection small { color: var(--muted); font-size: 10px; }
 .sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
 .sectionHeading h2 { font-size: 16px; font-weight: 550; margin: 0; }
 .sectionHeading h3 { font-size: 13px; font-weight: 500; margin: 0; }
@@ -18,18 +36,19 @@
 .empty { padding: 10px 0 16px; }
 .agentNote { margin: 12px 0 20px; }
 .snapshot { margin-bottom: 12px; }
-.account { padding: 18px 0; border-top: 1px solid var(--line, #34343a); }
+.account { padding: 22px; border: 1px solid #ffffff17; border-radius: 16px; background: linear-gradient(150deg, #ffffff0c, transparent 70%), #1e1e22; box-shadow: inset 0 1px 0 #ffffff15; }
 .accountHeading { display: flex; align-items: center; gap: 10px; }
 .accountHeading > div { flex: 1; min-width: 0; }
 .accountHeading h3 { font-size: 14px; margin: 0 0 3px; font-weight: 550; }
 .accountHeading small, .accountDetails { font-size: 11px; color: var(--muted); }
 .accountDetails { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
 .accountDetails b { font-weight: 500; color: var(--fg); font-variant-numeric: tabular-nums; }
-.balances { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; }
+.balances { display: grid; grid-template-columns: 1fr; margin-top: 16px; border-top: 1px solid #ffffff0c; }
 .balance, .tradingRow { display: flex; align-items: center; gap: 10px; padding: 12px 0; min-width: 0; }
 .balance > div, .tradingRow > div { display: grid; gap: 4px; min-width: 0; }
 .balance > div:last-child, .tradingRow > div:last-child { text-align: right; margin-left: auto; font-variant-numeric: tabular-nums; }
-.balance strong, .tradingRow strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.balance strong, .tradingRow strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.balance > div:last-child strong { font-size: 17px; letter-spacing: -.025em; }
 .balance small, .tradingRow small { color: var(--muted); font-size: 10px; }
 .tradingRow { width: 100%; text-align: left; background: transparent; border: 0; border-top: 1px solid var(--line, #34343a); border-radius: 0; }
 .tradingRow:hover { background: #ffffff04; }
@@ -40,10 +59,9 @@
 .list strong { display: block; font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
 .list small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 4px; }
 .list :global(.badge) { font-size: 10px; max-width: 110px; overflow-wrap: anywhere; }
-.budget { margin: 0; display: grid; gap: 14px; font-size: 12px; }
+.budget { margin: 0; padding-top: 18px; border-top: 1px solid #ffffff10; display: grid; gap: 14px; font-size: 12px; }
 .budget > div { display: flex; justify-content: space-between; gap: 12px; }
 .budget dt { color: var(--muted); }
 .budget dd { margin: 0; font-variant-numeric: tabular-nums; }
-@media (max-width: 1150px) { .columns { grid-template-columns: minmax(0, 1fr) 260px; gap: 22px; } .aside { padding-left: 20px; } .balances { grid-template-columns: 1fr; } }
-@media (max-width: 850px) { .columns { grid-template-columns: 1fr; } .aside { border-left: 0; border-top: 1px solid var(--line, #34343a); padding: 24px 0 0; grid-template-columns: repeat(2, minmax(0, 1fr)); } .metrics { gap: 16px; } }
-@media (max-width: 540px) { .page { gap: 20px; } .header { gap: 16px; } .header p { max-width: 240px; } .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 22px; } .metrics strong { font-size: 22px; } .aside { grid-template-columns: 1fr; } .sectionHeading h2 { font-size: 15px; } .accountDetails { gap: 10px; } .tradingRow { flex-wrap: wrap; } .tradingRow > div:last-child { max-width: 47%; } }
+@media (max-width: 1000px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .connectCard { flex-direction: column; align-items: stretch; } .venueCollection { flex-basis: auto; } }
+@media (max-width: 640px) { .columns { grid-template-columns: 1fr; } .page { gap: 20px; } .header { gap: 16px; } .header p { max-width: 240px; } .metrics { gap: 10px; } .metrics > div { padding: 17px; } .metrics strong { font-size: 24px; } .section, .account { padding: 20px; } .accountsSection { padding: 0; } .sectionHeading h2 { font-size: 15px; } .accountDetails { gap: 10px; } .tradingRow { flex-wrap: wrap; } .tradingRow > div:last-child { max-width: 47%; } .connectCard { padding: 24px; gap: 24px; } .venueCollection { gap: 8px; } .venueCollection > div { padding: 12px; gap: 10px; } .venueCollection small { display: none; } }

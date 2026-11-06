@@ -7,7 +7,7 @@ import { useWorkspace } from "@/lib/use-workspace";
 import { activityEntries, portfolioSummary } from "@/lib/workspace-model";
 import { assetAmount, number, usd } from "@/lib/format";
 import { balanceRole, venueName, venueNetwork, venuePresentation } from "@/lib/venue-presentation";
-import { Address, Badge, Status } from "../trading/primitives";
+import { Address, Status } from "../trading/primitives";
 import { AssetIcon, hasAssetIcon, ProtocolIcon } from "./asset-icon";
 import styles from "./overview-dashboard.module.css";
 
@@ -30,17 +30,18 @@ export function OverviewDashboard() {
       <div><h1>Overview</h1><p>Your accounts, markets and work in progress.</p></div>
       {connected ? <Link className="button secondary" href="/trade">Open terminal<ArrowUpRight size={15}/></Link> : <button className="button primary" type="button" disabled={w.connecting} onClick={() => void w.connect()}>{w.connecting ? "Confirm in wallet" : "Connect wallet"}</button>}
     </header>
-    {connected && <section className={styles.metrics} aria-label="Trading account totals">
-      <div><span>Trading equity</span><strong>{summary.equity === undefined ? "Unavailable" : usd(summary.equity)}</strong><small>Reported testnet valuation</small></div>
-      <div><span>Gross exposure</span><strong>{summary.exposure === undefined ? "Unavailable" : usd(summary.exposure)}</strong><small>Open perpetual notional</small></div>
-      <div><span>Unrealized P&amp;L</span><strong className={summary.pnl === undefined || summary.pnl === 0 ? "" : summary.pnl < 0 ? "negative" : "positive"}>{summary.pnl === undefined ? "Unavailable" : usd(summary.pnl)}</strong><small>{summary.complete ? "Observed positions" : "Incomplete account snapshot"}</small></div>
-      <div><span>Open orders</span><strong>{summary.complete ? orders.length : "Unavailable"}</strong><small>{accounts.length} registered {accounts.length === 1 ? "account" : "accounts"}</small></div>
-    </section>}
+    <section className={styles.metrics} aria-label="Trading account totals">
+      <div><span>Trading equity</span><strong>{!connected ? "--" : summary.equity === undefined ? "Unavailable" : usd(summary.equity)}</strong><small>Reported testnet valuation</small></div>
+      <div><span>Gross exposure</span><strong>{!connected ? "--" : summary.exposure === undefined ? "Unavailable" : usd(summary.exposure)}</strong><small>Open perpetual notional</small></div>
+      <div><span>Unrealized P&amp;L</span><strong className={summary.pnl === undefined || summary.pnl === 0 ? "" : summary.pnl < 0 ? "negative" : "positive"}>{!connected ? "--" : summary.pnl === undefined ? "Unavailable" : usd(summary.pnl)}</strong><small>{!connected || summary.complete ? "Observed positions" : "Incomplete account snapshot"}</small></div>
+      <div><span>Open orders</span><strong>{!connected ? "--" : summary.complete ? orders.length : "Unavailable"}</strong><small>{connected ? `${accounts.length} registered ${accounts.length === 1 ? "account" : "accounts"}` : "Across your accounts"}</small></div>
+    </section>
+    {!connected && <section className={styles.connectCard} aria-label="Connect your accounts"><div><span className={styles.eyebrow}>YOUR WORKSPACE</span><h2>All your accounts.<br/>One clear view.</h2><p>Balances, positions and your agent, together.</p></div><div className={styles.venueCollection}>{(["hyperliquid", "uniswap", "ostium"] as const).map(venue => <div key={venue}><ProtocolIcon name={venue} size={34}/><span>{venueName(venue)}</span><small>{venuePresentation[venue].marketType}</small></div>)}</div></section>}
     <div className={styles.columns}><div className={styles.main}>
       <section className="workspace-panel overview-market-watch"><div className="workspace-panel-heading"><div><h2>Market watch</h2><p>{venueNetwork(w.venue)} / public snapshots</p></div><Link className="text-link" href="/trade">Trade<ArrowUpRight size={14}/></Link></div>{w.markets.length ? <div className="overview-market-cards">{w.markets.filter(market => hasAssetIcon(market.symbol)).slice(0, 6).map(market => <button key={market.symbol} type="button" onClick={() => { w.setSymbol(market.symbol); router.push("/trade"); }}><div><AssetIcon symbol={market.symbol} size={30}/><strong>{market.symbol}</strong><ArrowUpRight size={14}/></div><span>{market.midPrice ? usd(market.midPrice) : "Unavailable"}</span><small className={market.change24h === undefined ? "muted" : market.change24h < 0 ? "negative" : "positive"}>{market.change24h === undefined ? "24h change unavailable" : `${market.change24h >= 0 ? "+" : ""}${number(market.change24h)}% / 24h`}</small></button>)}</div> : <p className="compact-empty">{w.marketError ? "Market feed unavailable. Open Trade to refresh." : "Loading venue snapshots..."}</p>}</section>
-      <section className={styles.section} aria-labelledby="overview-accounts">
+      {connected && <><section className={`${styles.section} ${styles.accountsSection}`} aria-labelledby="overview-accounts">
         <div className={styles.sectionHeading}><h2 id="overview-accounts">Trading accounts</h2><Link className="text-link" href="/settings?section=accounts">{accounts.length ? "Manage accounts" : "Account setup"}</Link></div>
-        {!accounts.length ? <p className={styles.empty}>{connected ? "No trading accounts added yet." : "Connect your wallet to see balances and manage your accounts."}</p> : accounts.map(account => {
+        {!accounts.length ? <p className={styles.empty}>No trading accounts added yet.</p> : <div className={styles.accountGrid}>{accounts.map(account => {
           const balances = w.portfolio.balances.filter(item => item.accountId === account.id);
           const accountPositions = positions.filter(item => item.accountId === account.id);
           const accountOrders = orders.filter(item => item.accountId === account.id);
@@ -51,7 +52,7 @@ export function OverviewDashboard() {
             <div className={styles.accountDetails}><Address value={account.address} explorer={venuePresentation[account.venue].explorer}/><span>{unavailable ? "Snapshot unavailable" : `${accountPositions.length} positions / ${accountOrders.length} orders`}</span>{account.venue !== "uniswap" && <span>Exposure <b>{accountSummary.exposure === undefined ? "Unavailable" : usd(accountSummary.exposure)}</b></span>}</div>
             {balances.length ? <div className={styles.balances}>{balances.map(balance => <div className={styles.balance} key={`${balance.symbol}:${balance.tokenAddress ?? "native"}`}><AssetIcon symbol={balance.symbol} size={22}/><div><strong>{balance.symbol}</strong><small>{balanceRole(account.venue, balance.symbol)}</small></div><div><strong>{assetAmount(balance.amount, balance.symbol)}</strong><small>{balance.usdValue === undefined ? "Value unavailable" : usd(balance.usdValue)}</small></div></div>)}</div> : <p className={styles.empty}>{unavailable ? "Balances unavailable. Refresh to check again." : "No balances reported."}</p>}
           </div>;
-        })}
+        })}</div>}
       </section>
       <section className={styles.section} aria-labelledby="overview-positions">
         <div className={styles.sectionHeading}><h2 id="overview-positions">Positions &amp; orders</h2><Link className="text-link" href="/trade">Manage in terminal</Link></div>
@@ -65,17 +66,17 @@ export function OverviewDashboard() {
           </button>)}
           {(positions.length > 5 || orders.length > 5) && <Link className="text-link" href="/trade">View all positions and orders</Link>}
         </>}
-      </section>
-    </div><aside className={styles.aside}>
+      </section></>}
+    </div>{connected && <aside className={styles.aside}>
       <section className={styles.section} aria-labelledby="overview-pending"><div className={styles.sectionHeading}><h2 id="overview-pending">In progress</h2><Link className="text-link" href="/activity?status=pending">Activity</Link></div>
         {pending.length ? <div className={styles.list}>{pending.slice(0, 4).map(entry => <Link key={entry.id} href={`/activity?item=${encodeURIComponent(entry.id)}&status=pending`}><div><strong>{entry.title}</strong><small>{entry.description}</small></div><Status value={entry.status}/></Link>)}</div> : <p className={styles.empty}>{!connected ? "Connect to view saved activity." : Object.keys(w.resourceErrors).length ? "Some activity sources are unavailable." : "No pending work."}</p>}
       </section>
-      <section className={styles.section} aria-labelledby="overview-agent"><div className={styles.sectionHeading}><h2 id="overview-agent">Agent</h2><Link className="text-link" href="/agent">Open chat</Link></div><Badge tone={agent?.paused ? "warn" : "neutral"}>{mode}</Badge><p className={styles.agentNote}>{agent?.paused ? "No new agent actions while paused." : agent?.mode === "autonomous" ? "Execution stays within your active permissions." : "Review proposed actions before execution."}</p>
+      <section className={`${styles.section} ${styles.agentCard}`} aria-labelledby="overview-agent"><div className={styles.sectionHeading}><h2 id="overview-agent">Agent</h2><Link className="text-link" href="/agent">Open chat</Link></div><div className={styles.agentState}><span className={styles.stateDot} data-paused={!agent || agent.paused || Boolean(w.resourceErrors.agent)}/><strong>{mode}</strong></div><p className={styles.agentNote}>{agent?.paused ? "No new agent actions while paused." : agent?.mode === "autonomous" ? "Execution stays within your active permissions." : "Review proposed actions before execution."}</p>
         <div className={styles.sectionHeading}><h3>Automations</h3><span>{!connected ? "Not connected" : w.resourceErrors.automations ? "Unavailable" : `${automations.filter(item => item.status === "active").length} active`}</span></div>
         {automations.length ? <div className={styles.list}>{automations.slice(0, 3).map(automation => <Link key={automation.id} href={`/automations#${encodeURIComponent(automation.id)}`}><div><strong>{automation.name}</strong><small>{automation.kind === "alert" ? "Price alert" : "Trading strategy"}</small></div><Status value={automation.status}/></Link>)}</div> : <p className={styles.empty}>{!connected ? "Connect to view your strategies." : w.resourceErrors.automations ? "Schedules could not be loaded." : "No schedules created."}</p>}
         <Link className="text-link" href="/automations">Manage automations</Link>
       </section>
-      <section className={styles.section} aria-labelledby="overview-budget"><div className={styles.sectionHeading}><h2 id="overview-budget">Operating allowance</h2><Link className="text-link" href="/settings?section=agent">Manage</Link></div><p className={styles.agentNote}>Agent expense cap, separate from trading capital.</p><dl className={styles.budget}><div><dt>Available allowance</dt><dd>{budget ? usd(budget.availableUsd) : "Unavailable"}</dd></div><div><dt>Spent</dt><dd>{budget ? usd(budget.spentUsd) : "Unavailable"}</dd></div><div><dt>Reserved</dt><dd>{budget ? usd(budget.reservedUsd) : "Unavailable"}</dd></div></dl></section>
-    </aside></div>
+      <section className={`${styles.section} ${styles.budgetCard}`} aria-labelledby="overview-budget"><div className={styles.sectionHeading}><h2 id="overview-budget">Operating allowance</h2><Link className="text-link" href="/settings?section=agent">Manage</Link></div><strong className={styles.allowance}>{budget ? usd(budget.availableUsd) : "Unavailable"}</strong><p className={styles.agentNote}>Agent expense cap, separate from trading capital.</p><dl className={styles.budget}><div><dt>Spent</dt><dd>{budget ? usd(budget.spentUsd) : "Unavailable"}</dd></div><div><dt>Reserved</dt><dd>{budget ? usd(budget.reservedUsd) : "Unavailable"}</dd></div></dl></section>
+    </aside>}</div>
   </div>;
 }

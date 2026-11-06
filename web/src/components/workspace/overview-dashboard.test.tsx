@@ -71,6 +71,11 @@ describe("account overview", () => {
     expect(html).toContain("Connect wallet");
     expect(html).not.toContain("PRIVATE");
     expect(html).not.toContain("Old owner strategy");
-    expect(html).not.toContain("Trading account totals");
+    expect(html).toContain("Trading account totals");
+    expect(html).toContain("All your accounts.");
+    expect(html).toContain("<strong>--</strong>");
+    expect(html).not.toContain("Connect to view saved activity");
+    expect(html).not.toContain("Operating allowance");
+    expect(html).not.toContain("$0.00");
   });
 });
