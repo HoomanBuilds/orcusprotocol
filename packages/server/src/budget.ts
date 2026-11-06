@@ -66,7 +66,7 @@ export function settleReservation(store:Store,userId:string,reference:string,sta
 export function settleComputeReservation(store:Store,userId:string,reference:string,input:{requestId?:string;billing?:unknown;usage?:unknown;callId?:string;outcome?:"completed"|"rejected"|"unknown";billingOrigin?:string;billingApiKeyId?:string;model?:string}) {
   const billing=parseRouterBilling(input.billing);
   const hasRequestId=typeof input.requestId==="string"&&input.requestId.length>0&&input.requestId.length<=200;
-  if(input.outcome==="rejected"){settleReservation(store,userId,reference,"released",{...input,billing:undefined});return;}
+  if(input.outcome==="rejected"&&input.billing===undefined){settleReservation(store,userId,reference,"released",{...input,billing:undefined});return;}
   if(!billing||!hasRequestId){settleReservation(store,userId,reference,"unknown",{...input,billing:undefined,recordedBilling:billing,billingStatus:"unverified",reason:"Provider billing and request identity are required before settling an expense."});return;}
   settleReservation(store,userId,reference,"settled",{requestId:input.requestId,callId:input.callId,usage:input.usage,billingOrigin:input.billingOrigin,billingApiKeyId:input.billingApiKeyId,model:input.model,billing,billingStatus:"provider-reported",ledgerUnit:"USD-equivalent",walletDebitCurrency:billing.currency},billing.costUsd);
 }
