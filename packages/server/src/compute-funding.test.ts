@@ -5,7 +5,7 @@ import { Store } from "./store";
 
 const operatingAddress = `0x${"2".repeat(40)}`, computeAccountAddress = `0x${"3".repeat(40)}`, transactionHash = `0x${"4".repeat(64)}`;
 const policy = () => ({ enabled: true, chainId: 16602, currency: "0g", computeAccountAddress, topUp0G: "0.1", maximumTotal0G: "0.22", lowBalance0G: "0.02", maxGas0G: "0.01", expiresAt: Date.now() + 600_000 });
-const context = () => ({ operatingAddress, providerBalance: { status: "verified", currency: "0g", accountAddress: computeAccountAddress, balanceNeurons: "0", observedAt: Date.now() }, paymentVaultBalance: { source: "payment-vault", chainId: 16602, currency: "0g", accountAddress: computeAccountAddress, balanceNeurons: "0", observedAt: Date.now() } });
+const context = () => ({ operatingAddress, providerBalance: { status: "verified", source: "0g-router", chainId: 16602, currency: "0g", accountAddress: computeAccountAddress, balanceNeurons: "0", observedAt: Date.now() }, paymentVaultBalance: { source: "payment-vault", chainId: 16602, currency: "0g", accountAddress: computeAccountAddress, balanceNeurons: "0", observedAt: Date.now() } });
 function setup() { const store = new Store(":memory:"); const user = store.ensureUser(`0x${"1".repeat(40)}`); return { store, user }; }
 
 describe("owner-authorized compute replenishment", () => {
@@ -14,8 +14,9 @@ describe("owner-authorized compute replenishment", () => {
     try {
       const current = context();
       expect(() => configureComputeFunding(store, user, policy(), { ...current, providerBalance: { ...current.providerBalance, currency: "usd" } })).toThrow(/USD billing/);
+      expect(() => configureComputeFunding(store, user, policy(), { ...current, providerBalance: { ...current.providerBalance, chainId: 16661 } })).toThrow(/Mainnet accounts/);
       expect(() => configureComputeFunding(store, user, policy(), { ...current, providerBalance: { ...current.providerBalance, accountAddress: operatingAddress } })).toThrow(/exact approved/);
-      expect(() => configureComputeFunding(store, user, policy(), { ...current, providerBalance: { ...current.providerBalance, observedAt: Date.now() - 60_001 } })).toThrow(/fresh Router balance/);
+      expect(() => configureComputeFunding(store, user, policy(), { ...current, providerBalance: { ...current.providerBalance, observedAt: Date.now() - 60_001 } })).toThrow(/fresh Galileo Router balance/);
       expect(() => configureComputeFunding(store, user, policy(), { ...current, operatingAddress: user.address })).toThrow(/separate agent operating wallet/);
       expect(() => configureComputeFunding(store, user, { ...policy(), maximumTotal0G: "0.1" }, current)).toThrow(/deposit and its maximum gas/);
       expect(() => configureComputeFunding(store, user, { ...policy(), expiresAt: Date.now() + 31 * 86_400_000 }, current)).toThrow(/thirty days/);

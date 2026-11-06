@@ -20,8 +20,8 @@ const pending = (record: FundingRecord) => ["prepared", "submitting", "submitted
 function totals(records: FundingRecord[]) { return records.reduce((result, record) => ({ spent: result.spent + BigInt(record.spentWei ?? "0"), reserved: result.reserved + (pending(record) ? BigInt(record.amountWei) + BigInt(record.maxGasWei) : 0n) }), { spent: 0n, reserved: 0n }); }
 
 function verifiedBalance(value: unknown, accountAddress: string): bigint {
-  const parsed = z.object({ status: z.literal("verified"), currency: z.literal("0g"), accountAddress: address, observedAt: z.number().int().positive(), balanceNeurons: z.string().regex(/^\d{1,80}$/).optional(), balanceBaseUnits: z.string().regex(/^\d{1,80}$/).optional() }).safeParse(value);
-  if (!parsed.success || !isAddressEqual(getAddress(parsed.data.accountAddress), getAddress(accountAddress)) || Math.abs(Date.now() - parsed.data.observedAt) > 60_000) throw new ApiError("COMPUTE_ACCOUNT_UNVERIFIED", "Funding requires a fresh Router balance for the exact approved 0G-mode account. USD billing and inference-only keys cannot authorize native deposits.", 409);
+  const parsed = z.object({ status: z.literal("verified"), source: z.literal("0g-router"), chainId: z.literal(16602), currency: z.literal("0g"), accountAddress: address, observedAt: z.number().int().positive(), balanceNeurons: z.string().regex(/^\d{1,80}$/).optional(), balanceBaseUnits: z.string().regex(/^\d{1,80}$/).optional() }).safeParse(value);
+  if (!parsed.success || !isAddressEqual(getAddress(parsed.data.accountAddress), getAddress(accountAddress)) || Math.abs(Date.now() - parsed.data.observedAt) > 60_000) throw new ApiError("COMPUTE_ACCOUNT_UNVERIFIED", "Funding requires a fresh Galileo Router balance for the exact approved 0G-mode account. Mainnet accounts, USD billing, and inference-only keys cannot authorize testnet native deposits.", 409);
   const balance = parsed.data.balanceBaseUnits ?? parsed.data.balanceNeurons;
   if (balance === undefined) throw new ApiError("COMPUTE_ACCOUNT_UNVERIFIED", "The provider must report its native account balance before replenishment.", 409);
   return BigInt(balance);
