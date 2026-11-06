@@ -35,12 +35,12 @@ export async function reconcileOstiumApproval(input: { transactionHash: string; 
   }
   const receipt = await rpc.getTransactionReceipt({ hash }).catch(() => null);
   if (!receipt) return { status: "pending" as const, transactionHash: hash, evidence: { receipt: "unavailable" } };
-  if (receipt.status !== "success") return { status: "rejected" as const, transactionHash: hash, evidence: { receipt: "reverted" } };
   const block = await rpc.getBlock({ blockNumber: receipt.blockNumber }), blockTimestamp = Number(block.timestamp) * 1000;
   if (input.minimumBlock !== undefined ? !/^\d+$/.test(input.minimumBlock) || receipt.blockNumber <= BigInt(input.minimumBlock) : input.notBefore !== undefined && blockTimestamp < Math.floor(input.notBefore / 1000) * 1000) throw new EngineError("APPROVAL_NOT_VERIFIED", "This approval predates its recorded owner intent.");
   const transaction = await rpc.getTransaction({ hash });
   const expected = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [OSTIUM_TESTNET.storage, amount] });
   if (!same(transaction.from, input.account.ownerAddress) || !transaction.to || !same(transaction.to, OSTIUM_TESTNET.usdc) || transaction.value !== 0n || transaction.input !== expected) throw new EngineError("APPROVAL_NOT_VERIFIED", "The receipt does not match this owner's exact Ostium allowance.");
+  if (receipt.status !== "success") return { status: "rejected" as const, transactionHash: hash, evidence: { receipt: "reverted", blockNumber: receipt.blockNumber.toString() } };
   const events = receipt.logs.flatMap(log => {
     if (!same(log.address, OSTIUM_TESTNET.usdc)) return [];
     try { const event = decodeEventLog({ abi: erc20Abi, ...log }); return event.eventName === "Approval" && same(event.args.owner, input.account.ownerAddress) && same(event.args.spender, OSTIUM_TESTNET.storage) && event.args.value === amount ? [event] : []; } catch { return []; }
