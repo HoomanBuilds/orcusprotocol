@@ -308,7 +308,7 @@ export class Platform {
     const agent=this.agent(user),account=input.accountId?this.account(user,input.accountId):undefined;
     if(!priorUserMessage)this.store.put("message",{id:`${reference}:user`,userId:user.id,role:"user",content:input.message,requestFingerprint,accountId:input.accountId,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     const result=await this.proposal(user,input.message,account,reference);
-    let message=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,createdAt:priorAssistant?.createdAt??Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
+    let message:StoredMessage=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,createdAt:priorAssistant?.createdAt??Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     let action:StoredAction|undefined;
     if(result.proposal&&input.autonomous&&agent.mode==="autonomous"&&!agent.paused){
       const prepared=await this.prepare(user,result.proposal,`chat:${reference}`,"agent");
