@@ -177,7 +177,11 @@ try {
     await until("!!document.getElementById('overview-accounts')", "Connected account overview");
     const overview = await rpc("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
     writeFileSync(join(directory, "overview-demo-top.png"), Buffer.from(overview.data, "base64"));
-    await assertDemoVisible(); await delay(2800);
+    await assertDemoVisible(); await delay(1800);
+    await scroll(null, 370); await delay(2200);
+    const accounts = await rpc("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    writeFileSync(join(directory, "overview-demo-accounts.png"), Buffer.from(accounts.data, "base64"));
+    await scroll(null, -10000); await assertDemoVisible(); await delay(1000);
   });
   if (overviewOnly) { console.log(JSON.stringify({ overview: directory, publicTradingWrites: 0 })); return; }
   await nav("Trade"); await until("document.querySelector('.market-price strong')?.textContent.startsWith('$')", "Readonly market price");
@@ -186,7 +190,10 @@ try {
     await click(".market-select"); await type("input[aria-label='Search markets']", "ETH"); await click(".market-options-list button");
     await until("document.querySelector('.market-select strong')?.textContent==='ETH'", "ETH market"); await delay(3500);
     await click(".order-type-tabs button", "Limit"); await type("input[aria-label='Order amount']", "0.001"); await delay(2200);
-    await click(".market-select"); await type("input[aria-label='Search markets']", "BTC"); await click(".market-options-list button"); await until("document.querySelector('.market-select strong')?.textContent==='BTC'", "BTC market"); await delay(2200);
+    await until("document.querySelectorAll('.account-tables tbody tr').length>0", "Populated demo positions");
+    const tableScroll = await evaluate("Math.max(0,document.querySelector('.account-tables').getBoundingClientRect().bottom-innerHeight+60)");
+    if (tableScroll > 0) await scroll(null, tableScroll);
+    await delay(2600); await scroll(null, -10000); await assertDemoVisible(); await delay(600);
   });
   await shot("04-uniswap", 14, "Demo account: sample balances | Uniswap Sepolia swap inputs | No quote or swap submitted", async () => {
     await select("select[aria-label='Trading venue']", "uniswap"); await until("document.body.innerText.includes('Swap tokens')&&document.querySelector('.market-select strong')?.textContent==='WETH/USDC'", "Loaded WETH/USDC swap controls"); await delay(1500); await click(".side-toggle button", "Sell"); await type("input[aria-label='Order amount']", "0.01"); await delay(2500);
