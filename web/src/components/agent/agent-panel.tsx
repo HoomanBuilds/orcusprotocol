@@ -13,36 +13,13 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { Workspace } from "@/lib/use-workspace";
-import { api, displayError, post } from "@/lib/api";
+import { displayError, post } from "@/lib/api";
 import { number, usd } from "@/lib/format";
 import { useAgentRequests } from "@/lib/use-agent-requests";
 import { AgentRequestProgress } from "./agent-request-progress";
+import { AgentResponse, AgentToolActivity } from "./agent-response";
+import { AutomationSuggestion } from "./automation-review-card";
 import { Address, Badge, InlineError, Spinner } from "../trading/primitives";
-
-function AutomationSuggestion({ proposal, messageId, onCreated }: { proposal: unknown; messageId: string; onCreated: () => Promise<void> }) {
-  const [busy, setBusy] = useState(false);
-  const [created, setCreated] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  if (!proposal || typeof proposal !== "object" || !("kind" in proposal) || !["trade", "alert"].includes(String(proposal.kind))) return null;
-  const name = "name" in proposal && typeof proposal.name === "string" ? proposal.name : "Proposed automation";
-  async function accept() {
-    setBusy(true);
-    setError(null);
-    try {
-      await api("/api/automations", { method: "POST", headers: { "Idempotency-Key": `chat-automation:${messageId}` }, body: JSON.stringify(proposal) });
-      setCreated(true);
-      await onCreated();
-    } catch (cause) { setError(displayError(cause)); }
-    finally { setBusy(false); }
-  }
-  return <div className="proposal">
-    <strong>{name}</strong>
-    <p>{proposal.kind === "alert" ? "Read-only price monitoring, no trade authority." : "Unattended recurring trades require your existing bounded agent grant."}</p>
-    <details className="technical-limits"><summary>Review proposed schedule and limits</summary><pre>{JSON.stringify(proposal, null, 2)}</pre></details>
-    <button className="button secondary small full" type="button" disabled={busy || created} onClick={() => void accept()}>{busy ? <Spinner /> : null}{created ? "Automation created" : "Approve and activate this schedule"}</button>
-    <InlineError message={error} />
-  </div>;
-}
 
 export function AgentPanel({
   workspace: w,
@@ -162,7 +139,7 @@ export function AgentPanel({
                 "YOU"
               )}
             </span>
-            <p>{message.content}</p>
+            {message.role === "assistant" ? <><AgentToolActivity steps={message.toolSteps}/><AgentResponse content={message.content}/></> : <p>{message.content}</p>}
             {message.requestId && (
               <div className="request-evidence" title={message.requestId}>
                 <Check size={10} />
@@ -198,7 +175,7 @@ export function AgentPanel({
                 </button>
               </div>
             )}
-            {message.automationProposal !== undefined && <AutomationSuggestion proposal={message.automationProposal} messageId={message.id} onCreated={w.refresh} />}
+            {message.automationProposal !== undefined && <AutomationSuggestion key={`${owner}:${message.id}`} proposal={message.automationProposal} messageId={message.id} workspace={w} />}
           </div>
         ))}
         <AgentRequestProgress requests={requests.requests} conversationIds={messages.map(message => message.id)} />

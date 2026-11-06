@@ -3,9 +3,14 @@ import type { Automation } from "@orcus/core";
 import { automationControl, automationFailure } from "./automation-ux";
 
 const now = Date.now();
-const job: Automation = { id: "job", userId: "user", accountId: "account", name: "ETH rule", instruction: "Monitor ETH", intervalSeconds: 300, status: "active", nextRunAt: now + 60_000, policyVersion: 1, expiresAt: now + 60_000, createdAt: now };
+const job: Automation = { id: "job", userId: "user", accountId: "account", name: "ETH rule", instruction: "Monitor ETH", intervalSeconds: 300, status: "active", nextRunAt: now + 60_000, policyVersion: 1, policySchemaVersion: 1, executionMode: "once", maxExecutions: 1, executionCount: 0, expiresAt: now + 60_000, createdAt: now };
 
 describe("automation control and failure states", () => {
+  it("does not silently resume legacy or exhausted policies", () => {
+    expect(automationControl({ ...job, status: "paused", policySchemaVersion: undefined }, false, now)).toMatchObject({ disabled: true, label: "Review execution policy" });
+    expect(automationControl({ ...job, executionCount: 1 }, false, now)).toMatchObject({ disabled: true, label: "Run limit reached" });
+    expect(automationControl({ ...job, status: "completed" }, false, now)).toMatchObject({ disabled: true, status: "completed" });
+  });
   it("always permits pausing an active strategy but requires explicit resumption after agent pause", () => {
     expect(automationControl(job, true, now)).toMatchObject({ disabled: false, label: "Pause automation" });
     expect(automationControl({ ...job, status: "paused" }, true, now)).toMatchObject({ disabled: true, label: "Resume automation" });

@@ -6,304 +6,140 @@ import { tradeRequestSchema } from "@orcus/core";
 import { Clock3, GitBranch, Plus, Power, ShieldCheck } from "lucide-react";
 import type { Workspace } from "@/lib/use-workspace";
 import { api, displayError } from "@/lib/api";
-import { time } from "@/lib/format";
+import { time, usd } from "@/lib/format";
 import { automationControl, automationFailure } from "@/lib/automation-ux";
+import { executionLabel, reviewAutomation, type ExecutionMode, type ReviewedAutomation } from "@/lib/automation-review";
 import { ostiumEntryRequest } from "@/lib/ostium-ux";
-import {
-  Badge,
-  Empty,
-  Field,
-  InlineError,
-  Spinner,
-  Status,
-} from "../trading/primitives";
+import { actionReviewLabel } from "@/lib/trade-ux";
+import { AutomationPolicySummary } from "./automation-review-card";
+import { Badge, Field, InlineError, Spinner, Status } from "../trading/primitives";
+
+type Kind = "strategy" | "dca" | "alert";
+const starters = [
+  { id: "alert", label: "Price alert", when: "A price meets your threshold", then: "Notify you. No trade.", description: "Monitor a market without granting execution authority." },
+  { id: "dca", label: "Scheduled trade", when: "Your chosen interval", then: "Submit your exact trade", description: "Repeat a bounded trade a finite number of times." },
+  { id: "strategy", label: "Conditional trade", when: "Your price condition is met", then: "Submit your approved action", description: "Choose the trigger, action and stopping rule yourself." },
+] as const;
 
 export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
+  return <AutomationWorkspace key={w.session.user?.id ?? "guest"} workspace={w}/>;
+}
+
+function AutomationWorkspace({ workspace: w }: { workspace: Workspace }) {
   const router = useRouter();
-  const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
-  const [instruction, setInstruction] = useState("");
-  const [accountId, setAccountId] = useState("");
-  const [interval, setIntervalValue] = useState("300");
-  const [kind, setKind] = useState<"strategy" | "dca" | "alert">("strategy");
-  const [symbol, setSymbol] = useState("ETH");
-  const [amount, setAmount] = useState("");
-  const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [operator, setOperator] = useState<"above" | "below">("above");
-  const [threshold, setThreshold] = useState("");
-  const [leverage, setLeverage] = useState("1");
-  const [dayTrade, setDayTrade] = useState(false);
-  const [requestKey, setRequestKey] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false), [name, setName] = useState(""), [accountId, setAccountId] = useState("");
+  const [interval, setIntervalValue] = useState("300"), [kind, setKind] = useState<Kind>("strategy");
+  const [symbol, setSymbol] = useState("ETH"), [amount, setAmount] = useState(""), [side, setSide] = useState<"buy" | "sell">("buy");
+  const [operator, setOperator] = useState<"above" | "below">("above"), [threshold, setThreshold] = useState("");
+  const [leverage, setLeverage] = useState("1"), [dayTrade, setDayTrade] = useState(false);
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>("once"), [maxExecutions, setMaxExecutions] = useState("1"), [hours, setHours] = useState("24");
+  const [draft, setDraft] = useState<ReviewedAutomation | null>(null), [requestKey, setRequestKey] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Array<{ id: string; message: string; createdAt: number; readAt?: number }>>([]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null), [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
+  const owner = w.session.user?.id ?? "", ownerRef = useRef(owner); ownerRef.current = owner;
+  useEffect(() => () => { ownerRef.current = ""; }, []);
   const selectedAccount = w.session.accounts.find(account => account.id === (accountId || w.account?.id || w.session.accounts[0]?.id));
-  const native = selectedAccount?.venue === "ostium";
+  const native = selectedAccount?.venue === "ostium", spot = selectedAccount?.venue === "uniswap";
   const nativeMarkets = w.markets.filter(market => market.venue === "ostium");
   const selectedMarket = w.markets.find(market => market.symbol === symbol && market.venue === selectedAccount?.venue);
   const conditionQuote = selectedMarket?.quoteAsset ?? (native ? symbol.split("/")[1] : "USD") ?? "USD";
+  const grant = w.agentData?.permissions.find(item => item.accountId === selectedAccount?.id && item.status === "active" && item.expiresAt > Date.now());
 
+  useEffect(() => { setCreating(false); setDraft(null); setName(""); setAccountId(""); setAmount(""); setThreshold(""); setNotifications([]); setError(null); setBusy(null); setRequestKey(null); busyRef.current = false; }, [owner]);
   useEffect(() => { if (selectedAccount && w.venue !== selectedAccount.venue) w.setVenue(selectedAccount.venue); }, [selectedAccount?.id, selectedAccount?.venue, w.venue, w.setVenue]);
   useEffect(() => {
-    if (!native || !nativeMarkets.length || symbol.includes("/") || nativeMarkets.some(market => market.symbol === symbol)) return;
+    if (!native || !nativeMarkets.length || nativeMarkets.some(market => market.symbol === symbol)) return;
     const first = nativeMarkets.find(market => market.symbol === w.symbol) ?? nativeMarkets.find(market => market.tradable) ?? nativeMarkets[0];
-    setSymbol(first.symbol); setLeverage(String(first.minLeverage ?? 1)); setRequestKey(null);
+    setSymbol(first.symbol); setLeverage(String(first.minLeverage ?? 1)); setDraft(null);
   }, [native, w.markets, w.symbol, symbol]);
-
   useEffect(() => {
     let active = true;
-    if (!w.session.user) { setNotifications([]); return; }
+    if (!owner) return;
     const load = () => api<{ notifications: typeof notifications }>("/api/notifications").then(result => { if (active) setNotifications(result.notifications); }).catch(cause => { if (active) setError(displayError(cause)); });
     void load();
-    const timer = setInterval(() => void load(), 12000);
+    const timer = setInterval(() => { if (document.visibilityState !== "hidden") void load(); }, 12000);
     return () => { active = false; clearInterval(timer); };
-  }, [w.session.user?.id]);
+  }, [owner]);
 
-  async function create() {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy("create");
+  function begin(next: Kind) {
+    setKind(next); setDraft(null); setRequestKey(null); setError(null);
+    setExecutionMode(next === "dca" ? "recurring" : "once"); setMaxExecutions(next === "dca" ? "10" : "1"); setCreating(true);
+  }
+  function review() {
     setError(null);
     try {
       if (!selectedAccount) throw new Error("Choose a connected account first.");
-      const key = requestKey ?? crypto.randomUUID();
-      setRequestKey(key);
-      const request = kind === "dca" ? native ? { ...ostiumEntryRequest(selectedAccount, selectedMarket, { type: "market", side, amount, leverage, isDayTrade: dayTrade, price: "", takeProfit: "", stopLoss: "", slippage: "0.5" }), mode: "agent" } : tradeRequestSchema.parse({ accountId: selectedAccount.id, venue: selectedAccount.venue, type: selectedAccount.venue === "uniswap" ? "swap" : "market", symbol: selectedAccount.venue === "uniswap" ? "WETH/USDC" : symbol.trim().toUpperCase(), side, amount, slippageBps: 50, reduceOnly: false, mode: "agent" }) : undefined;
-      await api("/api/automations", { method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify({
-        kind: kind === "alert" ? "alert" : "trade",
-        name,
-        instruction: kind === "strategy" ? instruction : undefined,
-        accountId: selectedAccount.id,
-        intervalSeconds: Number(interval),
-        ...(request ? { request } : {}),
-        ...(kind === "alert" ? { condition: { symbol: symbol.trim().toUpperCase(), operator, price: threshold } } : {}),
-      }) });
-      setCreating(false);
-      setName("");
-      setInstruction("");
-      setRequestKey(null);
-      await w.refresh();
-    } catch (cause) {
-      setError(displayError(cause));
-    } finally {
-      busyRef.current = false;
-      setBusy(null);
-    }
-  }
-
-  async function readNotification(id: string) {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(id);
-    setError(null);
-    try {
-      await api(`/api/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ read: true }) });
-      setNotifications(current => current.map(item => item.id === id ? { ...item, readAt: Date.now() } : item));
+      const lifetime = Number(hours);
+      if (!Number.isFinite(lifetime) || lifetime < 1 || lifetime > 720) throw new Error("Choose an expiry between 1 and 720 hours.");
+      const request = kind === "alert" ? undefined : native
+        ? { ...ostiumEntryRequest(selectedAccount, selectedMarket, { type: "market", side, amount, leverage, isDayTrade: dayTrade, price: "", takeProfit: "", stopLoss: "", slippage: "0.5" }), mode: "agent" }
+        : tradeRequestSchema.parse({ accountId: selectedAccount.id, venue: selectedAccount.venue, type: spot ? "swap" : "market", symbol: spot ? "WETH/USDC" : symbol.trim().toUpperCase(), side, amount, slippageBps: 50, reduceOnly: false, mode: "agent" });
+      const expiresAt = Math.min(Date.now() + lifetime * 3_600_000, kind === "alert" ? Infinity : grant?.expiresAt ?? Infinity);
+      const proposal = reviewAutomation({ kind: kind === "alert" ? "alert" : "trade", name, accountId: selectedAccount.id, intervalSeconds: Number(interval), executionMode, maxExecutions: executionMode === "once" ? 1 : Number(maxExecutions), expiresAt, ...(request ? { request } : {}), ...(kind !== "dca" ? { condition: { symbol: spot ? "ETH" : symbol.trim().toUpperCase(), operator, price: threshold } } : {}) }, w.session.accounts);
+      setDraft(proposal); setRequestKey(crypto.randomUUID());
     } catch (cause) { setError(displayError(cause)); }
-    finally { busyRef.current = false; setBusy(null); }
   }
-
-  async function toggle(id: string, status: string) {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(id);
-    setError(null);
+  async function create() {
+    if (!draft || !requestKey || busyRef.current || !owner) return;
+    busyRef.current = true; setBusy("create"); setError(null);
     try {
-      await api(`/api/automations/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          status: status === "active" ? "paused" : "active",
-        }),
-      });
-      await w.refresh();
-    } catch (cause) {
-      setError(displayError(cause));
-    } finally {
-      busyRef.current = false;
-      setBusy(null);
-    }
+      const current = reviewAutomation(draft, w.session.accounts);
+      await api("/api/automations", { method: "POST", headers: { "Idempotency-Key": requestKey }, body: JSON.stringify(current) });
+      if (ownerRef.current !== owner) return;
+      setCreating(false); setDraft(null); setName(""); setRequestKey(null); await w.refresh();
+    } catch (cause) { if (ownerRef.current === owner) setError(displayError(cause)); }
+    finally { if (ownerRef.current === owner) { busyRef.current = false; setBusy(null); } }
+  }
+  async function mutate(id: string, path: string, body: object) {
+    if (busyRef.current || !owner) return;
+    busyRef.current = true; setBusy(id); setError(null);
+    try {
+      await api(path, { method: "PATCH", body: JSON.stringify(body) });
+      if (ownerRef.current !== owner) return;
+      if (path.includes("notifications")) setNotifications(current => current.map(item => item.id === id ? { ...item, readAt: Date.now() } : item));
+      else await w.refresh();
+    } catch (cause) { if (ownerRef.current === owner) setError(displayError(cause)); }
+    finally { if (ownerRef.current === owner) { busyRef.current = false; setBusy(null); } }
   }
 
-  return (
-    <section className="workspace-page">
-      <div className="page-heading">
-        <div>
-          <h1>Automations</h1>
-          <p>
-            Conditions you choose. Authority you control.
-          </p>
+  return <section className="workspace-page">
+    <div className="page-heading"><div><h1>Automations</h1><p>Clear rules. Bounded actions. Always under your control.</p></div><button className="button primary" type="button" disabled={!owner || !w.session.accounts.length || !!busy} onClick={() => creating ? setCreating(false) : begin("strategy")}><Plus size={15}/>New automation</button></div>
+    <div className="automation-runner-notice"><strong>CRE local runner</strong> / {w.health?.cre.ready ? "Configured for local evaluations." : "Unavailable. Configure the runner before activating an automation."} Not hosted DON execution.</div>
+    <InlineError message={error}/>
+    {creating && <div className="automation-form">
+      <div className="automation-form-heading"><div><span className="eyebrow">{draft ? "02 / REVIEW" : "01 / CONFIGURE"}</span><h2>{draft ? "Your exact execution policy" : "Build an explicit rule"}</h2></div><Badge>{draft ? "Not active yet" : "Testnet"}</Badge></div>
+      {draft ? <><AutomationPolicySummary draft={draft} accountLabel={`${selectedAccount?.venue} / ${selectedAccount?.address.slice(0, 8)}...`}/><p className="fine-print">{draft.executionMode === "on-crossing" ? "The first observation arms this rule without firing. Only a later false-to-true crossing can trigger it." : draft.executionMode === "once" ? "Stops after one submission. An uncertain result will not be automatically retried." : "While eligible, this exact action repeats until its run limit or expiry. Each submission counts even if settlement is uncertain."}</p><p className="fine-print">{draft.kind === "alert" ? "No trading authority is granted." : `Current grant cap: ${usd(grant?.maxTradeUsd)} per trade. Available operating allowance: ${usd(w.budget?.availableUsd)}. Fees, balance and authority are checked again before submission.`}</p></> : <>
+        <div className="form-grid">
+          <Field label="Automation type"><select value={kind} onChange={event => begin(event.target.value as Kind)}><option value="strategy">Conditional trade</option><option value="dca">Scheduled trade</option><option value="alert">Read-only price alert</option></select></Field>
+          <Field label="Name"><input value={name} maxLength={80} onChange={event => setName(event.target.value)} placeholder="My ETH rule"/></Field>
+          <Field label="Trading account"><select value={selectedAccount?.id ?? ""} onChange={event => setAccountId(event.target.value)}>{w.session.accounts.map(account => <option value={account.id} key={account.id}>{account.venue} / {account.address.slice(0, 8)}...</option>)}</select></Field>
+          <Field label={spot ? "Market" : "Instrument"}>{native ? <select aria-label="Ostium automation market" value={symbol} onChange={event => setSymbol(event.target.value)}>{!nativeMarkets.some(market => market.symbol === symbol) && <option value={symbol}>{symbol} (unavailable)</option>}{nativeMarkets.map(market => <option key={market.symbol} value={market.symbol}>{market.symbol}{market.tradable === false ? " (currently read-only)" : ""}</option>)}</select> : <input value={spot ? "WETH/USDC" : symbol} readOnly={spot} onChange={event => setSymbol(event.target.value)} maxLength={50}/>}</Field>
+          {kind !== "alert" && <><Field label="Direction"><select value={side} onChange={event => setSide(event.target.value as typeof side)}><option value="buy">Buy</option><option value="sell">Sell</option></select></Field><Field label={spot ? `Amount paid (${side === "buy" ? "USDC" : "WETH"})` : native ? "USDC collateral per submission" : "Base asset amount per submission"}><input value={amount} inputMode="decimal" onChange={event => setAmount(event.target.value)}/></Field></>}
+          {kind !== "dca" && <><Field label={kind === "alert" ? "Notify when price is" : "Execute when price is"}><select value={operator} onChange={event => setOperator(event.target.value as typeof operator)}><option value="above">Above</option><option value="below">Below</option></select></Field><Field label={`Threshold (${conditionQuote} per ${spot ? "ETH" : selectedMarket?.baseAsset ?? symbol.split("/")[0]})`}><input value={threshold} inputMode="decimal" onChange={event => setThreshold(event.target.value)}/></Field></>}
+          {native && kind !== "alert" && <><Field label="Leverage"><input inputMode="decimal" value={leverage} onChange={event => setLeverage(event.target.value)}/></Field><label className="checkbox"><input type="checkbox" checked={dayTrade} onChange={event => setDayTrade(event.target.checked)}/>Day-trade position</label></>}
         </div>
-        <button
-          className="button primary"
-          type="button"
-          disabled={!w.session.user || !w.session.accounts.length || !!busy}
-          onClick={() => { setRequestKey(null); setCreating((value) => !value); }}
-        >
-          <Plus size={15} />
-          New automation
-        </button>
-      </div>
-      <div className="automation-runner-notice">
-        <span>
-          <strong>CRE local runner</strong> / {w.health?.cre.ready ? "Configured for local evaluations." : "Unavailable. Conditional strategies cannot evaluate until the runner is configured."} Not hosted DON execution.
-        </span>
-      </div>
-      <InlineError message={error} />
-      {creating && (
-        <div className="automation-form">
-          <h2>New approved strategy</h2>
-          <div className="form-grid">
-            <Field label="Automation type">
-              <select value={kind} onChange={event => { setKind(event.target.value as typeof kind); setRequestKey(null); }}>
-                <option value="strategy">Agent-planned strategy</option>
-                <option value="dca">Recurring bounded purchase / sale</option>
-                <option value="alert">Price alert, no trading authority</option>
-              </select>
-            </Field>
-            <Field label="Name">
-              <input
-                value={name}
-                onChange={(event) => { setName(event.target.value); setRequestKey(null); }}
-                placeholder="My ETH accumulation"
-              />
-            </Field>
-            <Field label="Trading account">
-              <select
-                value={selectedAccount?.id ?? ""}
-                onChange={(event) => { setAccountId(event.target.value); setRequestKey(null); }}
-              >
-                {w.session.accounts.map((account) => (
-                  <option value={account.id} key={account.id}>
-                    {account.venue} / {account.address.slice(0, 8)}...
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Evaluation interval">
-              <select
-                value={interval}
-                onChange={(event) => { setIntervalValue(event.target.value); setRequestKey(null); }}
-              >
-                <option value="300">Every 5 minutes</option>
-                <option value="900">Every 15 minutes</option>
-                <option value="3600">Hourly</option>
-                <option value="86400">Daily</option>
-              </select>
-            </Field>
-          </div>
-          {kind !== "strategy" && <div className="form-grid">
-            <Field label={kind === "dca" && selectedAccount?.venue === "uniswap" ? "Spot pair" : "Instrument"}>
-              {native ? <select aria-label="Ostium automation market" value={symbol} onChange={event => { setSymbol(event.target.value); setRequestKey(null); }}>{!nativeMarkets.some(market => market.symbol === symbol) && <option value={symbol}>{symbol} (unavailable)</option>}{nativeMarkets.map(market => <option key={market.symbol} value={market.symbol}>{market.symbol}{market.tradable === false ? " (currently read-only)" : ""}</option>)}</select> : <input value={kind === "dca" && selectedAccount?.venue === "uniswap" ? "WETH/USDC" : symbol} readOnly={kind === "dca" && selectedAccount?.venue === "uniswap"} onChange={event => { setSymbol(event.target.value); setRequestKey(null); }} maxLength={50} />}
-            </Field>
-            {kind === "dca" ? <>
-              <Field label="Direction"><select value={side} onChange={event => { setSide(event.target.value as typeof side); setRequestKey(null); }}><option value="buy">Buy</option><option value="sell">Sell</option></select></Field>
-              <Field label={selectedAccount?.venue === "uniswap" ? `Amount paid per execution (${side === "buy" ? "USDC" : "WETH"})` : native ? "USDC collateral per execution" : "Base asset amount per execution"}><input value={amount} inputMode="decimal" onChange={event => { setAmount(event.target.value); setRequestKey(null); }} /></Field>
-            </> : <>
-              <Field label="Notify when price is"><select value={operator} onChange={event => { setOperator(event.target.value as typeof operator); setRequestKey(null); }}><option value="above">Above</option><option value="below">Below</option></select></Field>
-              <Field label={`Price threshold (${conditionQuote} per ${selectedMarket?.baseAsset ?? symbol.split("/")[0]})`}><input value={threshold} inputMode="decimal" onChange={event => { setThreshold(event.target.value); setRequestKey(null); }} /></Field>
-            </>}
-          </div>}
-          {native && kind === "dca" && <div className="form-grid"><Field label="Native leverage"><input inputMode="decimal" value={leverage} onChange={event => { setLeverage(event.target.value); setRequestKey(null); }}/></Field><label className="checkbox"><input type="checkbox" checked={dayTrade} onChange={event => { setDayTrade(event.target.checked); setRequestKey(null); }}/>Day-trade position</label><p className="fine-print">Exact USDC collateral and leverage repeat at each permitted interval. Account limits, native delegation, USDC allowance, fees and market hours are checked each time.</p></div>}
-          {kind === "strategy" && <Field
-            label="Instruction and conditions"
-            hint="Be specific about the asset, amount, trigger and limits. Owner permissions remain the final boundary."
-          >
-            <textarea
-              rows={3}
-              value={instruction}
-              onChange={(event) => { setInstruction(event.target.value); setRequestKey(null); }}
-              placeholder="Check ETH market conditions every hour and propose a bounded trade..."
-            />
-          </Field>}
-          <p className="fine-print">{kind === "alert" ? "The worker evaluates a real CRE price condition and creates an in-app notification. No trade is submitted and no agent trading grant is needed." : kind === "dca" ? "Every allowed interval repeats this exact bounded request until paused or the grant expires. It uses your agent authorization and current execution checks." : "0G proposes an action; CRE evaluates it and the worker independently checks current account permissions before execution."}</p>
-          <div className="form-actions">
-            <button
-              className="button secondary"
-              type="button"
-              onClick={() => setCreating(false)}
-            >
-              Cancel
-            </button>
-            <button
-              className="button primary"
-              type="button"
-              disabled={
-                !!busy || !name.trim() || !selectedAccount || (kind === "strategy" ? !instruction.trim() : kind === "dca" ? !amount.trim() || Number(amount) <= 0 || native && (!selectedMarket?.tradable || Number(leverage) <= 0) : !symbol.trim() || !threshold.trim() || Number(threshold) <= 0)
-              }
-              onClick={() => void create()}
-            >
-              {busy === "create" ? <Spinner /> : <ShieldCheck size={15} />}
-              Create approved strategy
-            </button>
-          </div>
-        </div>
-      )}
-      {!!notifications.length && <div className="automation-list">
-        <h2>Price alert notifications</h2>
-        {notifications.slice(0, 20).map(item => <article className="automation-card" key={item.id}>
-          <p>{item.message}</p><small>{time(item.createdAt)}</small>
-          {!item.readAt && <button className="button secondary small" type="button" disabled={!!busy} onClick={() => void readNotification(item.id)}>Mark read</button>}
-        </article>)}
-      </div>}
-      {!w.automations.length ? (
-        <div className="automation-starters">{([{ id: "alert", label: "Price alert", when: "Price crosses your threshold", then: "Notify you. No trade.", description: "Watch a price without granting execution authority." }, { id: "dca", label: "Recurring trade", when: "Your chosen interval", then: "Prepare a bounded purchase or sale", description: "Repeat one exact trade within your active permissions." }, { id: "strategy", label: "Agent strategy", when: "Your conditions are met", then: "Evaluate an agent proposal", description: "0G plans. CRE evaluates. Account permissions apply." }] as const).map((item, index) => <button className={`automation-starter ${item.id}`} type="button" key={item.id} disabled={w.connecting || !!busy} onClick={() => { if (!w.session.user) { void w.connect(); return; } if (!w.session.accounts.length) { router.push("/settings?section=accounts"); return; } setKind(item.id); setRequestKey(null); setCreating(true); }}><div className="automation-starter-top"><span>0{index + 1}</span><strong>{item.label}</strong></div><div className="automation-rule-preview"><span>WHEN</span><p>{item.when}</p><i/><span>THEN</span><p>{item.then}</p></div><p>{item.description}</p><span className="automation-starter-action">{!w.session.user ? "Connect to configure" : !w.session.accounts.length ? "Set up account" : "Configure automation"}<Plus size={16}/></span></button>)}</div>
-      ) : (
-        <div className="automation-list">
-          {w.automations.map((job) => (
-            <article className="automation-card" key={job.id} id={job.id}>
-              <div className="automation-top">
-                <span className="automation-icon">
-                  <GitBranch size={18} />
-                </span>
-                <div>
-                  <h2>{job.name}</h2>
-                  <span>
-                    <Clock3 size={12} />
-                    Every {Math.round(job.intervalSeconds / 60)} min / {automationControl(job, !!w.agentData?.agent.paused).status === "active" ? `next ${time(job.nextRunAt)}` : "not scheduled"}
-                  </span>
-                </div>
-                <Status value={automationControl(job, !!w.agentData?.agent.paused).status} />
-                <button
-                  className="icon-button"
-                  type="button"
-                  aria-label={automationControl(job, !!w.agentData?.agent.paused).label}
-                  title={automationControl(job, !!w.agentData?.agent.paused).detail}
-                  disabled={!!busy || automationControl(job, !!w.agentData?.agent.paused).disabled}
-                  onClick={() => void toggle(job.id, job.status)}
-                >
-                  {busy === job.id ? <Spinner /> : <Power size={15} />}
-                </button>
-              </div>
-              <p>{job.instruction}</p>
-              {job.expiresAt && <small>Expires {time(job.expiresAt)}</small>}
-              <p className="fine-print">{automationControl(job, !!w.agentData?.agent.paused).detail}</p>
-              <InlineError message={automationFailure(job)} />
-              {job.lastEvaluation ? (
-                <div className="evaluation">
-                  <span className="eyebrow">LATEST CRE EVALUATION</span>
-                  <div>
-                    <Status value={job.lastEvaluation.decision} />
-                    <Badge>{job.lastEvaluation.source}</Badge>
-                    <time>{time(job.lastEvaluation.observedAt)}</time>
-                  </div>
-                  <p>{job.lastEvaluation.reason}</p>
-                  <code title={job.lastEvaluation.id}>
-                    {job.lastEvaluation.id}
-                  </code>
-                  {job.lastEvaluation.requestId && (
-                    <small>0G request: {job.lastEvaluation.requestId}</small>
-                  )}
-                </div>
-              ) : (
-                <div className="evaluation muted">
-                  No evaluation received. Waiting for the configured runner.
-                </div>
-              )}
-            </article>
-          ))}
-        </div>
-      )}
-    </section>
-  );
+        <div className="automation-policy-fields"><h3>When it runs and stops</h3><div className="form-grid">
+          <Field label="Execution mode"><select value={executionMode} onChange={event => { const mode = event.target.value as ExecutionMode; setExecutionMode(mode); setMaxExecutions(mode === "once" ? "1" : "10"); }}><option value="once">Run once</option><option value="recurring">Repeat while eligible</option>{kind !== "dca" && <option value="on-crossing">On a new threshold crossing</option>}</select></Field>
+          <Field label="Maximum executions"><input type="number" min="1" max="1000" step="1" value={executionMode === "once" ? "1" : maxExecutions} disabled={executionMode === "once"} onChange={event => setMaxExecutions(event.target.value)}/></Field>
+          <Field label="Evaluation interval"><select value={interval} onChange={event => setIntervalValue(event.target.value)}><option value="60">Every minute</option><option value="300">Every 5 minutes</option><option value="900">Every 15 minutes</option><option value="3600">Hourly</option><option value="86400">Daily</option></select></Field>
+          <Field label="Expires after (hours)" hint="A trade rule cannot outlive its permission."><input type="number" min="1" max="720" value={hours} onChange={event => setHours(event.target.value)}/></Field>
+        </div></div>
+        <p className="fine-print">Only the structured rule above controls execution. Use Agent for RSI, news and broader research; prose alone cannot activate an unattended strategy.</p>
+      </>}
+      {kind !== "alert" && !grant && <p className="warning-note">Authorize this account in Settings before activating a trading rule.</p>}
+      <div className="form-actions"><button className="button secondary" type="button" disabled={!!busy} onClick={() => draft ? setDraft(null) : setCreating(false)}>{draft ? "Edit rule" : "Cancel"}</button><button className="button primary" type="button" disabled={!!busy || !owner || !selectedAccount || !name.trim() || (draft !== null && (!w.health?.cre.ready || kind !== "alert" && !grant))} onClick={() => draft ? void create() : review()}>{busy === "create" ? <Spinner/> : <ShieldCheck size={15}/>} {draft ? "Approve and activate" : "Review rule"}</button></div>
+    </div>}
+    {!!notifications.length && <div className="automation-list"><h2>Price notifications</h2>{notifications.slice(0, 20).map(item => <article className="automation-card" key={item.id}><p>{item.message}</p><small>{time(item.createdAt)}</small>{!item.readAt && <button className="button secondary small" type="button" disabled={!!busy} onClick={() => void mutate(item.id, `/api/notifications/${item.id}`, { read: true })}>Mark read</button>}</article>)}</div>}
+    {!w.automations.length ? <div className="automation-starters">{starters.map((item, index) => <button className={`automation-starter ${item.id}`} type="button" key={item.id} disabled={w.connecting || !!busy} onClick={() => { if (!owner) { void w.connect(); return; } if (!w.session.accounts.length) { router.push("/settings?section=accounts"); return; } begin(item.id); }}><div className="automation-starter-top"><span>0{index + 1}</span><strong>{item.label}</strong></div><div className="automation-rule-preview"><span>WHEN</span><p>{item.when}</p><i/><span>THEN</span><p>{item.then}</p></div><p>{item.description}</p><span className="automation-starter-action">{!owner ? "Connect to configure" : !w.session.accounts.length ? "Set up account" : "Configure automation"}<Plus size={16}/></span></button>)}</div> : <div className="automation-list">{w.automations.map(job => {
+      const control = automationControl(job, !!w.agentData?.agent.paused);
+      return <article className="automation-card" key={job.id} id={job.id}>
+        <div className="automation-top"><span className="automation-icon"><GitBranch size={18}/></span><div><h2>{job.name}</h2><span><Clock3 size={12}/>Every {Math.round(job.intervalSeconds / 60)} min / {control.status === "active" ? `next ${time(job.nextRunAt)}` : "not scheduled"}</span></div><Status value={control.status}/><button className="icon-button" type="button" aria-label={control.label} title={control.detail} disabled={!!busy || control.disabled} onClick={() => void mutate(job.id, `/api/automations/${job.id}`, { status: job.status === "active" ? "paused" : "active" })}>{busy === job.id ? <Spinner/> : <Power size={15}/>}</button></div>
+        <div className="automation-policy-chips"><Badge>{executionLabel(job.executionMode)}</Badge><span>{job.executionCount ?? 0} / {job.maxExecutions ?? "?"} {job.kind === "alert" ? "notifications" : "submissions"}</span>{job.condition && <span>{job.condition.symbol} {job.condition.operator} {job.condition.price}</span>}</div>
+        {job.request && <p>{actionReviewLabel(job.request)} / {job.request.type} / {job.request.symbol} / {job.request.venue}</p>}
+        {job.expiresAt && <small>Expires {time(job.expiresAt)}</small>}<p className="fine-print">{control.detail}</p><InlineError message={automationFailure(job)}/>
+        {job.lastEvaluation ? <div className="evaluation"><span className="eyebrow">LATEST EVALUATION</span><div><Status value={job.lastEvaluation.decision}/><Badge>{job.lastEvaluation.source}</Badge><time>{time(job.lastEvaluation.observedAt)}</time></div><p>{job.lastEvaluation.reason}</p><details className="technical-limits"><summary>Evaluation evidence</summary><code>{job.lastEvaluation.id}</code>{job.lastEvaluation.requestId && <small>0G request: {job.lastEvaluation.requestId}</small>}</details></div> : <div className="evaluation muted">No evaluation received yet.</div>}
+      </article>;
+    })}</div>}
+  </section>;
 }
