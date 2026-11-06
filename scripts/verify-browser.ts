@@ -117,7 +117,9 @@ try {
   const requestId = crypto.randomUUID(), beforePosts = agentPosts;
   const accepted = await api("/api/agent/requests", { requestId, message: "Review my account exposure", accountId: account.id, autonomous: false });
   assert.equal(accepted.status, 202); assert.equal(accepted.body.data.request.status, "queued");
-  await navigate("Trade"); await navigate("Activity"); await click("button[aria-label=\"Refresh accounts\"]");
+  await navigate("Trade");
+  await until("!document.querySelector('.workspace-notices .notice')", "A noncritical notice persisted across route navigation.");
+  await navigate("Activity"); await click("button[aria-label=\"Refresh accounts\"]");
   await until("document.body.innerText.includes('Agent instruction')", "Saved queued instruction did not reach Activity.");
   await navigate("Agent");
   await until("document.body.innerText.includes('Review my account exposure')", "Accepted instruction was not restored in Agent.");

@@ -27,7 +27,12 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const pending = w.session.user ? activityEntries({ actions: w.actions, requests: w.requests, budget: w.budget, payments: w.payments, funding: w.funding, deposits: w.tradingDeposits, allowances: w.ostiumAllowances }).filter(item => item.pending).length : 0;
   const readyServices = w.health ? [w.health.compute, w.health.storage, w.health.uniswap, w.health.hyperliquid, ...(w.health.ostium ? [w.health.ostium] : []), w.health.cre].filter(service => service.configured).length : undefined;
 
-  useEffect(() => { setMenuOpen(false); }, [pathname]);
+  useEffect(() => { setMenuOpen(false); w.setNotice(null); }, [pathname, w.setNotice]);
+  useEffect(() => {
+    if (!w.notice) return;
+    const timer = setTimeout(() => w.setNotice(null), 5_000);
+    return () => clearTimeout(timer);
+  }, [w.notice, w.setNotice]);
   useEffect(() => {
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
     document.addEventListener("keydown", close);

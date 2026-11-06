@@ -13,6 +13,8 @@ describe("durable agent progress", () => {
     const output = render(request("queued"));
     expect(output).toContain("Waiting for worker"); expect(output).toContain("Saved, not yet running");
     expect(output).toContain("Owner signatures are never replayed"); expect(output).not.toContain("model calls");
+    expect(output).toContain('class="agent-request-progress"');
+    expect(output.indexOf('class="technical-limits"')).toBeGreaterThan(output.indexOf("Saved, not yet running"));
   });
   it("shows a stale heartbeat and an interrupted outcome without a replay button", () => {
     expect(render({ ...request("running"), heartbeatAt: Date.now() - 180_001 })).toContain("heartbeat is stale");

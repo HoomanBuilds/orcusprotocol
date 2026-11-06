@@ -5,7 +5,7 @@ import { Spinner } from "../trading/primitives";
 
 export function AgentRequestProgress({ requests, conversationIds }: { requests: AgentRequest[]; conversationIds: string[] }) {
   if (!requests.length) return null;
-  return <section aria-label="Saved agent requests" className="technical-limits">
+  return <section aria-label="Saved agent requests" className="agent-request-progress">
     <h3>Saved requests</h3>
     <p className="fine-print">You can leave this page and return. Owner signatures are never replayed automatically.</p>
     {requests.slice(0, 8).map(request => <div className="evaluation" key={request.id}>
@@ -17,7 +17,7 @@ export function AgentRequestProgress({ requests, conversationIds }: { requests: 
       {request.error && <p className="warning-note">{request.error}</p>}
       {request.actionId && <p className="fine-print">An action is recorded. Check Activity for its actual settlement or reconciliation status.</p>}
       {request.response && !conversationIds.includes(request.response.id) && <p>{request.response.content}</p>}
-      <details><summary>Request evidence</summary><code>{request.id}</code><p className="fine-print">Updated {new Date(request.updatedAt).toLocaleString()}</p></details>
+      <details className="technical-limits"><summary>Request evidence</summary><code>{request.id}</code><p className="fine-print">Updated {new Date(request.updatedAt).toLocaleString()}</p></details>
     </div>)}
   </section>;
 }
