@@ -102,7 +102,7 @@ Edit only your private host configuration, using your own editor session:
 sudoedit /opt/orcus/.env
 ```
 
-Use [.env.example](../../.env.example) for the actual required provider settings. For the complete demo, supply 0G Compute credentials, CRE authentication and the configured Sepolia bundler/operator gas sponsorship. These are real prerequisites, not sample credentials or automatically funded accounts. Keep optional integrations disabled unless you have configured them. In particular, set:
+Use [.env.example](../../.env.example) for the actual required provider settings. For the complete demo, supply 0G Compute credentials, CRE authentication and the configured Sepolia ERC-4337 bundler. These are real prerequisites, not sample credentials or automatically funded accounts. Each Uniswap smart account pays gas from its own Sepolia ETH balance for both owner and agent actions. No paymaster, operator gas key, paymaster deposit or stake is needed. The smart account's ERC-4337 gas prefund is taken from its own ETH. Keep enough ETH beyond any native swap input; the session signer is not the fee wallet. Ostium owner actions use owner ETH and delegated actions use delegate ETH on Arbitrum Sepolia. Hyperliquid orders use signed API requests with venue trading fees. There are no automatic gas top-ups. Keep optional integrations disabled unless you have configured them. In particular, set:
 
 ```dotenv
 CRE_ENABLED=true
@@ -182,7 +182,7 @@ The example hostname must match `ORCUS_APP_URL`. If the host already has a Caddy
 
 ## Verify and update
 
-In a browser at the public origin, connect the intended wallet and sign in, then create a chat and testnet account. Restart both services and confirm the same account/chat remain visible. This verifies persistence on this instance; it is not evidence that trading, billable inference or funded sponsorship succeeded. Confirm those flows separately with the intended testnet accounts and limits.
+In a browser at the public origin, connect the intended wallet and sign in, then create a chat and testnet account. Restart both services and confirm the same account/chat remain visible. This verifies persistence on this instance; it is not evidence that trading, billable inference or self-funded gas settlement succeeded. Confirm those flows separately with the intended testnet accounts and limits.
 
 ```sh
 sudo systemctl restart orcus-web.service orcus-worker.service
@@ -196,4 +196,4 @@ For a code update, stop both services first. As `orcus`, inspect `git status --s
 
 Stopping the worker pauses conditional automation. Instance/disk deletion can lose this local state. This deliberately small hackathon setup does not include replication, backups or a recovery platform.
 
-Hosting is still unperformed. To carry it out later, supply the approved EC2 instance/region and SSH access, repository revision, domain/DNS or existing HTTPS proxy, and privately configured provider credentials, CRE authentication and limited testnet sponsorship. Never paste those secrets into chat or command arguments.
+The current hackathon deployment uses https://orcusprotocol.xyz on the approved AWS host at 15.135.178.84. Hosting and read-only browser checks do not prove wallet signing or trading. For subsequent updates, use the approved revision and existing host access, plus privately configured provider credentials and CRE authentication; do not modify unrelated hosted apps. Never paste those secrets into chat or command arguments.
