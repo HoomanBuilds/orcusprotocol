@@ -1,0 +1,171 @@
+# One EC2 instance for the hackathon
+
+Run the web app and worker directly on Ubuntu with systemd. No Docker or managed database is needed. These files prepare hosting; no AWS instance has been created or started by adding them.
+
+## 1. Choose the host
+
+Use a user-approved Ubuntu 24.04 x86_64 EC2 instance with SSH access and enough memory to build Next.js and compile the CRE workflow. A 2-vCPU, 4-GiB machine is a starting point for this demo, not a load-tested sizing guarantee. Choose the region, instance and disk in your AWS account and check their current cost before launching. Use a Canonical Ubuntu image, not an arbitrary image with Ubuntu in its name. See [Ubuntu's EC2 guidance](https://documentation.ubuntu.com/aws/aws-how-to/instances/launch-ubuntu-ec2-instance/).
+
+Allow inbound SSH on TCP 22 only from your own IP, and TCP 80/443 for the public site. Do not expose 3000 or the data directory. Leave outbound HTTPS available for RPC, providers, package downloads and CRE. These follow the [AWS security group examples](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/security-group-rules-reference.html). If a host firewall is enabled, it needs matching rules.
+
+Supply your own repository URL, approved revision and public HTTPS origin. The examples below use `demo.example.com` only as a placeholder. For Caddy, point the domain's A record at the instance's public IPv4 address; add AAAA only if IPv6 also reaches this host. A changing instance address requires updating DNS.
+
+## 2. Install the host tools
+
+Run these commands on the EC2 instance as its SSH administrator, not on your laptop:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl git gnupg unzip xz-utils build-essential python3
+```
+
+Install Node 22 system-wide, version 22.16.0 or newer. Skip the following block if the host already has a compatible system-wide Node 22 and npm. This example uses the official 22.23.4 Linux x64 archive and published checksums, verified on November 6, 2026. For later updates, choose a supported 22.x release from [Node's official downloads](https://nodejs.org/en/download) and follow its linked signed-checksum verification instructions.
+
+```sh
+node_download_dir="$(mktemp -d)"
+cd "$node_download_dir"
+curl -fsSLO https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz
+curl -fsSLO https://nodejs.org/dist/v22.23.4/SHASUMS256.txt
+sha256sum --check --ignore-missing SHASUMS256.txt
+sudo install -d -m 0755 /usr/local/lib/nodejs
+sudo tar -xJf node-v22.23.4-linux-x64.tar.xz -C /usr/local/lib/nodejs
+sudo ln -s /usr/local/lib/nodejs/node-v22.23.4-linux-x64/bin/node /usr/local/bin/node
+sudo ln -s /usr/local/lib/nodejs/node-v22.23.4-linux-x64/bin/npm /usr/local/bin/npm
+sudo ln -s /usr/local/lib/nodejs/node-v22.23.4-linux-x64/bin/npx /usr/local/bin/npx
+node --version
+npm --version
+```
+
+Stop if verification fails. The symlink commands deliberately do not replace existing binaries. Do not continue past a conflicting installation without choosing which Node installation the host should use.
+
+## 3. Put the code on the instance
+
+For a fresh installation only, choose the real repository URL and approved revision before running:
+
+```sh
+ORCUS_REPOSITORY_URL='YOUR_REPOSITORY_URL'
+ORCUS_REVISION='YOUR_APPROVED_COMMIT'
+id orcus >/dev/null 2>&1 || sudo useradd --system --user-group --create-home --home-dir /var/lib/orcus --shell /bin/bash orcus
+if [ -e /opt/orcus ]; then
+  printf '%s\n' '/opt/orcus already exists. Use the existing-checkout instructions instead.'
+else
+  sudo install -d -o orcus -g orcus -m 0750 /opt/orcus
+  sudo -u orcus git clone "$ORCUS_REPOSITORY_URL" /opt/orcus
+  sudo -u orcus git -C /opt/orcus checkout --detach "$ORCUS_REVISION"
+fi
+```
+
+For an existing checkout, inspect `git status --short` and its ownership first. Keep its `.env` and runtime data; do not clone over it, reset it or recursively change unrelated ownership. `/opt/orcus` is the intended app directory, not a developer-machine path. The installer also accepts a different absolute checkout path and non-root user. Adjust the paths throughout this runbook consistently if you choose different locations.
+
+Use `git clone` for source delivery. Do not upload an entire local working directory, `.env`, wallet files or ignored assets. Configure credentials privately on the host instead.
+
+## 4. Install and configure as the app user
+
+Enter the service user's shell. Install the same Bun and CRE CLI versions already verified for this repository, not an untested latest version. Their official installers are documented by [Bun](https://bun.sh/docs/installation) and [Chainlink](https://docs.chain.link/cre/getting-started/cli-installation/macos-linux); the CRE installer verifies its release binary. Go is not needed for this TypeScript workflow.
+
+```sh
+sudo -iu orcus
+set -euo pipefail
+export PATH=/var/lib/orcus/.bun/bin:/var/lib/orcus/.cre/bin:/usr/local/bin:/usr/bin:/bin
+curl -fsSL https://bun.com/install | bash -s 'bun-v1.3.14'
+curl -fsSL https://cre.chain.link/install.sh | bash -s v1.39.0
+bun --version
+cre version
+cd /opt/orcus
+npm ci
+npm ci --prefix workflows/cre/strategy
+bun install --cwd workflows/cre/strategy
+cd workflows/cre/strategy
+bunx cre-setup
+npm run typecheck
+npm run build
+cd /opt/orcus
+npm run demo:setup -- --app-url https://demo.example.com --data-dir /var/lib/orcus/data
+exit
+```
+
+The setup command generates missing app secrets privately and preserves existing nonempty values. It sets `ORCUS_INTERNAL_APP_URL=http://127.0.0.1:3000` when missing. Keep the generated `.env` and `/var/lib/orcus/data` private and persistent. Do not delete or regenerate the master key when updating an existing database. `.env` stays in the checkout with owner-only permissions; SQLite and local key material stay outside it.
+
+Edit only your private host configuration, using your own editor session:
+
+```sh
+sudoedit /opt/orcus/.env
+```
+
+Use [.env.example](../../.env.example) for the actual required provider settings. For the complete demo, supply 0G Compute credentials, CRE authentication and the configured Sepolia bundler/operator gas sponsorship. These are real prerequisites, not sample credentials or automatically funded accounts. Keep optional integrations disabled unless you have configured them. In particular, set:
+
+```dotenv
+CRE_ENABLED=true
+CRE_CLI_PATH=/var/lib/orcus/.cre/bin/cre
+CRE_WORKFLOW_DIR=/opt/orcus/workflows/cre
+CRE_TARGET=staging-settings
+```
+
+Set `CRE_API_KEY` privately in `.env`, or authenticate as `orcus` with the CLI's user-controlled browser login. Check `cre whoami` first from `/opt/orcus`; if authentication is missing, choose your own API key or complete `cre login` yourself, then recheck. CLI authentication and organization access are separate from installing the binary. Do not request deployment access or run CRE secret/lifecycle operations for this hosting setup.
+
+Before starting the app, run as `orcus` with the same PATH:
+
+```sh
+sudo -iu orcus
+set -euo pipefail
+export PATH=/var/lib/orcus/.bun/bin:/var/lib/orcus/.cre/bin:/usr/local/bin:/usr/bin:/bin
+cd /opt/orcus
+npm run demo:setup -- --check
+npm run doctor
+cd workflows/cre
+cre workflow simulate strategy --target local-simulation --non-interactive --trigger-index 0
+cd /opt/orcus
+npm run build
+exit
+```
+
+All checks must pass before claiming the complete demo is ready. The CRE command performs actual read-only local simulation and needs authentication/network access. It does not broadcast a transaction, deploy a workflow or prove hosted DON consensus. See the [workflow runbook](../../workflows/cre/README.md) for exact dependency and integration behavior. Do not run a manual simulation in the live app's workflow directory while its web service is processing evaluations.
+
+## 5. Install and start both services
+
+Run as the SSH administrator:
+
+```sh
+cd /opt/orcus
+bash deploy/aws/install-services.sh --dry-run /opt/orcus orcus
+sudo bash deploy/aws/install-services.sh /opt/orcus orcus
+sudo systemctl enable --now orcus-web.service orcus-worker.service
+sudo systemctl is-active orcus-web.service orcus-worker.service
+curl --fail --silent --show-error --output /dev/null http://127.0.0.1:3000/
+```
+
+The helper replaces only `/etc/systemd/system/orcus-web.service` and `orcus-worker.service`, then reloads systemd. It does not install dependencies, read `.env`, copy source, start services or change app data. Both units use the same checkout and user. The existing npm scripts load `.env` themselves, so no secret appears in a service command. systemd handles process startup and failure restarts as documented in [systemd.service](https://freedesktop.org/software/systemd/man/latest/systemd.service.html).
+
+## 6. Optional Caddy HTTPS
+
+If you already have an HTTPS reverse proxy, point it at `127.0.0.1:3000` instead. Otherwise, install Caddy using its [official Ubuntu package instructions](https://caddyserver.com/docs/install#debian-ubuntu-raspbian). The package starts a `caddy` service. DNS and inbound ports 80/443 must work before it can issue a publicly trusted certificate, as described in [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https).
+
+For a fresh Caddy installation only:
+
+```sh
+sudo install -m 0644 /opt/orcus/deploy/aws/Caddyfile.example /etc/caddy/Caddyfile
+sudoedit /etc/caddy/Caddyfile
+sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo systemctl reload caddy
+curl --fail --silent --show-error --output /dev/null https://demo.example.com/
+```
+
+Replace `demo.example.com` with the exact hostname from `ORCUS_APP_URL` before validating. If the host already has a Caddyfile, add this site to it manually; do not replace its other sites. Never publish plain HTTP at an arbitrary IP and expect the HTTPS sign-in origin to match. Without a public domain/proxy, keep the site private and use an SSH tunnel for local checks, with `ORCUS_APP_URL` explicitly set to that localhost origin.
+
+## Verify and update
+
+In a browser at the public origin, connect the intended wallet and sign in, then create a chat and testnet account. Restart both services and confirm the same account/chat remain visible. This verifies persistence on this instance; it is not evidence that trading, billable inference or funded sponsorship succeeded. Confirm those flows separately with the intended testnet accounts and limits.
+
+```sh
+sudo systemctl restart orcus-web.service orcus-worker.service
+sudo systemctl is-active orcus-web.service orcus-worker.service
+sudo journalctl -u orcus-web.service -u orcus-worker.service -n 50 --no-pager
+```
+
+Read logs privately. Do not post configuration, credentials or account details when asking for help. A running worker and successful HTTP response alone do not prove an evaluation succeeded.
+
+For a code update, stop both services first. As `orcus`, inspect `git status --short`, fetch and check out your approved commit without discarding local changes, rerun `npm ci` and the workflow dependency/compiler steps if changed, then run `demo:setup -- --check`, `doctor` and `build`. Restart both services only after those commands succeed. Reinstall the units only if deployment files changed. Keep `.env`, the master key and `/var/lib/orcus/data` unchanged. Do not compile/simulate concurrently against the live workflow directory.
+
+Stopping the worker pauses conditional automation. Instance/disk deletion can lose this local state. This deliberately small hackathon setup does not include replication, backups or a recovery platform.
+
+Hosting is still unperformed. To carry it out later, supply the approved EC2 instance/region and SSH access, repository revision, domain/DNS or existing HTTPS proxy, and privately configured provider credentials, CRE authentication and limited testnet sponsorship. Never paste those secrets into chat or command arguments.

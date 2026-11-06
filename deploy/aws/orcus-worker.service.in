@@ -1,0 +1,19 @@
+[Unit]
+Description=Orcus hackathon automation worker
+Wants=network-online.target orcus-web.service
+After=network-online.target orcus-web.service
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+WorkingDirectory=@APP_DIR@
+Environment=NODE_ENV=production
+Environment=PATH=@SERVICE_HOME@/.bun/bin:@SERVICE_HOME@/.cre/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env npm run worker
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
