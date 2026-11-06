@@ -60,6 +60,7 @@ try {
   };
   const until = async (expression: string, message: string) => { for (let attempt = 0; attempt < 150; attempt++) { if (await evaluate(expression)) return; await delay(200); } throw new Error(`${message} ${await evaluate("[...document.querySelectorAll('[role=alert]')].map(e=>e.textContent).join(' ')")}`); };
   const click = async (selector: string) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw new Error('Action unavailable');e.click();})()`);
+  const clickText = async (selector: string, text: string) => evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.textContent.trim()===${JSON.stringify(text)});if(!e||e.disabled)throw new Error('Action unavailable');e.click();})()`);
   const navigate = async (label: string) => {
     const path = label === "Overview" ? "/" : `/${label.toLowerCase()}`;
     await evaluate(`(()=>{const mobile=innerWidth<=760;if(mobile&&document.querySelector('#mobile-workspace-navigation').hidden)document.querySelector('.workspace-menu-toggle').click();const e=[...document.querySelectorAll(mobile?'#mobile-workspace-navigation a':'.primary-nav a')].find(e=>e.getAttribute('href')===${JSON.stringify(path)});if(!e)throw new Error('Navigation unavailable');e.click();})()`);
@@ -93,7 +94,7 @@ try {
   rejectLogin = false; await click(".connect-button");
   await until("!!document.querySelector('.wallet-button')", "Signed owner session did not load.");
   assert.equal((await api("/api/session")).body.data.user.address.toLowerCase(), owners[0].address.toLowerCase());
-  await navigate("Settings"); await click(".account-add-buttons button");
+  await navigate("Settings"); await clickText(".account-add-buttons button", "Hyperliquid");
   await until("!!document.querySelector('.account-card')", "The owned trading account did not load.");
   const account = (await api("/api/session")).body.data.accounts[0];
   assert.equal(account.address.toLowerCase(), owners[0].address.toLowerCase()); checks.push("actual signed HTTP login and owned Hyperliquid account registration");
