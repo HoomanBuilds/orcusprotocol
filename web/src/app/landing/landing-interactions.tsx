@@ -37,8 +37,9 @@ export function LandingHeader({ children }: { children: React.ReactNode }) {
 }
 
 export const HERO_MEDIA = {
-  mp4: "/landing/tethra-hero-v1.mp4",
-  poster: "/landing/tethra-hero-v1-poster.webp",
+  webm: "/landing/garden-hero-v2.webm",
+  mp4: "/landing/garden-hero-v2.mp4",
+  poster: "/landing/garden-hero-v2-poster.webp",
 };
 
 export function canPlayHero({ allowed, visible, pageVisible, userPaused }: { allowed: boolean; visible: boolean; pageVisible: boolean; userPaused: boolean }) {
@@ -76,7 +77,7 @@ export function MotionVideo() {
     if (!allowed) element.load();
   }, [allowed, visible, pageVisible]);
 
-  return <><video className={styles.heroVideo} ref={video} muted playsInline loop hidden={!allowed} preload="none" poster={HERO_MEDIA.poster} aria-hidden="true" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}>{allowed && <source src={HERO_MEDIA.mp4} type="video/mp4"/>}</video>{allowed && <button className={styles.videoControl} aria-label={playing ? "Pause background video" : "Play background video"} type="button" onClick={() => { userPaused.current = playing; if (playing) video.current?.pause(); else if (visible && pageVisible) void video.current?.play().catch(() => setPlaying(false)); }}>{playing ? <Pause size={14}/> : <Play size={14}/>}</button>}</>;
+  return <><video className={styles.heroVideo} ref={video} muted playsInline loop hidden={!allowed} preload="none" poster={HERO_MEDIA.poster} aria-hidden="true" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}>{allowed && <><source src={HERO_MEDIA.webm} type="video/webm"/><source src={HERO_MEDIA.mp4} type="video/mp4"/></>}</video>{allowed && <button className={styles.videoControl} aria-label={playing ? "Pause background video" : "Play background video"} type="button" onClick={() => { userPaused.current = playing; if (playing) video.current?.pause(); else if (visible && pageVisible) void video.current?.play().catch(() => setPlaying(false)); }}>{playing ? <Pause size={14}/> : <Play size={14}/>}</button>}</>;
 }
 
 export function MarketMotion({ children }: { children: React.ReactNode }) {
