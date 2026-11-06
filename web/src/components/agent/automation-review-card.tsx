@@ -37,7 +37,7 @@ export function AutomationSuggestion({ proposal, messageId, automationId, worksp
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false), mounted = useRef(true);
   const owner = w.session.user?.id, ownerRef = useRef(owner); ownerRef.current = owner;
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; ownerRef.current = undefined; }; }, []);
+  useEffect(() => { mounted.current = true; ownerRef.current = owner; return () => { mounted.current = false; ownerRef.current = undefined; }; }, [owner]);
   const accepted = created || !!automationId;
   let draft: ReviewedAutomation | undefined, issue: string | undefined;
   try { draft = reviewAutomation(proposal, w.session.accounts, accepted ? 0 : Date.now()); } catch (cause) { issue = displayError(cause); }

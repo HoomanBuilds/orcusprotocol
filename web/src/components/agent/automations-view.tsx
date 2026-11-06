@@ -38,7 +38,7 @@ function AutomationWorkspace({ workspace: w }: { workspace: Workspace }) {
   const [busy, setBusy] = useState<string | null>(null), [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
   const owner = w.session.user?.id ?? "", ownerRef = useRef(owner); ownerRef.current = owner;
-  useEffect(() => () => { ownerRef.current = ""; }, []);
+  useEffect(() => { ownerRef.current = owner; return () => { ownerRef.current = ""; }; }, [owner]);
   const selectedAccount = w.session.accounts.find(account => account.id === (accountId || w.account?.id || w.session.accounts[0]?.id));
   const native = selectedAccount?.venue === "ostium", spot = selectedAccount?.venue === "uniswap";
   const nativeMarkets = w.markets.filter(market => market.venue === "ostium");
