@@ -168,7 +168,7 @@ try {
     ];
     await evaluate(`(()=>{
       const original=window.fetch.bind(window); window.__orcusOriginalFetch=original;
-      const state=window.__orcusAgentFixture={enabled:true,posts:0,releases:[],bodies:[],modelUpdates:0,selectedModel:'fixture-configured'};
+      const state=window.__orcusAgentFixture={enabled:true,posts:0,releases:[],bodies:[],modelUpdates:0,selectedModel:'fixture-configured',messages:${JSON.stringify(messages)}};
       window.fetch=async(input,options={})=>{
         const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;
         const method=options.method??'GET';
@@ -178,7 +178,7 @@ try {
           state.posts++;state.bodies.push(JSON.parse(options.body));
           return new Promise(resolve=>state.releases.push(ok=>resolve(new Response(JSON.stringify(ok?{data:{id:'fixture-automation'}}:{error:{code:'REVIEW_REQUIRED',message:'Fixture refusal. Review the rule before retrying.'}}),{status:ok?201:409,headers:{'Content-Type':'application/json'}}))));
         }
-        if(state.enabled&&method==='GET'&&path==='/api/agent')return new Response(JSON.stringify({data:{...${JSON.stringify(agentData)},messages:${JSON.stringify(messages)}}}),{headers:{'Content-Type':'application/json'}});
+        if(state.enabled&&method==='GET'&&path==='/api/agent')return new Response(JSON.stringify({data:{...${JSON.stringify(agentData)},messages:state.messages}}),{headers:{'Content-Type':'application/json'}});
         const response=await original(input,options);
         if(state.enabled&&path==='/api/health'){const body=await response.json();body.data.cre.ready=true;return new Response(JSON.stringify(body),{status:response.status,headers:{'Content-Type':'application/json'}});}
         return response;
@@ -193,6 +193,39 @@ try {
     await until("!document.querySelector('button[aria-label=\"Refresh accounts\"]').disabled", "Refresh did not finish before fixture setup.");
     await click("button[aria-label=\"Refresh accounts\"]");
     await until("!!document.querySelector('.automation-approval-card')", "Structured fixture proposal did not render.");
+    for (const viewport of [{ width: 1366, height: 768, mobile: false }, { width: 390, height: 844, mobile: true }]) {
+      await rpc("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1 });
+      await delay(200);
+      const layout = await evaluate("(()=>{const c=document.querySelector('.chat-scroll').getBoundingClientRect(),f=document.querySelector('.chat-compose').getBoundingClientRect();return {page:document.documentElement.scrollHeight,height:innerHeight,thread:c.height,composerBottom:f.bottom,composerTop:f.top}})()");
+      assert.ok(layout.page <= layout.height + 1, `Agent route must not have page scrolling: ${JSON.stringify(layout)}`);
+      assert.ok(layout.thread >= 440, `Conversation must have useful height: ${JSON.stringify(layout)}`);
+      assert.ok(layout.composerBottom <= layout.height && layout.composerTop > 0, "Composer stays visible.");
+      await click(".model-details summary");
+      assert.equal(await evaluate("document.querySelector('.chat-scroll').getBoundingClientRect().height"), layout.thread, "Model details must not shrink the thread.");
+      await rpc("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+      await evaluate("document.querySelector('.model-details').open=false");
+      await click("button[aria-controls=\"agent-context\"]");
+      await until("document.querySelector('button[aria-controls=\"agent-context\"]').getAttribute('aria-expanded')==='true'", "Context did not open.");
+      if (viewport.mobile) {
+        await until("!!document.querySelector('dialog[open]')", "Mobile context drawer did not open.");
+        assert.ok(await evaluate("document.querySelector('dialog').contains(document.activeElement)"), "Mobile drawer must receive focus.");
+      }
+      await screenshot(viewport.mobile ? "fixture-mobile-context" : "fixture-laptop-context");
+      await rpc("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+      await until("document.querySelector('button[aria-controls=\"agent-context\"]').getAttribute('aria-expanded')==='false'", "Escape must close context.");
+      assert.ok(await evaluate("document.activeElement===document.querySelector('button[aria-controls=\"agent-context\"]')"), "Context dismissal must restore focus.");
+    }
+    await rpc("Emulation.setDeviceMetricsOverride", { width: 1366, height: 768, deviceScaleFactor: 1, mobile: false });
+    await evaluate("document.querySelector('.chat-scroll').scrollTop=0"); await delay(150);
+    const historyTop = await evaluate("document.querySelector('.chat-scroll').scrollTop");
+    await evaluate("window.__orcusAgentFixture.messages.push({id:'fixture-appended-answer',role:'assistant',content:'Fixture answer arriving while reading history.',createdAt:Date.now()})");
+    await until("!document.querySelector('button[aria-label=\"Refresh accounts\"]').disabled", "Refresh is unavailable.");
+    await click("button[aria-label=\"Refresh accounts\"]");
+    await until("document.body.innerText.includes('Fixture answer arriving while reading history.')", "Fixture answer was not appended.");
+    assert.equal(await evaluate("document.querySelector('.chat-scroll').scrollTop"), historyTop, "Incoming content must not move a reader away from history.");
+    await click(".jump-to-latest");
+    assert.ok(await evaluate("(()=>{const e=document.querySelector('.chat-scroll');return e.scrollHeight-e.scrollTop-e.clientHeight<2})()"), "Jump to latest must reach the bottom.");
+    fixtureChecks.push("frontend fixture: single-scroll full-height chat at1366x768 and390x844, overlay model details, keyboard context dismissal and stable history on incoming answers");
     assert.ok(await evaluate("document.querySelector('.automation-approval-card > button.button.primary').disabled"), "Approval must require explicit review.");
     await evaluate("document.querySelector('.chat-scroll').scrollTop=0;scrollTo(0,0)");
     await screenshot("fixture-desktop-research");
