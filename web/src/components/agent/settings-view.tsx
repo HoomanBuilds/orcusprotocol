@@ -11,7 +11,8 @@ import {
   ShieldCheck,
   Wallet,
 } from "lucide-react";
-import type { AgentPermission, TradingAccount } from "@orcus/core";
+import type { AgentPermission, TradingAccount, Venue } from "@orcus/core";
+import { venueName } from "@/lib/venue-presentation";
 import type { KernelGrantPolicy } from "@orcus/wallets/kernel";
 import { formatUnits } from "viem";
 import type { Workspace } from "@/lib/use-workspace";
@@ -26,11 +27,14 @@ import {
   fundOperatingWallet,
 } from "@/lib/wallets";
 import { tokenUnits, usd } from "@/lib/format";
-import { fundingRecovery, tradingGasStatus, withFundingRecoveryIntent } from "@/lib/trade-ux";
+import { tradingGasStatus, withFundingRecoveryIntent } from "@/lib/trade-ux";
+import { clearDepositRecovery, depositRecoveryKey, readDepositRecovery } from "@/lib/deposit-recovery";
+import { ProtocolIcon } from "../workspace/asset-icon";
 import { MemoryControls } from "./memory-controls";
 import { ComputeFundingPanel } from "./compute-funding-panel";
 import { ServicePaymentPanel } from "./service-payment-panel";
 import { ExpenseBillingCheck } from "./expense-billing-check";
+import { OstiumAccountCard } from "./ostium-account-card";
 import {
   Address,
   Badge,
@@ -80,7 +84,7 @@ function AccountCard({
   const spot = account.venue === "uniswap";
   const disabledPermissions = (w.agentData?.permissions ?? []).filter(item => item.accountId === account.id && item.status === "revoked" && item.expiresAt > Date.now()) as Permission[];
   const gas = tradingGasStatus(w.walletConfig, account.venue);
-  const fundingRecoveryKey = `orcus:trading-deposit:${account.ownerAddress}:${account.id}`;
+  const fundingRecoveryKey = depositRecoveryKey(account.ownerAddress, account.id);
   const currentFundingKey = useRef(fundingRecoveryKey);
   currentFundingKey.current = fundingRecoveryKey;
   const fundingLoaded = loadedFundingKey === fundingRecoveryKey;
@@ -89,13 +93,13 @@ function AccountCard({
   useEffect(() => {
     setLoadedFundingKey(null); setFundingHash(null); setFundingState(null); setFundingChecked(false);
     try {
-      const saved = fundingRecovery(JSON.parse(sessionStorage.getItem(fundingRecoveryKey) ?? "null"));
+      const saved = readDepositRecovery(localStorage, sessionStorage, account.ownerAddress, account.id);
       if (saved) { setFundingHash(saved.transactionHash ?? null); setFundingState(saved.status); }
     } catch {}
     setLoadedFundingKey(fundingRecoveryKey);
   }, [fundingRecoveryKey]);
   function saveFundingRecovery(status: "confirmed" | "unknown" | "reverted", transactionHash?: string) {
-    try { sessionStorage.setItem(fundingRecoveryKey, JSON.stringify({ status, ...(transactionHash ? { transactionHash } : {}) })); } catch {}
+    try { localStorage.setItem(fundingRecoveryKey, JSON.stringify({ status, ...(transactionHash ? { transactionHash } : {}) })); } catch {}
   }
 
   async function prepare() {
@@ -137,7 +141,7 @@ function AccountCard({
     setFundingState(null); setFundingChecked(false);
     try {
       setFundingState("unknown");
-      const recoveryStorage = { getItem: (key: string) => sessionStorage.getItem(key), setItem: (key: string, value: string) => sessionStorage.setItem(key, value) };
+      const recoveryStorage = { getItem: (key: string) => localStorage.getItem(key), setItem: (key: string, value: string) => localStorage.setItem(key, value) };
       const result = await withFundingRecoveryIntent(recoveryStorage, fundingRecoveryKey, () => fundTradingAccount({ account, asset: fundingAsset, amount: fundingAmount }));
       saveFundingRecovery("confirmed", result.transactionHash);
       if (currentFundingKey.current !== fundingRecoveryKey) return;
@@ -150,7 +154,7 @@ function AccountCard({
       const phase = cause && typeof cause === "object" && "phase" in cause ? cause.phase : undefined;
       const transactionHash = cause && typeof cause === "object" && "evidence" in cause && cause.evidence && typeof cause.evidence === "object" && "transactionHash" in cause.evidence && typeof cause.evidence.transactionHash === "string" ? cause.evidence.transactionHash : undefined;
       if (phase === "not-submitted") {
-        try { sessionStorage.removeItem(fundingRecoveryKey); } catch {}
+        clearDepositRecovery(localStorage, sessionStorage, account.ownerAddress, account.id);
       } else saveFundingRecovery(phase === "reverted" && transactionHash ? "reverted" : "unknown", transactionHash);
       if (currentFundingKey.current !== fundingRecoveryKey) return;
       if (cause && typeof cause === "object" && "evidence" in cause) {
@@ -277,9 +281,7 @@ function AccountCard({
   return (
     <article className="settings-card account-card">
       <div className="card-heading">
-        <span className={`venue-icon ${spot ? "uni" : "hyper"}`}>
-          {spot ? "U" : "H"}
-        </span>
+        <ProtocolIcon name={account.venue} size={36}/>
         <div>
           <h2>{spot ? "Uniswap" : "Hyperliquid"}</h2>
           <p>
@@ -339,7 +341,7 @@ function AccountCard({
           <button className="button secondary small" type="button" disabled={!!busy || !fundingLoaded || !!fundingHash || fundingState === "unknown" || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(fundingAmount) || Number(fundingAmount) <= 0} onClick={() => void fund()}>
             {busy === "fund" ? <><Spinner />Confirm transfer and await receipt</> : <><Wallet size={13} />Review transfer in owner wallet</>}
           </button>
-          {(fundingHash || fundingState === "unknown") && <div className="warning-note"><p>{fundingState === "confirmed" ? "Deposit confirmed in the trading account." : fundingState === "reverted" ? "The transfer reverted. Check its receipt before another attempt." : "The transfer result is uncertain. Check this same transaction or your wallet history before sending more funds."}</p>{fundingHash && <a className="text-link" href={`https://sepolia.etherscan.io/tx/${fundingHash}`} target="_blank" rel="noreferrer">Inspect funding transaction<ExternalLink size={12} /></a>}{fundingState === "unknown" && <label className="checkbox"><input type="checkbox" checked={fundingChecked} onChange={event => setFundingChecked(event.target.checked)} />I checked the final receipt or wallet history and understand a second transfer is a separate deposit.</label>}<button className="button secondary small" type="button" disabled={!!busy || fundingState === "unknown" && !fundingChecked} onClick={() => { setFundingHash(null); setFundingState(null); setFundingChecked(false); try { sessionStorage.removeItem(fundingRecoveryKey); } catch {} }}>Enter a separate new deposit</button></div>}
+          {(fundingHash || fundingState === "unknown") && <div className="warning-note"><p>{fundingState === "confirmed" ? "Deposit confirmed in the trading account." : fundingState === "reverted" ? "The transfer reverted. Check its receipt before another attempt." : "The transfer result is uncertain. Check this same transaction or your wallet history before sending more funds."}</p>{fundingHash && <a className="text-link" href={`https://sepolia.etherscan.io/tx/${fundingHash}`} target="_blank" rel="noreferrer">Inspect funding transaction<ExternalLink size={12} /></a>}{fundingState === "unknown" && <label className="checkbox"><input type="checkbox" checked={fundingChecked} onChange={event => setFundingChecked(event.target.checked)} />I checked the final receipt or wallet history and understand a second transfer is a separate deposit.</label>}<button className="button secondary small" type="button" disabled={!!busy || fundingState === "unknown" && !fundingChecked} onClick={() => { setFundingHash(null); setFundingState(null); setFundingChecked(false); clearDepositRecovery(localStorage, sessionStorage, account.ownerAddress, account.id); void w.refresh(); }}>Enter a separate new deposit</button></div>}
         </details>
       )}
       {pendingPolicy && (
@@ -522,7 +524,9 @@ function AccountCard({
   );
 }
 
-export function SettingsView({ workspace: w }: { workspace: Workspace }) {
+export type SettingsSection = "accounts" | "budget" | "agent" | "services";
+
+export function SettingsView({ workspace: w, section = "accounts" }: { workspace: Workspace; section?: SettingsSection }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cap, setCap] = useState("");
@@ -560,7 +564,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
     }
   }, [agent?.id, agent?.preferences, agent?.mode, agent?.privateInferenceRequired, agent?.privateVerification]);
 
-  async function addAccount(venue: "uniswap" | "hyperliquid") {
+  async function addAccount(venue: Venue) {
     setBusy(venue);
     setError(null);
     try {
@@ -577,7 +581,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
       } else {
         await post("/api/accounts", { venue });
         w.setNotice(
-          "Hyperliquid account added. Agent authorization remains a separate owner approval.",
+          `${venueName(venue)} account added. Agent authorization remains a separate owner approval.`,
         );
       }
       await w.refresh();
@@ -679,20 +683,20 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
 
   return (
     <section className="workspace-page settings-page">
-      <div className="page-heading">
+      <div className="page-heading settings-content-heading">
         <div>
           <span className="eyebrow">OWNERSHIP BEFORE AUTOMATION</span>
-          <h1>Accounts & agent controls</h1>
+          <h2>{{ accounts: "Accounts & permissions", budget: "Operating budget", agent: "Agent preferences & memory", services: "Service status" }[section]}</h2>
           <p>
-            Connect an owner wallet, deposit trading assets, then trade yourself or grant limited agent access. No owner private key is shared.
+            {{ accounts: "Trade yourself or grant limited access to the same accounts. Your owner private key is never shared.", budget: "Trading capital, application expense limits, service credits and native 0G are separate balances.", agent: "Control how your agent works and what it remembers. Preferences never grant trading authority.", services: "Inspect configuration and availability before relying on an integration." }[section]}
           </p>
         </div>
         <ShieldCheck size={22} />
       </div>
       <InlineError message={error} onDismiss={() => setError(null)} />
-      {!w.session.user ? (
+      {!w.session.user && section !== "services" ? (
         <Empty
-          title="Your wallet is the owner"
+          title="Sign in to manage your workspace"
           action={
             <button
               className="button primary"
@@ -705,18 +709,14 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
             </button>
           }
         >
-          Sign in to add your trading accounts and review delegated access. Normal trading does not require 0G or a separate compute deposit.
+          Connect your owner wallet to manage accounts, agent access and operating costs.
         </Empty>
-      ) : (
+      ) : w.session.user ? (
         <>
-          <div className="settings-section-heading">
-            <div>
-              <h2>Trading accounts</h2>
-              <p>
-                Trade manually first. Delegate only the authority you choose.
-              </p>
-            </div>
+          {section === "accounts" && <>
+          <div className="settings-section-heading settings-account-actions">
             <div className="account-add-buttons">
+              {!w.session.accounts.some(account => account.venue === "ostium") && <button className="button secondary small" type="button" disabled={!!busy} onClick={() => void addAccount("ostium")}>{busy === "ostium" ? <Spinner/> : <Plus size={13}/>}Ostium</button>}
               {!w.session.accounts.some(
                 (account) => account.venue === "hyperliquid",
               ) && (
@@ -746,21 +746,23 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
           </div>
           <div className="settings-grid">
             {w.session.accounts.map((account) => (
-              <AccountCard key={account.id} account={account} workspace={w} />
+              account.venue === "ostium" ? <OstiumAccountCard key={account.id} account={account} workspace={w} /> : <AccountCard key={account.id} account={account} workspace={w} />
             ))}
             {!w.session.accounts.length && (
               <div className="settings-card account-intro">
                 <Wallet size={25} />
                 <h2>Add your first trading account</h2>
                 <p>
-                  Hyperliquid uses your existing venue account. Uniswap uses a
-                  separate smart account you own. Adding either does not
+                  Hyperliquid and Ostium use your owner-controlled venue account.
+                  Uniswap uses a smart account you own. Adding an account does not
                   authorize the agent.
                 </p>
               </div>
             )}
           </div>
-          <div className="settings-grid secondary-settings">
+          </>}
+          {(section === "budget" || section === "agent") && <div className="settings-grid secondary-settings">
+            {section === "budget" && <>
             <article className="settings-card">
               <div className="card-heading">
                 <Wallet size={20} />
@@ -847,7 +849,8 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
             </article>
             {w.session.user && <ServicePaymentPanel key={`service:${w.session.user.address.toLowerCase()}`} owner={w.session.user.address} onRefresh={w.refresh} />}
             {w.session.user && <details className="technical-limits"><summary>Advanced: native compute-account funding</summary><p className="fine-print">Optional operator integration controls, not a requirement for using agent inference. A service-payment checkout is separate from these native deposits.</p><ComputeFundingPanel key={w.session.user.id} onRefresh={w.refresh} /></details>}
-            <article className="settings-card">
+            </>}
+            {section === "agent" && <article className="settings-card">
               <div className="card-heading">
                 <ShieldCheck size={20} />
                 <div>
@@ -911,11 +914,11 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
                   Take over accounts
                 </button>
               </div>
-            </article>
-          </div>
+            </article>}
+          </div>}
         </>
-      )}
-      {w.session.user && (
+      ) : null}
+      {w.session.user && section === "agent" && (
         <section className="settings-card service-status">
           <div className="card-heading">
             <Database size={19} />
@@ -965,7 +968,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
           <MemoryControls key={w.session.user.id} userId={w.session.user.id} />
         </section>
       )}
-      <section className="service-status settings-card">
+      {section === "services" && <section className="service-status settings-card">
         <div className="card-heading">
           <Database size={19} />
           <div>
@@ -975,7 +978,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
         </div>
         <div className="service-grid">
           {(
-            ["compute", "storage", "uniswap", "hyperliquid", "cre"] as const
+            ["compute", "storage", "uniswap", "hyperliquid", "ostium", "cre"] as const
           ).map((key) => {
             const service = w.health?.[key];
             return (
@@ -988,6 +991,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
                         storage: "0G encrypted memory",
                         uniswap: "Uniswap V3",
                         hyperliquid: "Hyperliquid testnet",
+                        ostium: "Ostium / Arbitrum Sepolia",
                         cre: "Chainlink CRE",
                       }[key]
                     }
@@ -1006,7 +1010,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
           hosted DON execution. Public swaps and positions remain public. Manual
           owner exits do not depend on inference or the CRE runner.
         </p>
-      </section>
+      </section>}
     </section>
   );
 }

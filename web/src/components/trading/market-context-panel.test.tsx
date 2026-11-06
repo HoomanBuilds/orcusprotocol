@@ -27,6 +27,14 @@ describe("truthful market-context panels", () => {
     expect(markup).not.toContain("Observed snapshot");
   });
 
+  it("renders one full-precision asks/spread/bids ladder without clipped number placeholders", () => {
+    const markup = renderToStaticMarkup(<MarketDepthView symbol="BTC" snapshot={{ ...snapshot, book: { observedAt: 1_000_000, asks: [{ price: "76550.12345678", size: "0.00000012", orders: 1 }], bids: [{ price: "76549.12345678", size: "0.12345678", orders: 1 }] } }} loading={false} error={null} now={1_000_000} onRefresh={() => undefined}/>);
+    expect(markup.match(/<table/g)).toHaveLength(1);
+    for (const value of ["76,550.12345678", "0.00000012", "76,549.12345678", "0.12345678", "Spread", "1 USDC", "Funding &amp; market context"]) expect(markup).toContain(value);
+    expect(markup.indexOf("76,550")).toBeLessThan(markup.indexOf("Spread"));
+    expect(markup.indexOf("Spread")).toBeLessThan(markup.indexOf("76,549"));
+  });
+
   it("distinguishes initial loading and unavailable context without invented data", () => {
     const markup = renderToStaticMarkup(<MarketDepthView symbol="BTC" snapshot={null} loading error={null} now={1_000_000} onRefresh={() => undefined} />);
     expect(markup).toContain("Loading testnet order book");

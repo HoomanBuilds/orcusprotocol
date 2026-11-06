@@ -81,3 +81,16 @@ current markets and configuration. XRP, LINK and DOT are explicitly illustrative
 asset examples, not support claims. USDC is labeled quote/collateral rather than
 a standalone perpetual. The spot examples distinguish WETH/USDC from native ETH
 input that wraps to WETH. No live prices, volume, yield, or performance are shown.
+
+## Workspace integration assets
+
+`../workspace/ostium.png` is the unmodified 5.7 KB mark linked by the official
+Ostium website footer, downloaded on November 6, 2026 from
+https://www.ostium.com/logos/ostium-mark.png. It is a passive local PNG, not a
+remote script or SDK. No explicit redistribution license was identified; the
+mark remains Ostium's trademark and is used only to identify the integration,
+not to imply endorsement or affiliation. No AI-generated or approximate mark is
+substituted.
+
+`../workspace/orcus.svg` is the workspace pink variant of this project's own
+existing Orcus icon. It does not modify the public landing's original assets.

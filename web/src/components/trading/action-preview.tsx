@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Clock3, ShieldCheck, X } from "lucide-react";
 import type { Workspace } from "@/lib/use-workspace";
-import { number, tokenUnits } from "@/lib/format";
-import { hasAtomicNativeInput, tradingGasStatus } from "@/lib/trade-ux";
+import { assetAmount, number, tokenUnits } from "@/lib/format";
+import { actionReviewLabel, hasAtomicNativeInput, tradingGasStatus } from "@/lib/trade-ux";
 import { Address, InlineError, Spinner } from "./primitives";
+import { OstiumReviewDetails } from "./ostium-review-details";
+import { venuePresentation } from "@/lib/venue-presentation";
 
 export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -21,12 +23,13 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
   if (!w.preview) return null;
   const prepared = w.preview.execution;
   const request = prepared.request;
+  const actionLabel = actionReviewLabel(request);
   const gas = tradingGasStatus(w.walletConfig, request.venue);
   const atomicNative = hasAtomicNativeInput(prepared);
   const invalidNative = !!request.nativeInput && !atomicNative;
   const [baseAsset, quoteAsset = "USDC"] = request.symbol.split("/");
   const inputAsset =
-    atomicNative ? "ETH" : request.venue === "uniswap" && request.side === "buy"
+    request.venue === "ostium" && request.amountUnit === "collateral-usdc" ? "USDC" : atomicNative ? "ETH" : request.venue === "uniswap" && request.side === "buy"
       ? quoteAsset
       : baseAsset;
   const outputAsset = request.side === "buy" ? baseAsset : quoteAsset;
@@ -44,7 +47,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
         <div>
           <span className="eyebrow">REVIEW BEFORE EXECUTION</span>
           <h2>
-            {request.type === "swap"
+            {!["market", "limit", "stop", "swap"].includes(request.type) ? actionLabel : request.type === "swap"
               ? "Confirm your swap"
               : "Confirm your order"}
           </h2>
@@ -61,17 +64,17 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
       </div>
       <div className="preview-amount">
         <b>
-          {number(request.amount, 6)} <span>{inputAsset}</span>
+          {request.type === "cancel" ? "Cancel order" : assetAmount(request.amount, inputAsset)}
         </b>
         <span>
-          {request.side.toUpperCase()} <ArrowRight size={14} />{" "}
-          {request.venue === "uniswap" ? "Uniswap" : "Hyperliquid"}
+          {actionLabel} <ArrowRight size={14} />{" "}
+          {venuePresentation[request.venue].name}
         </span>
       </div>
       <dl className="preview-details">
         <div>
           <dt>Trading account</dt>
-          <dd><Address value={prepared.account.address} explorer={request.venue === "uniswap" ? "https://sepolia.etherscan.io" : undefined} /></dd>
+          <dd><Address value={prepared.account.address} explorer={venuePresentation[request.venue].explorer} /></dd>
         </div>
         <div>
           <dt>Owner wallet</dt>
@@ -79,7 +82,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
         </div>
         <div>
           <dt>Network</dt>
-          <dd>{request.venue === "uniswap" ? "Ethereum Sepolia testnet" : "Hyperliquid testnet"}</dd>
+          <dd>{venuePresentation[request.venue].network}</dd>
         </div>
         <div>
           <dt>Action</dt>
@@ -121,6 +124,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
           </dd>
         </div>
       </dl>
+      {prepared.ostium && <OstiumReviewDetails prepared={prepared}/>}
       {atomicNative && <p className="fine-print">Wrap exactly {number(request.amount, 6)} native Sepolia ETH, then swap WETH for USDC in one atomic operation. If the operation reverts, neither step completes.</p>}
       {invalidNative && <p className="warning-note">The native ETH wrapping plan could not be verified. Prepare a new supported smart-account quote; this action cannot be submitted.</p>}
       {request.venue === "uniswap" && request.side === "buy" && <p className="fine-print">Output is WETH. Native ETH output and automatic unwrapping are not included.</p>}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Wallet, getBytes } from "ethers";
@@ -23,7 +23,7 @@ try {
   const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then(response => response.json()) as Array<{ type: string; webSocketDebuggerUrl: string }>;
   socket = new WebSocket(targets.find(target => target.type === "page")!.webSocketDebuggerUrl);
   await new Promise<void>((resolve, reject) => { socket!.addEventListener("open", () => resolve(), { once: true }); socket!.addEventListener("error", () => reject(new Error("Browser connection failed.")), { once: true }); });
-  let sequence = 0, ownerIndex = 0, rejectLogin = false, tradeSignatureAttempts = 0, exchangeRequests = 0, controlRequests = 0;
+  let sequence = 0, ownerIndex = 0, rejectLogin = false, tradeSignatureAttempts = 0, exchangeRequests = 0, controlRequests = 0, agentPosts = 0;
   let holdNextOwnerRead = false, releaseOwnerRead: (() => void) | undefined;
   const owners = [Wallet.createRandom(), Wallet.createRandom()];
   const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
@@ -32,7 +32,7 @@ try {
   socket.addEventListener("message", event => {
     const value = JSON.parse(String(event.data));
     if (value.id) { const task = pending.get(value.id); pending.delete(value.id); clearTimeout(task?.timer); if (value.error) task?.reject(new Error(value.error.message)); else task?.resolve(value.result); }
-    if (value.method === "Network.requestWillBeSent") { const request = value.params.request; if (request.url.includes("hyperliquid-testnet.xyz/exchange")) exchangeRequests++; if (request.url === new URL("/api/agent/control", origin).href && request.method === "POST") controlRequests++; }
+    if (value.method === "Network.requestWillBeSent") { const request = value.params.request; if (request.url.includes("hyperliquid-testnet.xyz/exchange")) exchangeRequests++; if (request.url === new URL("/api/agent/control", origin).href && request.method === "POST") controlRequests++; if (request.url === new URL("/api/agent/requests", origin).href && request.method === "POST") agentPosts++; }
     if (value.method === "Runtime.bindingCalled" && value.params.name === "__orcusWalletBinding") {
       void (async () => {
         const request = JSON.parse(value.params.payload); let result: unknown, error: unknown;
@@ -60,8 +60,27 @@ try {
   };
   const until = async (expression: string, message: string) => { for (let attempt = 0; attempt < 150; attempt++) { if (await evaluate(expression)) return; await delay(200); } throw new Error(`${message} ${await evaluate("[...document.querySelectorAll('[role=alert]')].map(e=>e.textContent).join(' ')")}`); };
   const click = async (selector: string) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw new Error('Action unavailable');e.click();})()`);
-  const navigate = async (label: string) => evaluate(`(()=>{const e=[...document.querySelectorAll('.primary-nav button')].find(e=>e.textContent.trim()===${JSON.stringify(label)});if(!e)throw new Error('Navigation unavailable');e.click();})()`);
+  const clickText = async (selector: string, text: string) => evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.textContent.trim()===${JSON.stringify(text)});if(!e||e.disabled)throw new Error('Action unavailable');e.click();})()`);
+  const navigate = async (label: string) => {
+    const path = label === "Overview" ? "/" : `/${label.toLowerCase()}`;
+    await evaluate(`(()=>{const mobile=innerWidth<=760;if(mobile&&document.querySelector('#mobile-workspace-navigation').hidden)document.querySelector('.workspace-menu-toggle').click();const e=[...document.querySelectorAll(mobile?'#mobile-workspace-navigation a':'.primary-nav a')].find(e=>e.getAttribute('href')===${JSON.stringify(path)});if(!e)throw new Error('Navigation unavailable');e.click();})()`);
+    await until(`location.pathname===${JSON.stringify(path)}`, `The ${label} route did not load.`);
+  };
   const api = async (path: string, body?: unknown, method = body ? "POST" : "GET") => evaluate(`fetch(${JSON.stringify(path)},{method:${JSON.stringify(method)},headers:{'Content-Type':'application/json'},${body ? `body:${JSON.stringify(JSON.stringify(body))},` : ""}credentials:'same-origin'}).then(async r=>({status:r.status,body:await r.json()}))`);
+  const screenshot = async (name: string) => {
+    const directory = process.env.ORCUS_BROWSER_SCREENSHOTS;
+    if (!directory) return;
+    mkdirSync(directory, { recursive: true });
+    await evaluate("document.fonts.ready.then(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))");
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (!await evaluate("document.body.innerText.includes('Loading venue snapshots...')||!!document.querySelector('.chart-loading')")) break;
+      await delay(200);
+    }
+    await delay(450);
+    assert.ok(!await evaluate("!!document.querySelector('nextjs-portal')"), "Use a production preview for screenshot evidence.");
+    const result = await rpc("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    writeFileSync(join(directory, `${name}.png`), Buffer.from(result.data, "base64"));
+  };
   await rpc("Runtime.enable"); await rpc("Page.enable"); await rpc("Network.enable");
   await rpc("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await rpc("Runtime.addBinding", { name: "__orcusWalletBinding" });
@@ -75,26 +94,64 @@ try {
   rejectLogin = false; await click(".connect-button");
   await until("!!document.querySelector('.wallet-button')", "Signed owner session did not load.");
   assert.equal((await api("/api/session")).body.data.user.address.toLowerCase(), owners[0].address.toLowerCase());
-  await navigate("Settings"); await click(".account-add-buttons button");
+  await navigate("Settings"); await clickText(".account-add-buttons button", "Hyperliquid");
   await until("!!document.querySelector('.account-card')", "The owned trading account did not load.");
   const account = (await api("/api/session")).body.data.accounts[0];
   assert.equal(account.address.toLowerCase(), owners[0].address.toLowerCase()); checks.push("actual signed HTTP login and owned Hyperliquid account registration");
   await navigate("Trade");
   await until("document.body.innerText.includes('Agent operating wallet')", "Distinct wallet roles were not rendered.");
   assert.ok(await evaluate("document.body.innerText.includes('Owner wallet')&&document.body.innerText.includes('Hyperliquid trading account')")); checks.push("owner, shared trading and operating wallet roles remain distinct");
+  await evaluate("window.__orcusNavigationProof='preserved'");
+  await evaluate("history.back()"); await until("location.pathname==='/settings'", "Browser back did not restore Settings.");
+  await evaluate("history.forward()"); await until("location.pathname==='/trade'", "Browser forward did not restore Trade.");
+  assert.equal(await evaluate("window.__orcusNavigationProof"), "preserved");
+  await navigate("Overview"); await until("document.querySelector('h1')?.textContent==='Overview'", "Root is not the overview dashboard.");
+  await navigate("Agent"); await until("!!document.querySelector('button[aria-label=\"Pause agent\"]')", "The dedicated agent workspace did not load.");
+  checks.push("real route links, root overview and browser back/forward preserve the shared workspace document");
   const before = controlRequests;
   await evaluate("(()=>{const e=document.querySelector('button[aria-label=\"Pause agent\"]');e.click();e.click()})()");
   await until("!!document.querySelector('button[aria-label=\"Resume agent\"]')", "The paused agent state did not load.");
   assert.equal(controlRequests - before, 1); checks.push("rapid double pause sends one request; owner trading controls remain available");
   await click("button[aria-label=\"Resume agent\"]");
   await until("!!document.querySelector('button[aria-label=\"Pause agent\"]')", "Agent resume did not load.");
+  const requestId = crypto.randomUUID(), beforePosts = agentPosts;
+  const accepted = await api("/api/agent/requests", { requestId, message: "Review my account exposure", accountId: account.id, autonomous: false });
+  assert.equal(accepted.status, 202); assert.equal(accepted.body.data.request.status, "queued");
+  await navigate("Trade"); await navigate("Activity"); await click("button[aria-label=\"Refresh accounts\"]");
+  await until("document.body.innerText.includes('Agent instruction')", "Saved queued instruction did not reach Activity.");
+  await navigate("Agent");
+  await until("document.body.innerText.includes('Review my account exposure')", "Accepted instruction was not restored in Agent.");
+  assert.equal((await api(`/api/agent/requests/${requestId}`)).body.data.request.status, "queued");
+  assert.equal(agentPosts - beforePosts, 1); checks.push("actual durable HTTP intake remains queued across route navigation with no automatic repost");
+  for (const label of ["Overview", "Trade", "Agent", "Activity", "Automations", "Settings"]) {
+    await navigate(label); await evaluate("scrollTo(0,0)"); await screenshot(`connected-desktop-${label.toLowerCase()}`);
+  }
+  await rpc("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  for (const label of ["Overview", "Trade", "Agent", "Activity", "Automations", "Settings"]) {
+    await navigate(label); await evaluate("scrollTo(0,0)");
+    assert.ok(await evaluate("document.documentElement.scrollWidth<=innerWidth"), `${label} overflows on mobile.`);
+    await screenshot(`connected-mobile-${label.toLowerCase()}`);
+    if (label === "Trade") {
+      for (const tab of ["Depth", "Ticket", "Accounts"]) {
+        await evaluate(`(()=>{const e=[...document.querySelectorAll('.trade-mobile-tabs button')].find(e=>e.textContent===${JSON.stringify(tab)});if(!e)throw new Error('Terminal view unavailable');e.click()})()`);
+        await screenshot(`connected-mobile-trade-${tab.toLowerCase()}`);
+        assert.ok(await evaluate("document.documentElement.scrollWidth<=innerWidth"), `${tab} view overflows on mobile.`);
+      }
+    }
+  }
+  await click(".workspace-menu-toggle");
+  await until("!document.querySelector('#mobile-workspace-navigation').hidden", "Mobile navigation did not open.");
+  await rpc("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await until("document.querySelector('#mobile-workspace-navigation').hidden", "Escape did not dismiss mobile navigation.");
+  checks.push("all six owner-scoped routes fit a390px viewport");
+  await rpc("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   const created = await api("/api/automations", { kind: "alert", name: "Browser expiry proof", accountId: account.id, intervalSeconds: 60, condition: { symbol: "ETH", operator: "above", price: "1" }, expiresAt: Date.now() + 1500 });
   assert.equal(created.status, 201);
   await delay(1800); await click("button[aria-label=\"Refresh accounts\"]"); await navigate("Automations");
   await until("!!document.querySelector('button[aria-label=\"Automation expired\"]:disabled')", "Expired automation incorrectly offers resume.");
   const automationId = created.body.data.id ?? created.body.data.automation?.id;
   assert.equal((await api(`/api/automations/${automationId}`, { status: "active" }, "PATCH")).status, 409); checks.push("expired automation is disabled in browser and rejected by actual HTTP API");
-  await navigate("Trade");
+  await navigate("Agent");
   await evaluate("(()=>{const e=document.querySelector('textarea[aria-label=\"Message your agent\"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'private-owner-one-draft');e.dispatchEvent(new Event('input',{bubbles:true}))})()");
   await until("!document.querySelector('button[aria-label=\"Refresh accounts\"]').disabled", "An earlier refresh did not finish.");
   holdNextOwnerRead = true; await click("button[aria-label=\"Refresh accounts\"]");
@@ -111,7 +168,7 @@ try {
   checks.push("wallet switch clears private drafts, old session and cross-owner trading accounts");
   checks.push("a delayed old-owner refresh cannot clear or log out the newly signed-in owner");
   assert.equal(exchangeRequests, 0); assert.equal(tradeSignatureAttempts, 0);
-  console.log(JSON.stringify({ scope: "local Chromium with injected disposable wallet and real HTTP/SQLite", checks, publicTradingWrites: 0, paidInferenceCalls: 0, notProven: ["real browser-extension behavior", "funded or public venue execution", "sponsor deployment"] }, null, 2));
+  console.log(JSON.stringify({ scope: "local Chromium with injected disposable wallet and real HTTP/SQLite", checks, publicTradingWrites: 0, paidInferenceCalls: 0, notProven: ["real browser-extension behavior", "funded or public venue execution", "sponsor deployment", "worker processing or paid0G inference"] }, null, 2));
 } finally {
   await closeBrowser?.().catch(() => undefined);
   socket?.close(); browser.kill("SIGTERM");

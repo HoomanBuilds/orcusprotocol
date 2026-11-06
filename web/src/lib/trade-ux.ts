@@ -1,4 +1,4 @@
-import type { ActionStatus, PreparedAction, Venue } from "@orcus/core";
+import type { ActionStatus, PreparedAction, TradeRequest, Venue } from "@orcus/core";
 import { parseUnits } from "viem";
 
 export interface WalletExecutionConfig {
@@ -8,6 +8,7 @@ export interface WalletExecutionConfig {
 }
 
 export function tradingGasStatus(config: WalletExecutionConfig | null, venue: Venue) {
+  if (venue === "ostium") return { ready: true, label: "Arbitrum Sepolia gas paid by signer", detail: "Owner actions use the owner's Arbitrum Sepolia ETH. Authorized agent actions use that account's agent signer ETH. USDC collateral and oracle fees are separate; the Uniswap gas sponsor does not apply." };
   if (venue === "hyperliquid") return { ready: true, label: "Venue trading fees apply", detail: "Hyperliquid testnet orders are signed for your existing venue account. Ethereum gas sponsorship does not apply." };
   const ready = config?.chainId === 11155111 && config.smartAccountsConfigured && config.gasSponsorship?.required === true && config.gasSponsorship.configured === true && config.gasSponsorship.status === "configured";
   return ready
@@ -22,6 +23,20 @@ export function actionRecovery(status: ActionStatus): string | undefined {
   if (status === "rejected") return "The action was rejected. Review account balances, order limits, and gas sponsorship before a new quote.";
   if (status === "cancelled") return "Cancelled. Check the venue for any fills that happened before cancellation.";
   return undefined;
+}
+
+export function actionReviewLabel(request: Pick<TradeRequest, "type" | "side">): string {
+  switch (request.type) {
+    case "cancel": return "Cancel order";
+    case "edit-order": return "Update order";
+    case "close": return "Close position";
+    case "reduce": return "Reduce position";
+    case "stop-loss": return "Update stop-loss";
+    case "take-profit": return "Update take-profit";
+    case "add-collateral": return "Add collateral";
+    case "remove-collateral": return "Remove collateral";
+    default: return request.side === "buy" ? "Buy" : "Sell";
+  }
 }
 
 export function fundingRecovery(value: unknown): { status: "confirmed" | "unknown" | "reverted"; transactionHash?: string } | null {

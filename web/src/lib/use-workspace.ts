@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   ActionRecord,
   AgentPermission,
@@ -10,6 +10,7 @@ import type {
   HealthStatus,
   Market,
   OperatingBudget,
+  OstiumAllowanceIntent,
   Portfolio,
   PreparedAction,
   TradeRequest,
@@ -19,6 +20,8 @@ import type {
 } from "@orcus/core";
 import { api, ApiError, displayError, post } from "./api";
 import { tradingGasStatus, type WalletExecutionConfig } from "./trade-ux";
+import { readDepositRecovery } from "./deposit-recovery";
+import { actionReviewIssue, venueSymbol, type AgentRequestSummary, type FundingSnapshot, type PaymentSnapshot, type TradingDeposit } from "./workspace-model";
 import { createLogoutQueue } from "./session-state";
 import {
   connectWallet,
@@ -56,18 +59,27 @@ const emptyPortfolio: Portfolio = {
   observedAt: 0,
 };
 
-export function useWorkspace() {
+function useWorkspaceState() {
   const [session, setSession] = useState<Session>(emptySession);
+  const [ostiumAllowances, setOstiumAllowances] = useState<OstiumAllowanceIntent[]>([]);
+  const selectedSymbols = useRef<Partial<Record<Venue, string>>>({});
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [portfolio, setPortfolio] = useState<Portfolio>(emptyPortfolio);
   const [actions, setActions] = useState<ActionRecord[]>([]);
   const [agentData, setAgentData] = useState<AgentData | null>(null);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [budget, setBudget] = useState<OperatingBudget | null>(null);
+  const [requests, setRequests] = useState<AgentRequestSummary[]>([]);
+  const [payments, setPayments] = useState<PaymentSnapshot | null>(null);
+  const [funding, setFunding] = useState<FundingSnapshot | null>(null);
+  const [tradingDeposits, setTradingDeposits] = useState<TradingDeposit[]>([]);
+  const [resourceErrors, setResourceErrors] = useState<Record<string, string>>({});
   const [walletConfig, setWalletConfig] = useState<WalletExecutionConfig | null>(null);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [venue, setVenue] = useState<Venue>("hyperliquid");
   const [symbol, setSymbol] = useState("BTC");
+  const selectSymbol = useCallback((value: string) => { selectedSymbols.current[venue] = value; setSymbol(value); }, [venue]);
+  const selectMarket = useCallback((nextVenue: Venue, nextSymbol: string) => { selectedSymbols.current[nextVenue] = nextSymbol; setVenue(nextVenue); setSymbol(nextSymbol); }, []);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -85,6 +97,7 @@ export function useWorkspace() {
   const preparingRef = useRef(false);
   const executingRef = useRef(false);
   const controllingRef = useRef(false);
+  const ownerRef = useRef<string | null>(null);
   const logoutQueue = useRef(createLogoutQueue(() => post("/api/auth/logout", {})));
 
   const clearPrivate = useCallback(() => {
@@ -95,6 +108,13 @@ export function useWorkspace() {
     setAgentData(null);
     setAutomations([]);
     setBudget(null);
+    setRequests([]);
+    setPayments(null);
+    setFunding(null);
+    setTradingDeposits([]);
+    setOstiumAllowances([]);
+    setResourceErrors({});
+    ownerRef.current = null;
     setWalletConfig(null);
     setPreview(null);
   }, []);
@@ -110,6 +130,8 @@ export function useWorkspace() {
       if (current.user) {
         if (!await selectedOwnerIs(current.user.address)) throw new ApiError("OWNER_CHANGED", "The selected wallet does not match this session.", 401);
         if (revision !== sessionRevision.current) return;
+        if (ownerRef.current && ownerRef.current !== current.user.id) { clearPrivate(); refreshQueuedRef.current = true; return; }
+        ownerRef.current = current.user.id;
         setSession(current);
         const results = await Promise.allSettled([
           api<Portfolio>("/api/portfolio"),
@@ -118,6 +140,10 @@ export function useWorkspace() {
           api<{ automations: Automation[] }>("/api/automations"),
           api<OperatingBudget>("/api/budget"),
           api<WalletExecutionConfig>("/api/wallet-config"),
+          api<{ requests: AgentRequestSummary[] }>("/api/agent/requests"),
+          api<PaymentSnapshot>("/api/budget/payments"),
+          api<FundingSnapshot>("/api/budget/funding"),
+          api<{ intents: OstiumAllowanceIntent[] }>("/api/ostium/allowances"),
         ]);
         if (revision !== sessionRevision.current) return;
         if (!await selectedOwnerIs(current.user.address)) throw new ApiError("OWNER_CHANGED", "The selected wallet changed while loading this session.", 401);
@@ -138,6 +164,20 @@ export function useWorkspace() {
         if (results[4].status === "fulfilled")
           setBudget(results[4].value as OperatingBudget);
         setWalletConfig(results[5].status === "fulfilled" ? results[5].value as WalletExecutionConfig : null);
+        if (results[6].status === "fulfilled") setRequests((results[6].value as { requests: AgentRequestSummary[] }).requests ?? []);
+        if (results[7].status === "fulfilled") setPayments(results[7].value as PaymentSnapshot);
+        if (results[8].status === "fulfilled") setFunding(results[8].value as FundingSnapshot);
+        if (results[9].status === "fulfilled") setOstiumAllowances((results[9].value as { intents: OstiumAllowanceIntent[] }).intents ?? []);
+        const keys = ["portfolio", "activity", "agent", "automations", "budget", "wallet", "requests", "payments", "funding", "nativeAllowances"];
+        setResourceErrors(Object.fromEntries(results.flatMap((result, index) => result.status === "rejected" ? [[keys[index], displayError(result.reason)]] : [])));
+        const deposits: TradingDeposit[] = [];
+        for (const account of current.accounts) {
+          try {
+            const recovery = readDepositRecovery(localStorage, sessionStorage, account.ownerAddress, account.id);
+            if (recovery) deposits.push({ accountId: account.id, status: recovery.status, transactionHash: recovery.transactionHash });
+          } catch {}
+        }
+        setTradingDeposits(deposits);
         const failed = results.find((result) => result.status === "rejected");
         if (failed?.status === "rejected")
           setError(displayError(failed.reason));
@@ -164,23 +204,28 @@ export function useWorkspace() {
 
   useEffect(() => {
     let active = true;
+    let busy = false;
+    setMarkets([]);
+    setMarketError(null);
     async function load() {
+      if (busy) return;
+      busy = true;
       const results = await Promise.allSettled([
-        api<HealthStatus>("/api/health"),
-        api<{ markets: Market[] }>(`/api/markets?venue=${venue}`),
+        api<HealthStatus>("/api/health", { signal: AbortSignal.timeout(10_000) }),
+        api<{ markets: Market[] }>(`/api/markets?venue=${venue}`, { signal: AbortSignal.timeout(10_000) }),
       ]);
+      busy = false;
       if (!active) return;
       if (results[0].status === "fulfilled") setHealth(results[0].value);
       if (results[1].status === "fulfilled") {
         const next = results[1].value.markets ?? [];
         setMarkets(next);
         setMarketError(null);
-        setSymbol((current) =>
-          next.some((market) => market.symbol === current)
-            ? current
-            : (next[0]?.symbol ??
-              (venue === "hyperliquid" ? "BTC" : "WETH/USDC")),
-        );
+        setSymbol(current => {
+          const choice = venueSymbol(venue, next, current, selectedSymbols.current[venue]);
+          if (next.length) selectedSymbols.current[venue] = choice;
+          return choice;
+        });
       } else {
         setMarkets([]);
         setMarketError(displayError(results[1].reason));
@@ -311,7 +356,7 @@ export function useWorkspace() {
     } catch (cause) {
       if (revision !== sessionRevision.current) return;
       const phase = cause && typeof cause === "object" && "phase" in cause ? cause.phase : undefined;
-      if (ownerResult || phase === "submitted-unknown" || phase === "reverted") { setPreview(null); await refresh(); }
+      if (preview.execution.request.venue === "ostium" || ownerResult || phase === "submitted-unknown" || phase === "reverted") { setPreview(null); await refresh(); }
       setError(displayError(cause));
     } finally {
       executingRef.current = false;
@@ -343,6 +388,14 @@ export function useWorkspace() {
     }
   }
 
+  function reviewAction(action: ActionRecord) {
+    const issue = actionReviewIssue(action, session.user?.id, session.accounts);
+    if (issue) { setError(issue); return; }
+    if (preparingRef.current || executingRef.current) return;
+    setError(null);
+    setPreview({ action, execution: action.prepared! });
+  }
+
   const activeMarket = markets.find((market) => market.symbol === symbol);
   const account = session.accounts.find((item) => item.venue === venue);
   return {
@@ -353,12 +406,19 @@ export function useWorkspace() {
     agentData,
     automations,
     budget,
+    requests,
+    payments,
+    funding,
+    tradingDeposits,
+    ostiumAllowances,
+    resourceErrors,
     walletConfig,
     markets,
     venue,
     setVenue,
     symbol,
-    setSymbol,
+    setSymbol: selectSymbol,
+    selectMarket,
     activeMarket,
     account,
     loading,
@@ -380,7 +440,20 @@ export function useWorkspace() {
     prepare,
     confirm,
     control,
+    reviewAction,
   };
 }
 
-export type Workspace = ReturnType<typeof useWorkspace>;
+export type Workspace = ReturnType<typeof useWorkspaceState>;
+const WorkspaceContext = createContext<Workspace | null>(null);
+
+export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const workspace = useWorkspaceState();
+  return createElement(WorkspaceContext.Provider, { value: workspace }, children);
+}
+
+export function useWorkspace(): Workspace {
+  const workspace = useContext(WorkspaceContext);
+  if (!workspace) throw new Error("Workspace pages must be inside WorkspaceProvider.");
+  return workspace;
+}

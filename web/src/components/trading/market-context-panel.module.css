@@ -33,6 +33,22 @@
 .swapDetails > div { display: flex; justify-content: space-between; gap: 16px; }
 .swapDetails dt { margin: 0; }
 .swapDetails dd { margin: 0; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+.ladderScroll { overflow-x: auto; scrollbar-width: thin; }
+.ladder { width: 100%; border-collapse: collapse; font: 10px/1.7 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.ladder th { text-align: right; padding: 10px 8px; color: var(--muted); font: 9px/1.6 var(--sans); white-space: nowrap; border-bottom: 1px solid var(--border-soft); }
+.ladder th:first-child { text-align: left; }
+.ladder td { text-align: right; padding: 5px 8px; white-space: nowrap; overflow: visible; text-overflow: clip; }
+.ladder td:first-child { text-align: left; }
+.ladder tr { background-position: right; background-repeat: no-repeat; }
+.spread td { padding: 11px 8px; border-block: 1px solid var(--border); background: var(--surface-2); }
+.spread td > span { color: var(--muted); font: 10px var(--sans); }
+.spread td > strong { float: right; font-size: 11px; font-weight: 500; color: var(--fg); }
+.contextDisclosure { border-top: 1px solid var(--border); }
+.contextDisclosure > summary { padding: 13px 10px; cursor: pointer; font-size: 10px; line-height: 1.7; color: var(--muted); }
+.contextDisclosure > summary > span { float: right; color: var(--fg); font-variant-numeric: tabular-nums; }
+.contextDisclosure .metrics { grid-template-columns: 1fr; padding: 12px; gap: 10px; }
+.contextDisclosure .metrics > div { display: flex; justify-content: space-between; gap: 10px; }
+.contextDisclosure .note, .contextDisclosure .timestamp { margin: 10px 0; padding-inline: 12px; }
 @media (max-width: 480px) {
   .metrics { gap: 8px; padding: 12px; }
   .metrics dd { font-size: 12px; }
