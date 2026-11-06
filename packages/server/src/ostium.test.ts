@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeFunctionData,erc20Abi,parseUnits } from "viem";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
-import { tradeRequestSchema,type OstiumExecution,type PreparedAction,type TradeRequest } from "@orcus/core";
+import { tradeRequestSchema,type OstiumExecution,type PreparedAction } from "@orcus/core";
 import * as boundary from "./engine";
 import { handleRequest } from "./http";
 import { cancelOstiumAllowance,listOstiumAllowances,prepareOstiumAllowance,reconcileOstiumAllowance,submitOstiumAllowance } from "./ostium-allowances";
@@ -126,6 +126,9 @@ describe("Ostium native authority and deterministic application policy",()=>{
 });
 
 describe("Ostium owner approval and transaction recovery",()=>{
+  it.each(["0","-1","2000000.000001","10.0000001","999999999999999999999999"])("rejects ambiguous or out-of-bounds exact allowance %s before provider reads",async amountUsd=>{
+    const h=harness();await expect(prepareOstiumAllowance(h.store,h.user,{accountId:h.account.id,amountUsd,requestId:"invalid"})).rejects.toThrow();expect(h.engine).not.toHaveBeenCalled();
+  });
   it("persists exact allowance intent before the wallet, prevents duplicate popup claims and reconciles late receipts once",async()=>{
     const h=harness(true),input={accountId:h.account.id,amountUsd:"10",requestId:"exact-allowance"},first=await prepareOstiumAllowance(h.store,h.user,input);
     expect(first.intent).toMatchObject({amountRaw:"10000000",minimumBlock:"100",status:"prepared"});expect(first.intent.notBefore).toBeGreaterThan(1_000_000_000_000);

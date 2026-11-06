@@ -1,6 +1,6 @@
 import { getAddress } from "viem";
 import { z } from "zod";
-import { addressSchema, decimalSchema, ostiumDelegationAcknowledgementSchema, type PreparedAction, type TradeRequest } from "@orcus/core";
+import { addressSchema, decimalSchema, ostiumDelegationAcknowledgementSchema, type PreparedAction } from "@orcus/core";
 import { callEngine } from "./engine";
 import { ApiError } from "./errors";
 import type { StoredAccount, StoredPermission } from "./types";

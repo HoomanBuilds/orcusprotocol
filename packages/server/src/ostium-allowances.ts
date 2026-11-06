@@ -8,7 +8,7 @@ import { tokenHash, type Store } from "./store";
 import type { StoredAccount, StoredAction, StoredRecord } from "./types";
 
 type Intent=OstiumAllowanceIntent&StoredRecord&{fingerprint:string};
-const amountSchema=z.string().regex(/^(?:0|[1-9]\d{0,5})(?:\.\d{1,6})?$/).refine(value=>parseUnits(value,6)>0n&&parseUnits(value,6)<=100_000_000_000n,"Approve an exact positive USDC amount no greater than 100,000");
+const amountSchema=z.string().regex(/^(?:0|[1-9]\d{0,6})(?:\.\d{1,6})?$/).refine(value=>parseUnits(value,6)>0n&&parseUnits(value,6)<=2_000_000_000_000n,"Approve an exact positive USDC amount no greater than 2,000,000");
 const transactionSchema=z.object({to:addressSchema,data:z.string().regex(/^0x(?:[\da-fA-F]{2})+$/),value:z.literal("0"),chainId:z.literal(421614),label:z.string().optional()}).strict();
 const planSchema=z.object({trader:addressSchema,chainId:z.literal(421614),token:addressSchema,spender:addressSchema,amountUsd:z.string(),amountRaw:z.string().regex(/^\d+$/),transaction:transactionSchema,expiresAt:z.number().int().positive(),minimumBlock:z.string().regex(/^\d+$/).optional()}).passthrough();
 const hashSchema=z.string().regex(/^0x[\da-fA-F]{64}$/);
@@ -103,7 +103,7 @@ export async function recordOstiumActionApproval(store:Store,user:User,action:St
   if(previous?.transactionHash&&previous.transactionHash.toLowerCase()!==transactionHash.toLowerCase())throw new ApiError("EVIDENCE_CONFLICT","This approval step already has another transaction hash.",409);
   if(previous?.status==="confirmed")return action;
   const entry:ActionApprovalStep={index,transactionHash,amountUsd,token,spender,status:"pending",updatedAt:Date.now()};
-  const merge=(step:ActionApprovalStep)=>{const current=store.get<StoredAction>(user.id,"action",action.id)!;return store.update<StoredAction>(user.id,"action",action.id,{approvals:[...(current.approvals??[]).filter(item=>item.index!==index),step]});};
+  const merge=(step:ActionApprovalStep)=>{const current=store.get<StoredAction>(user.id,"action",action.id)!,existing=current.approvals?.find(item=>item.index===index);if(existing?.transactionHash&&existing.transactionHash.toLowerCase()!==transactionHash.toLowerCase())throw new ApiError("EVIDENCE_CONFLICT","This owner approval step already has another recorded transaction.",409);if(existing?.status==="confirmed")return current;return store.update<StoredAction>(user.id,"action",action.id,{approvals:[...(current.approvals??[]).filter(item=>item.index!==index),step],error:step.status==="rejected"?"The owner approval reverted. No native trade was submitted.":undefined});};
   merge(entry);
   const result=await callEngine<{status?:string;transactionHash?:string}>("reconcileOstiumApproval",{transactionHash,account:selected,amountUsd,expectedTransaction:transaction,notBefore:action.createdAt,minimumBlock:action.prepared.ostium!.minimumBlock});
   if(!["pending","confirmed","rejected"].includes(result.status??"")||result.transactionHash?.toLowerCase()!==transactionHash.toLowerCase())throw new ApiError("ALLOWANCE_UNVERIFIED","This approval step has no verified receipt.",503);

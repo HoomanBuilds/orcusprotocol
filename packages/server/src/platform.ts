@@ -443,7 +443,9 @@ export class Platform {
   }
   async activity(user:User){
     const actions=this.store.list<StoredAction>(user.id,"action",100);
-    for(const action of actions.filter(item=>item.request.venue==="ostium"&&item.approvals?.some(step=>step.status==="pending"&&step.transactionHash)).slice(0,10))for(const step of action.approvals??[])if(step.status==="pending"&&step.transactionHash){try{await recordOstiumActionApproval(this.store,user,action,step.index,step.transactionHash);}catch{}}
+    for(const action of actions.filter(item=>item.request.venue==="ostium"&&item.approvals?.some(step=>step.status==="pending"&&step.transactionHash)).slice(0,10)){
+      try{await this.withAccountLease(action.accountId,async()=>{const current=this.store.get<StoredAction>(user.id,"action",action.id)!;for(const step of current.approvals??[])if(step.status==="pending"&&step.transactionHash)await recordOstiumActionApproval(this.store,user,current,step.index,step.transactionHash);});}catch{}
+    }
     await Promise.all(actions.filter(action=>["submitting","submitted-unknown","pending","partially-filled"].includes(action.status)).slice(0,10).map(action=>this.reconcile(user,action)));
     return {actions:this.store.list<StoredAction>(user.id,"action",100)};
   }
