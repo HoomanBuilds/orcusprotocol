@@ -111,7 +111,7 @@ export function AgentPanel({
               {message.role === "assistant" ? "ORCUS" : "YOU"}
             </span>
             {message.role === "assistant" ? <><AgentToolActivity steps={message.toolSteps}/><AgentResponse content={message.content}/></> : <p>{message.content}</p>}
-            {(message.requestId || message.modelId) && <details className="technical-limits message-evidence"><summary>Response details</summary>{message.requestId && <p className="request-evidence">0G request {message.requestId}</p>}{message.modelId && <small className="message-model">Model: {message.modelId}</small>}</details>}
+            {(message.requestId || message.modelId) && <details className="technical-limits message-evidence"><summary>{message.role === "assistant" ? "Response details" : "Request details"}</summary>{message.requestId && <p className="request-evidence">{message.role === "assistant" ? "0G request" : "Request ID"} {message.requestId}</p>}{message.modelId && <small className="message-model">Model: {message.modelId}</small>}</details>}
             {message.privacy && message.privacy !== "unverified" && <details className="technical-limits"><summary>{message.privacy === "independently-attested-private" ? "Private inference, independently attested" : "Private tier, gateway-reported assurance"}</summary><pre>{JSON.stringify(message.privacyEvidence, null, 2)}</pre></details>}
             {message.proposedAction && (
               <div className="proposal">

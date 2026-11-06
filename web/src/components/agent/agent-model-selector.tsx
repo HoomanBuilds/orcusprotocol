@@ -8,6 +8,15 @@ export function AgentModelSelector({ owner, disabled, onChange, onBusy, refresh,
   const [catalog, setCatalog] = useState<AgentModelCatalog | null>(null);
   const [selected, setSelected] = useState(""), [loading, setLoading] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState<string | null>(null);
   const ownerRef = useRef(owner), inFlight = useRef(false); ownerRef.current = owner;
+  const container = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      const details = container.current?.querySelector("details");
+      if (details?.open && event.target instanceof Node && !details.contains(event.target)) details.open = false;
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, []);
   useEffect(() => {
     let active = true; ownerRef.current = owner;
     setCatalog(null); setSelected(""); setError(null); onChange(undefined);
@@ -30,7 +39,7 @@ export function AgentModelSelector({ owner, disabled, onChange, onBusy, refresh,
     finally { inFlight.current = false; if (ownerRef.current === owner) { setSaving(false); onBusy(false); } }
   }
   const model = catalog?.models.find(item => item.id === selected);
-  return <div className={`agent-model-selector${compact ? " compact" : ""}`}>
+  return <div ref={container} className={`agent-model-selector${compact ? " compact" : ""}`}>
     <label><span>0G model</span><select aria-label="Inference model" value={selected} disabled={!owner || disabled || loading || saving || !catalog} onChange={event => void select(event.target.value)}>
       {!catalog && <option value="">{loading ? "Loading models..." : "Configured default"}</option>}
       {catalog && !catalog.models.some(item => item.id === selected) && <option value={selected}>{selected}</option>}

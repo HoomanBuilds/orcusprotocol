@@ -202,8 +202,9 @@ try {
       assert.ok(layout.composerBottom <= layout.height && layout.composerTop > 0, "Composer stays visible.");
       await click(".model-details summary");
       assert.equal(await evaluate("document.querySelector('.chat-scroll').getBoundingClientRect().height"), layout.thread, "Model details must not shrink the thread.");
-      await rpc("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-      await evaluate("document.querySelector('.model-details').open=false");
+      await screenshot(viewport.mobile ? "fixture-mobile-model-details" : "fixture-laptop-model-details");
+      await evaluate("document.querySelector('textarea').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))");
+      assert.ok(await evaluate("!document.querySelector('.model-details').open"), "Returning to composer must dismiss model details.");
       await click("button[aria-controls=\"agent-context\"]");
       await until("document.querySelector('button[aria-controls=\"agent-context\"]').getAttribute('aria-expanded')==='true'", "Context did not open.");
       if (viewport.mobile) {
