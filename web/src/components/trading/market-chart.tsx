@@ -219,7 +219,7 @@ export function MarketChart({
       </div>
       <div className="ohlc">
         <span>
-          {symbol} / {venue === "hyperliquid" ? "PERPETUAL" : "SPOT"}
+          {symbol} / {venue === "uniswap" ? "SPOT" : venue === "ostium" ? "ORACLE REFERENCE" : "PERPETUAL"}
         </span>
         {last && (
           <>

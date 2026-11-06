@@ -11,7 +11,8 @@ import {
   ShieldCheck,
   Wallet,
 } from "lucide-react";
-import type { AgentPermission, TradingAccount } from "@orcus/core";
+import type { AgentPermission, TradingAccount, Venue } from "@orcus/core";
+import { venueName } from "@/lib/venue-presentation";
 import type { KernelGrantPolicy } from "@orcus/wallets/kernel";
 import { formatUnits } from "viem";
 import type { Workspace } from "@/lib/use-workspace";
@@ -33,6 +34,7 @@ import { MemoryControls } from "./memory-controls";
 import { ComputeFundingPanel } from "./compute-funding-panel";
 import { ServicePaymentPanel } from "./service-payment-panel";
 import { ExpenseBillingCheck } from "./expense-billing-check";
+import { OstiumAccountCard } from "./ostium-account-card";
 import {
   Address,
   Badge,
@@ -562,7 +564,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
     }
   }, [agent?.id, agent?.preferences, agent?.mode, agent?.privateInferenceRequired, agent?.privateVerification]);
 
-  async function addAccount(venue: "uniswap" | "hyperliquid") {
+  async function addAccount(venue: Venue) {
     setBusy(venue);
     setError(null);
     try {
@@ -579,7 +581,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
       } else {
         await post("/api/accounts", { venue });
         w.setNotice(
-          "Hyperliquid account added. Agent authorization remains a separate owner approval.",
+          `${venueName(venue)} account added. Agent authorization remains a separate owner approval.`,
         );
       }
       await w.refresh();
@@ -714,6 +716,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
           {section === "accounts" && <>
           <div className="settings-section-heading settings-account-actions">
             <div className="account-add-buttons">
+              {!w.session.accounts.some(account => account.venue === "ostium") && <button className="button secondary small" type="button" disabled={!!busy} onClick={() => void addAccount("ostium")}>{busy === "ostium" ? <Spinner/> : <Plus size={13}/>}Ostium</button>}
               {!w.session.accounts.some(
                 (account) => account.venue === "hyperliquid",
               ) && (
@@ -743,15 +746,15 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
           </div>
           <div className="settings-grid">
             {w.session.accounts.map((account) => (
-              <AccountCard key={account.id} account={account} workspace={w} />
+              account.venue === "ostium" ? <OstiumAccountCard key={account.id} account={account} workspace={w} /> : <AccountCard key={account.id} account={account} workspace={w} />
             ))}
             {!w.session.accounts.length && (
               <div className="settings-card account-intro">
                 <Wallet size={25} />
                 <h2>Add your first trading account</h2>
                 <p>
-                  Hyperliquid uses your existing venue account. Uniswap uses a
-                  separate smart account you own. Adding either does not
+                  Hyperliquid and Ostium use your owner-controlled venue account.
+                  Uniswap uses a smart account you own. Adding an account does not
                   authorize the agent.
                 </p>
               </div>
@@ -975,7 +978,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
         </div>
         <div className="service-grid">
           {(
-            ["compute", "storage", "uniswap", "hyperliquid", "cre"] as const
+            ["compute", "storage", "uniswap", "hyperliquid", "ostium", "cre"] as const
           ).map((key) => {
             const service = w.health?.[key];
             return (
@@ -988,6 +991,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
                         storage: "0G encrypted memory",
                         uniswap: "Uniswap V3",
                         hyperliquid: "Hyperliquid testnet",
+                        ostium: "Ostium / Arbitrum Sepolia",
                         cre: "Chainlink CRE",
                       }[key]
                     }

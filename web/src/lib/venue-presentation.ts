@@ -8,3 +8,4 @@ export const venuePresentation: Record<Venue, { name: string; network: string; m
 
 export function venueName(venue: Venue) { return venuePresentation[venue].name; }
 export function venueNetwork(venue: Venue) { return venuePresentation[venue].network; }
+export function balanceRole(venue: Venue | undefined, symbol: string) { return venue === "uniswap" ? "Spot holding" : venue === "ostium" && symbol === "ETH" ? "Native network gas" : venue === "ostium" || venue === "hyperliquid" ? "Trading collateral" : "Trading balance"; }

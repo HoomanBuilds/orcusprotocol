@@ -1,8 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PreparedAction } from "@orcus/core";
-import { actionRecovery, fundingRecovery, hasAtomicNativeInput, tradingGasStatus, withFundingRecoveryIntent, type WalletExecutionConfig } from "./trade-ux";
+import { actionRecovery, actionReviewLabel, fundingRecovery, hasAtomicNativeInput, tradingGasStatus, withFundingRecoveryIntent, type WalletExecutionConfig } from "./trade-ux";
 
 const configured: WalletExecutionConfig = { chainId: 11155111, smartAccountsConfigured: true, gasSponsorship: { required: true, configured: true, status: "configured" } };
+
+describe("explicit control-operation reviews", () => {
+  it.each([["cancel", "Cancel order"], ["edit-order", "Update order"], ["stop-loss", "Update stop-loss"], ["take-profit", "Update take-profit"], ["close", "Close position"], ["reduce", "Reduce position"], ["add-collateral", "Add collateral"], ["remove-collateral", "Remove collateral"]] as const)("labels %s by its actual operation rather than its incidental side", (type, label) => {
+    expect(actionReviewLabel({ type, side: "buy" })).toBe(label);
+    expect(actionReviewLabel({ type, side: "sell" })).toBe(label);
+  });
+});
 
 describe("honest trading gas readiness", () => {
   it("requires Sepolia, bundler, and sponsor metadata, not just readable RPC or an account", () => {

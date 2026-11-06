@@ -1,4 +1,4 @@
-import type { ActionStatus, PreparedAction, Venue } from "@orcus/core";
+import type { ActionStatus, PreparedAction, TradeRequest, Venue } from "@orcus/core";
 import { parseUnits } from "viem";
 
 export interface WalletExecutionConfig {
@@ -23,6 +23,20 @@ export function actionRecovery(status: ActionStatus): string | undefined {
   if (status === "rejected") return "The action was rejected. Review account balances, order limits, and gas sponsorship before a new quote.";
   if (status === "cancelled") return "Cancelled. Check the venue for any fills that happened before cancellation.";
   return undefined;
+}
+
+export function actionReviewLabel(request: Pick<TradeRequest, "type" | "side">): string {
+  switch (request.type) {
+    case "cancel": return "Cancel order";
+    case "edit-order": return "Update order";
+    case "close": return "Close position";
+    case "reduce": return "Reduce position";
+    case "stop-loss": return "Update stop-loss";
+    case "take-profit": return "Update take-profit";
+    case "add-collateral": return "Add collateral";
+    case "remove-collateral": return "Remove collateral";
+    default: return request.side === "buy" ? "Buy" : "Sell";
+  }
 }
 
 export function fundingRecovery(value: unknown): { status: "confirmed" | "unknown" | "reverted"; transactionHash?: string } | null {

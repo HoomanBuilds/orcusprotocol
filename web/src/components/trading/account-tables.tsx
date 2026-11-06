@@ -8,6 +8,8 @@ import { assetAmount, number, time, usd } from "@/lib/format";
 import { AssetIcon } from "../workspace/asset-icon";
 import { OstiumOrderRow, OstiumPositionRow } from "./ostium-account-rows";
 import { OstiumHistory } from "./ostium-history";
+import { OstiumAllowanceControls } from "../agent/ostium-allowance-controls";
+import { balanceRole, venueName, venuePresentation } from "@/lib/venue-presentation";
 import { actionRecovery } from "@/lib/trade-ux";
 import { displayError } from "@/lib/api";
 import { Badge, Empty, InlineError, Spinner, Status } from "./primitives";
@@ -185,7 +187,7 @@ export function ActivityTable({ actions, onRefresh }: { actions: ActionRecord[];
                 <Badge>{action.initiator}</Badge>
               </td>
               <td>
-                {action.request.venue === "uniswap" ? "Uniswap" : "Hyperliquid"}
+                {venueName(action.request.venue)}
               </td>
               <td>
                 <Status value={action.status} />
@@ -196,7 +198,7 @@ export function ActivityTable({ actions, onRefresh }: { actions: ActionRecord[];
                     className="text-link"
                     target="_blank"
                     rel="noreferrer"
-                    href={`https://sepolia.etherscan.io/tx/${action.transactionHash}`}
+                    href={`${venuePresentation[action.request.venue].explorer ?? "https://sepolia.etherscan.io"}/tx/${action.transactionHash}`}
                   >
                     Transaction <ExternalLink size={11} />
                   </a>
@@ -234,7 +236,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
           { id: "orders", label: "Open orders", count: orders.length },
           {
             id: "balances",
-            label: "Spot balances",
+            label: "Balances",
             count: w.portfolio.balances.length,
           },
           { id: "activity", label: "Activity", count: w.actions.length },
@@ -292,7 +294,10 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
               </thead>
               <tbody>
                 {positions.map((position) => (
-                  position.venue === "ostium" ? <OstiumPositionRow key={position.id} position={position} workspace={w}/> : <PositionRow
+                  position.venue === "ostium" ? <OstiumPositionRow key={position.id} position={position} workspace={w} allowanceControls={amount => {
+                    const account = w.session.accounts.find(item => item.id === position.accountId && item.venue === "ostium");
+                    return account ? <OstiumAllowanceControls account={account} workspace={w} initialAmount={amount}/> : null;
+                  }}/> : <PositionRow
                     key={position.id}
                     position={position}
                     workspace={w}
@@ -302,7 +307,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
             </table>
           </div>
         ) : (
-          <Empty title="No open perpetual positions">
+          <Empty title="No open positions">
             Positions opened here or on the supported venue account will appear
             here. You and your agent can manage the same positions.
           </Empty>
@@ -398,7 +403,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
                     <td>{assetAmount(balance.amount, balance.symbol)}</td>
                     <td>{balance.usdValue === undefined ? "Unavailable" : `${usd(balance.usdValue)} testnet`}</td>
                     <td>
-                      <Badge>{w.session.accounts.find(account => account.id === balance.accountId)?.venue === "hyperliquid" ? "Perpetual collateral" : "Spot holding"}</Badge>
+                      <Badge>{balanceRole(w.session.accounts.find(account => account.id === balance.accountId)?.venue, balance.symbol)}</Badge>
                     </td>
                   </tr>
                 ))}

@@ -17,6 +17,8 @@ describe("native ticket units and current pair limits", () => {
     expect(() => ostiumEntryRequest(account, undefined, draft)).toThrow(/available/);
     expect(() => ostiumEntryRequest(account, { ...market, tradable: false }, draft)).toThrow(/available/);
     expect(() => ostiumEntryRequest(account, market, { ...draft, leverage: "51" })).toThrow(/limits/);
+    expect(() => ostiumEntryRequest(account, market, { ...draft, leverage: "1e1" })).toThrow(/limits/);
+    expect(() => ostiumEntryRequest(account, market, { ...draft, leverage: "1.001" })).toThrow(/limits/);
     expect(() => ostiumEntryRequest(account, market, { ...draft, leverage: "20" })).toThrow(/day trade/);
     expect(ostiumEntryRequest(account, market, { ...draft, leverage: "20", isDayTrade: true }).isDayTrade).toBe(true);
   });
@@ -40,6 +42,10 @@ describe("exact native position and order management", () => {
     expect(ostiumOrderRequest(order, { price: "150", takeProfit: "160", stopLoss: "0" })).toMatchObject({ type: "edit-order", amountUnit: "collateral-usdc", orderId: order.id, stopLoss: "0" });
     expect(ostiumOrderRequest({ ...order, id: "pending-open:22" }).type).toBe("cancel");
     expect(() => ostiumOrderRequest({ ...order, id: "pending-open:22" }, { price: "150", takeProfit: "160", stopLoss: "0" })).toThrow(/cannot be edited/);
+    expect(() => ostiumOrderRequest({ ...order, collateralUsd: undefined }, { price: "150", takeProfit: "160", stopLoss: "0" })).toThrow(/collateral amount/);
+    expect(() => ostiumOrderRequest(order, { price: "150", takeProfit: "", stopLoss: "0" })).toThrow();
+    expect(ostiumOrderRequest({ ...order, size: "" })).toMatchObject({ type: "cancel", amount: "0", amountUnit: "base", orderId: order.id });
+    expect(ostiumOrderRequest({ ...order, size: "0.000000001" }).amount).toBe("0.000000001");
   });
 });
 

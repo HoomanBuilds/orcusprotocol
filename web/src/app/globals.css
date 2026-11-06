@@ -3170,6 +3170,63 @@ td > small.negative {
 .trade-mobile-tabs { display: none; }
 .trade-ticket-column { grid-area: ticket; min-width: 0; }
 .trade-ticket-column > .order-ticket { border-radius: 6px; padding: 18px; }
+.trade-ticket-column { position: sticky; top: 8px; }
+.product-workspace .table-tabs { overflow-y: hidden; }
+.market-option-identity { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.market-option-identity small { font-size: 9px; line-height: 1.5; color: var(--muted); }
+.ticket-network-label { font-size: 9px; color: var(--muted); }
+.ticket-notional-output { display: flex; align-items: center; min-height: 44px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; font: 13px var(--mono); background: var(--bg); }
+.ticket-safety-copy { color: var(--muted); font-size: 10px; line-height: 1.8; margin: 0 0 18px; }
+.product-workspace .ticket-protection { padding: 0; border: 0; margin: 18px 0; }
+.ticket-protection > summary { color: #dfbfd3; }
+.native-market-context { min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); padding: 14px; }
+.native-market-context > header { display: flex; align-items: center; gap: 8px; padding-bottom: 13px; border-bottom: 1px solid var(--border-soft); }
+.native-market-context h2 { font-size: 12px; }
+.native-market-state { font-size: 10px; line-height: 1.7; padding: 13px 0; color: var(--muted); }
+.native-market-state .dot { margin-right: 6px; }
+.native-market-context dl { margin: 0; }
+.native-market-context dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border-soft); font-size: 10px; }
+.native-market-context dt { color: var(--muted); }
+.native-market-context dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.native-market-context details { border-top: 1px solid var(--border); margin-top: 14px; }
+.native-market-context summary { min-height: 44px; padding: 13px 0; color: #dfbfd3; font-size: 11px; cursor: pointer; }
+.native-market-context p { font-size: 10px; color: var(--muted); line-height: 1.8; margin: 12px 0; }
+.native-market-context .native-market-boundary { border-top: 1px solid var(--border); margin: 12px 0 0; padding-top: 14px; }
+.native-position-management, .native-order-management { padding: 5px 0 14px; min-width: 600px; }
+.native-position-facts { display: flex; flex-wrap: wrap; gap: 18px 28px; margin: 0 0 24px; }
+.native-position-facts dt { font-size: 10px; color: var(--muted); }
+.native-position-facts dd { font: 12px var(--mono); margin: 7px 0 0; }
+.native-order-management .form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.native-position-management > .fine-print, .native-order-management > .fine-print { margin: 14px 0; }
+.native-history-panel > header { display: flex; align-items: center; justify-content: space-between; padding: 20px; gap: 16px; }
+.native-history-panel > header p { font-size: 11px; margin-top: 5px; color: var(--muted); }
+.native-history-panel > nav { display: flex; gap: 18px; border-block: 1px solid var(--border); padding-inline: 20px; overflow-x: auto; }
+.native-history-panel > nav > button { min-height: 44px; color: var(--muted); font-size: 11px; white-space: nowrap; border-bottom: 2px solid transparent; }
+.native-history-panel > nav > button.selected { color: var(--brand); border-bottom-color: var(--brand); }
+.native-history-loading { display: flex; justify-content: center; gap: 10px; padding: 50px 20px; color: var(--muted); }
+.native-row-evidence { margin-top: 8px; }
+.native-row-evidence summary { font-size: 10px; color: var(--muted); cursor: pointer; }
+.native-row-evidence pre { max-width: 300px; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 9px/1.7 var(--mono); padding: 12px; background: var(--bg); border: 1px solid var(--border); }
+.activity-technical-details { margin-top: 24px; border-top: 1px solid var(--border); }
+.activity-technical-details > summary { min-height: 44px; padding: 16px 0; color: #dbb7cf; font-size: 12px; cursor: pointer; }
+.reference-copy { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; margin-top: 5px; color: var(--brand); font-size: 10px; }
+.native-approval-step { padding: 15px 0; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.native-approval-step > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.activity-receipt-link { display: inline-flex; margin-top: 22px; }
+.settings-account-actions { justify-content: flex-end; }
+.product-workspace .check-label { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; font-size: 12px; line-height: 1.7; color: var(--fg); }
+.product-workspace .check-label input { width: 17px; min-width: 17px; height: 17px; margin: 3px 0 0; padding: 0; accent-color: var(--brand); }
+.ostium-account-card > .technical-limits, .ostium-account-card > .settings-actions { margin-top: 18px; }
+.ostium-account-card .evaluation > .button, .ostium-allowance-controls .evaluation > .button { margin: 10px 8px 0 0; }
+.ostium-allowance-controls { min-width: 0; }
+.ostium-allowance-controls > .button { margin-top: 12px; }
+.ostium-allowance-controls .field { margin-top: 16px; }
+.product-workspace .action-dialog { max-height: calc(100dvh - 40px); overflow-y: auto; }
+.native-review-details { border-top: 1px solid var(--border); margin-top: 16px; }
+.preview-exact-amount { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.product-workspace .trade-depth-column table td { padding: 3px 5px; line-height: 1.6; }
+.product-workspace .trade-depth-column table td[colspan] { padding: 10px 7px; }
+.product-workspace .settings-account-actions + .settings-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 350px), 1fr)); }
 .mobile-settings-selector { display: none; }
 .product-workspace .empty-conversation .chat-scroll { overflow: visible; flex: 0 0 auto; min-height: 0; }
 .product-workspace .empty-conversation { height: auto; min-height: 0; }
@@ -3254,4 +3311,10 @@ td > small.negative {
   .product-workspace .empty-conversation .chat-compose { position: static; flex-shrink: 0; min-height: 104px; margin: 0 18px; padding: 10px 12px; }
   .product-workspace .empty-conversation .chat-compose textarea { min-height: 44px; padding: 5px 0; font-size: 13px; }
   .product-workspace .empty-conversation .chat-compose > div { padding: 0; }
+  .trade-ticket-column { position: static; }
+  .reference-copy { min-height: 44px; }
+  .native-market-context dl > div { font-size: 12px; }
+  .product-workspace .trade-depth-column table td { padding: 5px 8px; font-size: 12px; }
+  .product-workspace .trade-depth-column table th { padding: 10px 8px; font-size: 11px; }
+  .product-workspace .icon-button { width: 44px; min-width: 44px; height: 44px; }
 }

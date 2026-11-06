@@ -46,7 +46,7 @@ export function assetAmount(value: string | undefined, symbol: string): string {
 }
 
 export function quotePrice(value: string | number | undefined, quoteAsset = "USDC"): string {
-  if (value === undefined || value === "" || !Number.isFinite(Number(value))) return "Unavailable";
+  if (value === undefined || typeof value === "string" && !value.trim() || !Number.isFinite(Number(value))) return "Unavailable";
   const amount = Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
   return quoteAsset === "USD" || quoteAsset === "USDC" ? `$${amount}` : `${amount} ${quoteAsset}`;
 }

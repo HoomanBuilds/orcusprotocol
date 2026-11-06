@@ -26,6 +26,9 @@ describe("saved owner action review", () => {
     expect(actionReviewIssue({ ...action, prepared: { ...action.prepared!, account: { ...account, id: "other" } } }, "owner", [account], 1000)).toMatch(/authorization changed/);
     expect(actionReviewIssue({ ...action, prepared: { ...action.prepared!, request: { ...request, accountId: "other" } } }, "owner", [account], 1000)).toMatch(/authorization changed/);
   });
+  it("never reopens a wallet plan after an approval step was recorded", () => {
+    expect(actionReviewIssue({ ...action, approvals: [{ index: 0, token: account.address, spender: account.ownerAddress, amountUsd: "25", status: "confirmed", updatedAt: 1000, transactionHash: `0x${"a".repeat(64)}` }] }, "owner", [account], 1000)).toMatch(/approval steps/);
+  });
 });
 
 describe("observed portfolio summary", () => {

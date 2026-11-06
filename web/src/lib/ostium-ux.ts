@@ -16,7 +16,7 @@ export interface OstiumEntryDraft {
 export function ostiumEntryRequest(account: TradingAccount, market: Market | undefined, draft: OstiumEntryDraft): TradeRequest {
   if (account.venue !== "ostium" || account.chainId !== 421614 || !market || market.venue !== "ostium" || market.tradable !== true || !market.midPrice) throw new Error("Choose an available Ostium testnet market before reviewing an entry.");
   const leverage = Number(draft.leverage);
-  if (!Number.isFinite(leverage) || market.minLeverage !== undefined && leverage < market.minLeverage || market.maxLeverage !== undefined && leverage > market.maxLeverage) throw new Error("Leverage is outside this market's current limits.");
+  if (!/^\d+(?:\.\d{1,2})?$/.test(draft.leverage) || !Number.isFinite(leverage) || market.minLeverage !== undefined && leverage < market.minLeverage || market.maxLeverage !== undefined && leverage > market.maxLeverage) throw new Error("Leverage is outside this market's current limits. Use at most two decimal places.");
   if (!draft.isDayTrade && market.overnightMaxLeverage !== undefined && market.overnightMaxLeverage > 0 && leverage > market.overnightMaxLeverage) throw new Error("This leverage requires a day trade. Review the market's overnight limit.");
   return tradeRequestSchema.parse({ accountId: account.id, venue: "ostium", type: draft.type, symbol: market.symbol, side: draft.side, amount: draft.amount, amountUnit: "collateral-usdc", leverage, isDayTrade: draft.isDayTrade, slippageBps: Math.round(Number(draft.slippage) * 100), reduceOnly: false, mode: "manual", ...(draft.type !== "market" ? { price: draft.price } : {}), ...(draft.takeProfit.trim() ? { takeProfit: draft.takeProfit.trim() } : {}), ...(draft.stopLoss.trim() ? { stopLoss: draft.stopLoss.trim() } : {}) });
 }
@@ -39,7 +39,7 @@ export function ostiumOrderRequest(order: OpenOrder, edit?: { price: string; tak
   if (order.venue !== "ostium") throw new Error("Select an Ostium order.");
   if (edit && order.id.startsWith("pending-")) throw new Error("A pending oracle order cannot be edited as a resting entry.");
   if (edit && (!order.collateralUsd || Number(order.collateralUsd) <= 0)) throw new Error("The order's collateral amount is unavailable. Refresh before editing.");
-  return tradeRequestSchema.parse({ accountId: order.accountId, venue: "ostium", type: edit ? "edit-order" : "cancel", symbol: order.symbol, orderId: order.id, side: order.side, amount: edit ? order.collateralUsd! : order.size, amountUnit: edit ? "collateral-usdc" : "base", slippageBps: 50, reduceOnly: false, mode: "manual", ...(edit ?? {}) });
+  return tradeRequestSchema.parse({ accountId: order.accountId, venue: "ostium", type: edit ? "edit-order" : "cancel", symbol: order.symbol, orderId: order.id, side: order.side, amount: edit ? order.collateralUsd! : Number.isFinite(Number(order.size)) && Number(order.size) > 0 ? order.size : "0", amountUnit: edit ? "collateral-usdc" : "base", slippageBps: 50, reduceOnly: false, mode: "manual", ...(edit ?? {}) });
 }
 
 export function ostiumAcknowledgement(account: TradingAccount, agentAddress: string) {

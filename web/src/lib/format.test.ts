@@ -26,6 +26,7 @@ describe("unavailable and quote-aware prices", () => {
     expect(quotePrice("152.3125", "JPY")).toBe("152.3125 JPY");
     expect(quotePrice("8000", "GBP")).toBe("8,000.00 GBP");
     expect(quotePrice("", "JPY")).toBe("Unavailable");
+    expect(quotePrice(" ", "JPY")).toBe("Unavailable");
   });
 });
 
