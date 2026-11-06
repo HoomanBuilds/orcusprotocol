@@ -11,6 +11,7 @@ const address = z.string().regex(/^0x[\da-fA-F]{40}$/);
 const policyInput = z.object({ enabled: z.literal(true), chainId: z.literal(16602), currency: z.literal("0g"), computeAccountAddress: address, topUp0G: amount, maximumTotal0G: amount, lowBalance0G: amount, maxGas0G: amount, expiresAt: z.number().int().positive() }).strict();
 type FundingPolicy = Omit<z.infer<typeof policyInput>, "enabled"> & { enabled: boolean; id: string; userId: string; ownerAddress: string; payerAddress: string; revision: number; createdAt: number; updatedAt: number };
 type FundingRecord = ComputeFundingIntent & { status: "prepared" | "submitting" | "submitted-unknown" | "confirmed" | "failed" | "cancelled"; updatedAt: number; transactionHash?: string; evidence?: ComputeFundingResult; spentWei?: string; reason?: string };
+type PreparedFunding = { status: "prepared"; intent: FundingRecord } | { status: "no-action"; reason: string };
 type FundingContext = { operatingAddress: string; providerBalance: unknown };
 const policyId = (user: User) => `compute-policy:${user.id}`;
 const loadPolicy = (store: Store, user: User) => store.get<FundingPolicy>(user.id, "compute-funding-policy", policyId(user));
@@ -68,9 +69,9 @@ export function configureComputeFunding(store: Store, user: User, value: unknown
   })();
 }
 
-export function prepareComputeFunding(store: Store, user: User, requestId: string, context: FundingContext): { status: "prepared"; intent: FundingRecord } | { status: "no-action"; reason: string } {
+export function prepareComputeFunding(store: Store, user: User, requestId: string, context: FundingContext): PreparedFunding {
   if (!/^[\w:.-]{1,150}$/.test(requestId)) throw new ApiError("INVALID_REQUEST_ID", "A bounded idempotency reference is required.");
-  return store.db.transaction(() => {
+  return store.db.transaction((): PreparedFunding => {
     const policy = requirePolicy(store, user), now = Date.now();
     if (!isAddressEqual(getAddress(context.operatingAddress), getAddress(policy.payerAddress))) throw new ApiError("FUNDING_PAYER_MISMATCH", "The owner must authorize this operating wallet before funding.", 409);
     const balance = verifiedBalance(context.providerBalance, policy.computeAccountAddress);
