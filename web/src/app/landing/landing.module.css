@@ -40,10 +40,11 @@
 .heroHeading { display: flex; align-items: end; justify-content: space-between; gap: 32px; padding: 0 24px 40px; }
 .heroHeading h1 { font-size: clamp(46px, 5.6vw, 80px); line-height: 1.04; letter-spacing: -2.8px; }
 .heroHeading h1 em { color: #735368; }
-.heroAction { display: flex; flex-direction: column; align-items: start; gap: 24px; padding-bottom: 4px; }
+.heroAction { display: flex; flex-direction: column; align-items: stretch; gap: 24px; padding-bottom: 4px; }
 .heroAction > span { color: var(--muted); font-size: 13px; }
 .appButton { display: inline-flex; align-items: center; justify-content: space-between; gap: 28px; min-height: 48px; padding: 13px 23px; border: 1px solid #dca2bf; border-radius: 99px; background: linear-gradient(#f9cce2, #eaa2c7); box-shadow: inset 0 1px 3px #fff8, 0 3px 8px #77405e0c; font-size: 14px; color: #483140 !important; transition: transform .18s, box-shadow .18s; }
 .appButton:hover { transform: translateY(-2px); box-shadow: 0 5px 14px #77405e20; }
+.heroAction .appButton { min-height: 56px; font-size: 16px; }
 .heroScene { position: relative; height: 440px; border-radius: 16px; overflow: hidden; background: #76abc2 url("/landing/garden-hero-v2-poster.webp") center 58% / cover; }
 .heroVideo, .heroShade { position: absolute; inset: 0; height: 100%; width: 100%; object-fit: cover; object-position: center 58%; pointer-events: none; }
 .heroVideo[hidden] { display: none; }

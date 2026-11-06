@@ -6,6 +6,12 @@ import LandingPage, { metadata } from "./landing-page";
 import { HERO_MEDIA, canPlayHero, MarketMotion, MotionVideo } from "./landing-interactions";
 
 describe("Orcus landing page", () => {
+  it("aligns the larger hero button with its supporting text", () => {
+    const css = readFileSync(new URL("./landing.module.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.heroAction\s*\{[^}]*align-items: stretch/);
+    expect(css).toContain(".heroAction .appButton { min-height: 56px; font-size: 16px; }");
+  });
+
   it("keeps the hero free of decorative caption badges", () => {
     const markup = renderToStaticMarkup(<LandingPage/>);
     expect(markup).not.toContain("A little more perspective.");
