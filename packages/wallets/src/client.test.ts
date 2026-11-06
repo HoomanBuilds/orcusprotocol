@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   rpcChainId: 16602,
   switchAccount: false,
   ownerCode: "0x",
+  sponsorshipConfigured: true,
   sign: vi.fn(),
   send: vi.fn(),
   wait: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock("./kernel", async importOriginal => ({
   ...await importOriginal<typeof import("./kernel")>(),
   kernelPublicClient: () => ({ getCode: async () => mocks.ownerCode }),
   createOwnerKernel: async () => ({
+    sponsorship: mocks.sponsorshipConfigured ? { maxOperationGasWei: "3000000000000000" } : undefined,
     account: { address: mocks.accountAddress, encodeCalls: async () => "0x1234", signUserOperation: mocks.sign },
     client: { prepareUserOperation: mocks.prepare, request: mocks.send, waitForUserOperationReceipt: mocks.wait },
     publicClient: { getCode: mocks.getCode, readContract: mocks.read, simulateContract: mocks.simulateContract, estimateGas: mocks.estimateGas, estimateFeesPerGas: mocks.estimateFees, getBalance: mocks.getBalance, waitForTransactionReceipt: mocks.waitTransaction },
@@ -57,8 +59,9 @@ beforeEach(() => {
   mocks.rpcChainId = 16602;
   mocks.switchAccount = false;
   mocks.ownerCode = "0x";
+  mocks.sponsorshipConfigured = true;
   mocks.getCode.mockResolvedValue("0x1234");
-  mocks.prepare.mockResolvedValue({ sender: mocks.accountAddress, nonce: 0n, callData: "0x1234", callGasLimit: 10n, verificationGasLimit: 10n, preVerificationGas: 10n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n });
+  mocks.prepare.mockResolvedValue({ sender: mocks.accountAddress, nonce: 0n, callData: "0x1234", callGasLimit: 10n, verificationGasLimit: 10n, preVerificationGas: 10n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n, paymaster: `0x${"9".repeat(40)}`, paymasterData: "0x1234", paymasterVerificationGasLimit: 10n, paymasterPostOpGasLimit: 10n });
   mocks.sign.mockResolvedValue("0x1234");
   mocks.send.mockImplementation(async ({ params }: { params: [{ sender: `0x${string}`; nonce: `0x${string}`; callData: `0x${string}`; callGasLimit: `0x${string}`; verificationGasLimit: `0x${string}`; preVerificationGas: `0x${string}`; maxFeePerGas: `0x${string}`; maxPriorityFeePerGas: `0x${string}`; signature: `0x${string}` }] }) => {
     const { getUserOperationHash } = await import("viem/account-abstraction");

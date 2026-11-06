@@ -9,6 +9,7 @@ import { formatUserOperationRequest, getUserOperationHash } from "viem/account-a
 import { createOwnerKernel, createPermissionPlugin, entryPoint, kernelVersion, kernelPublicClient, kernelGrantPolicySchema, type KernelAuthorization, type KernelConfig } from "./kernel";
 import { assertKernelPolicyCompatible, WalletActionError } from "./preflight";
 import { broadcastPreparedOperation } from "./execution";
+import { assertSponsoredOperation, requiredKernelPaymaster, type KernelGasSponsorship } from "./gas";
 
 function config(): KernelConfig {
   if (!process.env.ZERODEV_RPC_URL) throw new Error("Set ZERODEV_RPC_URL for the Sepolia bundler.");
@@ -38,16 +39,16 @@ export async function verifyKernelEnrollment(input: { ownerAddress: string; smar
   } catch { return false; }
 }
 
-export async function submitKernelSessionAction(prepared: PreparedAction, key: Hex, authorization: KernelAuthorization, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void> | void, assertAuthority?: () => Promise<void> | void) {
-  try { return await submitSessionAction(prepared, key, authorization, onSubmitted, assertAuthority); }
+export async function submitKernelSessionAction(prepared: PreparedAction, key: Hex, authorization: KernelAuthorization, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void> | void, assertAuthority?: () => Promise<void> | void, sponsorship?: KernelGasSponsorship) {
+  try { return await submitSessionAction(prepared, key, authorization, onSubmitted, assertAuthority, sponsorship); }
   catch (error) {
     if (error instanceof WalletActionError) throw error;
-    const detail = error as { code?: string; message?: string };
-    throw new WalletActionError(detail?.code ?? "SESSION_PREFLIGHT_FAILED", detail?.message ?? "Session preparation failed. Nothing was submitted.");
+    throw new WalletActionError("SESSION_PREFLIGHT_FAILED", "Session preparation failed. Nothing was submitted; provider credentials and error details were withheld.");
   }
 }
 
-async function submitSessionAction(prepared: PreparedAction, key: Hex, authorization: KernelAuthorization, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void> | void, assertAuthority?: () => Promise<void> | void) {
+async function submitSessionAction(prepared: PreparedAction, key: Hex, authorization: KernelAuthorization, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void> | void, assertAuthority?: () => Promise<void> | void, sponsorship?: KernelGasSponsorship) {
+  if (!sponsorship) throw new WalletActionError("SPONSORSHIP_UNCONFIGURED", "Agent swaps require configured gas sponsorship. No signature or paid-gas fallback was attempted.");
   const policy = kernelGrantPolicySchema.parse(authorization.policy);
   assertKernelPolicyCompatible(prepared, policy);
   await assertAuthority?.();
@@ -60,7 +61,7 @@ async function submitSessionAction(prepared: PreparedAction, key: Hex, authoriza
   const signer = await toECDSASigner({ signer: signerAccount });
   const account = await deserializePermissionAccount(publicClient, entryPoint, kernelVersion, authorization.approval, signer);
   if (getAddress(account.address) !== getAddress(prepared.account.address)) throw new WalletActionError("SESSION_AUTHORITY_MISMATCH", "Serialized session account mismatch.");
-  const client = createKernelAccountClient({ account, chain: sepolia, client: publicClient, bundlerTransport: http(network.bundlerUrl, { retryCount: 0, timeout: 30_000 }) });
+  const client = createKernelAccountClient({ account, chain: sepolia, client: publicClient, bundlerTransport: http(network.bundlerUrl, { retryCount: 0, timeout: 30_000 }), paymaster: requiredKernelPaymaster(sponsorship) });
   const calls = prepared.transactions!.map(tx => {
     if (tx.chainId !== sepolia.id || !isHex(tx.data) || !/^\d+$/.test(tx.value)) throw new Error("Session swaps require validated Sepolia call data and exact non-negative values.");
     return { to: getAddress(tx.to), data: tx.data as Hex, value: BigInt(tx.value) };
@@ -68,12 +69,15 @@ async function submitSessionAction(prepared: PreparedAction, key: Hex, authoriza
   let operation;
   try { operation = await client.prepareUserOperation({ callData: await account.encodeCalls(calls) }); }
   catch { throw new WalletActionError("PREFLIGHT_FAILED", "The swap failed bundler simulation or fee estimation. Nothing was submitted."); }
+  assertSponsoredOperation(operation, sponsorship.maxOperationGasWei);
   assertKernelPolicyCompatible(prepared, policy);
   await assertAuthority?.();
   const signature = await account.signUserOperation(operation);
   await assertAuthority?.();
   assertKernelPolicyCompatible(prepared, policy);
+  assertSponsoredOperation(operation, sponsorship.maxOperationGasWei);
   const candidateHash = getUserOperationHash({ userOperation: { ...operation, signature }, entryPointAddress: entryPoint.address, entryPointVersion: entryPoint.version, chainId: sepolia.id });
   const payload = formatUserOperationRequest({ ...operation, signature });
-  return broadcastPreparedOperation({ candidateHash, assertBeforeSend: async () => { assertKernelPolicyCompatible(prepared, policy); await assertAuthority?.(); }, send: () => client.request({ method: "eth_sendUserOperation", params: [payload, entryPoint.address] }, { retryCount: 0 }), onSubmitted, wait: hash => client.waitForUserOperationReceipt({ hash, timeout: 120_000 }) });
+  await sponsorship.onSignedOperation?.(payload, candidateHash);
+  return broadcastPreparedOperation({ candidateHash, assertBeforeSend: async () => { assertKernelPolicyCompatible(prepared, policy); assertSponsoredOperation(operation, sponsorship.maxOperationGasWei); await assertAuthority?.(); }, send: () => client.request({ method: "eth_sendUserOperation", params: [payload, entryPoint.address] }, { retryCount: 0 }), onSubmitted, wait: async hash => { const receipt = await client.waitForUserOperationReceipt({ hash, timeout: 120_000 }); await sponsorship.onReceipt?.(receipt); return receipt; } });
 }

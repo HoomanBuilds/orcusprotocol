@@ -8,6 +8,7 @@ import { arbitrumSepolia, sepolia } from "viem/chains";
 import { createOwnerKernel, createPermissionPlugin, entryPoint, kernelVersion, kernelPublicClient, kernelGrantPolicySchema, type KernelAuthorization, type KernelConfig, type KernelGrantPolicy } from "./kernel";
 import { exactTokenAmount, inspectPreparedSwap, isOwnerRejection, WalletActionError } from "./preflight";
 import { broadcastPreparedOperation } from "./execution";
+import { assertSponsoredOperation, browserGasSponsorship } from "./gas";
 
 export { WalletActionError } from "./preflight";
 
@@ -70,11 +71,14 @@ export async function signLoginMessage(message: string): Promise<Hex> {
   return wallet.signMessage({ account, message });
 }
 
-async function browserKernelConfig(): Promise<KernelConfig> {
+async function browserKernelConfig(scope?: { actionId?: string; accountAddress?: string; purpose?: string }): Promise<KernelConfig> {
   const response = await fetch("/api/wallet-config", { cache: "no-store" });
   const result = await response.json();
-  if (!response.ok || !result.data?.smartAccountsConfigured) throw new Error(result.error?.message ?? "Configure the testnet bundler before creating a trading account.");
-  return { rpcUrl: new URL(result.data.rpcUrl, window.location.origin).href, bundlerUrl: new URL(result.data.bundlerUrl, window.location.origin).href };
+  if (!response.ok || !result.data?.rpcUrl) throw new Error(result.error?.message ?? "The testnet wallet configuration is unavailable.");
+  const gas = result.data.gasSponsorship;
+  const paymasterUrl = new URL(gas?.paymasterUrl ?? "/api/paymaster", window.location.origin);
+  for (const [key, value] of Object.entries(scope ?? {})) if (value) paymasterUrl.searchParams.set(key, value);
+  return { rpcUrl: new URL(result.data.rpcUrl, window.location.origin).href, bundlerUrl: new URL(result.data.bundlerUrl ?? "/api/bundler", window.location.origin).href, sponsorship: scope && gas?.configured ? browserGasSponsorship(paymasterUrl.href, gas.maxOperationGasWei) : undefined };
 }
 
 export async function createTradingSmartAccount() {
@@ -97,10 +101,13 @@ async function recordSubmission(actionId: string, evidence: Record<string, unkno
 }
 
 async function sendOwnerOperation(owner: Awaited<ReturnType<typeof createOwnerKernel>>, calls: Array<{ to: Address; data: Hex; value: bigint }>, assertReady: () => Promise<void>, onSubmitted?: (evidence: { userOperationHash: string }) => Promise<void>) {
+  if (!owner.sponsorship) throw new WalletActionError("SPONSORSHIP_UNCONFIGURED", "Gas sponsorship is unavailable. Nothing was signed or submitted. Permission recovery requires an explicitly reviewed direct account transaction.");
   let operation;
   try { operation = await owner.client.prepareUserOperation({ callData: await owner.account.encodeCalls(calls) }); }
-  catch { throw new WalletActionError("PREFLIGHT_FAILED", "Simulation or fee estimation failed. Fund the trading account with Sepolia ETH and verify the quote before retrying."); }
+  catch { throw new WalletActionError("SPONSORSHIP_UNAVAILABLE", "Sponsored simulation or fee estimation failed. Nothing was submitted; no owner-paid fallback was used."); }
+  assertSponsoredOperation(operation, owner.sponsorship.maxOperationGasWei);
   await assertReady();
+  assertSponsoredOperation(operation, owner.sponsorship.maxOperationGasWei);
   let signature: Hex;
   try { signature = await owner.account.signUserOperation(operation); }
   catch (error) { throw new WalletActionError(isOwnerRejection(error) ? "OWNER_REJECTED" : "SIGNING_FAILED", isOwnerRejection(error) ? "You declined the wallet signature. Nothing was submitted." : "The wallet signature failed. Nothing was submitted."); }
@@ -149,7 +156,7 @@ export async function executePreparedAction(prepared: PreparedAction): Promise<{
     return { orderId: orderId === undefined ? undefined : String(orderId), response };
   }
   inspectPreparedSwap(prepared);
-  const kernel = await ownerKernel(await browserKernelConfig(), owner);
+  const kernel = await ownerKernel(await browserKernelConfig({ actionId: prepared.id }), owner);
   if (getAddress(kernel.account.address) !== getAddress(prepared.account.address)) throw new Error("The prepared trading account does not belong to this wallet.");
   const calls = prepared.transactions!.map(tx => ({ to: getAddress(tx.to), data: tx.data as Hex, value: BigInt(tx.value) }));
   const result = await sendOwnerOperation(kernel, calls, async () => { inspectPreparedSwap(prepared); await accountControl(prepared.account, prepared.controlRevision); await assertOwner(owner, sepolia); }, evidence => recordSubmission(prepared.id, evidence));
@@ -160,7 +167,7 @@ export async function executePreparedAction(prepared: PreparedAction): Promise<{
 export async function grantKernelPermission(input: KernelGrantPolicy): Promise<KernelAuthorization> {
   const policy = kernelGrantPolicySchema.parse(input);
   if (policy.expiresAt <= Date.now() || policy.issuedAt > Date.now() + 10_000) throw new Error("Permission validity is incorrect.");
-  const config = await browserKernelConfig();
+  const config = await browserKernelConfig({ accountAddress: policy.accountAddress, purpose: "permission-management" });
   const ownerAddress = await currentWalletAddress();
   const owner = await ownerKernel(config, ownerAddress);
   if (getAddress(owner.account.address) !== getAddress(policy.accountAddress)) throw new Error("This permission targets a different trading account.");
@@ -174,7 +181,7 @@ export async function grantKernelPermission(input: KernelGrantPolicy): Promise<K
 
 async function permissionOwner(input: KernelGrantPolicy) {
   const policy = kernelGrantPolicySchema.parse(input);
-  const config = await browserKernelConfig();
+  const config = await browserKernelConfig({ accountAddress: policy.accountAddress, purpose: "permission-management" });
   const ownerAddress = await currentWalletAddress();
   const owner = await ownerKernel(config, ownerAddress);
   if (getAddress(owner.account.address) !== getAddress(policy.accountAddress)) throw new Error("This permission targets a different account.");

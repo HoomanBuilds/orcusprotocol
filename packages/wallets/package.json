@@ -6,6 +6,8 @@
   "exports": {
     "./client": "./src/client.ts",
     "./kernel": "./src/kernel.ts",
+    "./gas": "./src/gas.ts",
+    "./preflight": "./src/preflight.ts",
     "./server": "./src/server.ts"
   },
   "scripts": {

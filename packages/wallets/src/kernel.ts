@@ -7,6 +7,8 @@ import { getEntryPoint, KERNEL_V3_1 } from "@zerodev/sdk/constants";
 import { createPublicClient, encodeAbiParameters, getAddress, http, padHex, toFunctionSelector, toHex, type Address, type Hex } from "viem";
 import { sepolia } from "viem/chains";
 import { z } from "zod";
+import { requiredKernelPaymaster, type KernelGasSponsorship } from "./gas";
+export type { KernelGasSponsorship } from "./gas";
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const atoms = z.string().regex(/^[1-9]\d{0,76}$/);
@@ -22,7 +24,7 @@ export const kernelGrantPolicySchema = z.object({
 }).strict().refine(policy => policy.expiresAt > policy.issuedAt && policy.expiresAt - policy.issuedAt <= 86_400_000, "Permission must expire within 24 hours");
 export type KernelGrantPolicy = z.infer<typeof kernelGrantPolicySchema>;
 export interface KernelAuthorization { approval: string; policy: KernelGrantPolicy }
-export interface KernelConfig { rpcUrl: string; bundlerUrl: string }
+export interface KernelConfig { rpcUrl: string; bundlerUrl: string; sponsorship?: KernelGasSponsorship }
 
 export const entryPoint = getEntryPoint("0.7");
 export const kernelVersion = KERNEL_V3_1;
@@ -76,8 +78,8 @@ export async function createOwnerKernel(config: KernelConfig, owner: Parameters<
   const signer = typeof owner === "string" ? addressToEmptyAccount(owner) : owner;
   const sudo = await signerToEcdsaValidator(publicClient, { entryPoint, kernelVersion, signer });
   const account = await createKernelAccount(publicClient, { entryPoint, kernelVersion, plugins: { sudo } });
-  const client = createKernelAccountClient({ account, chain: sepolia, client: publicClient, bundlerTransport: http(config.bundlerUrl, { retryCount: 0, timeout: 30_000 }) });
-  return { publicClient, account, client, sudo };
+  const client = createKernelAccountClient({ account, chain: sepolia, client: publicClient, bundlerTransport: http(config.bundlerUrl, { retryCount: 0, timeout: 30_000 }), paymaster: requiredKernelPaymaster(config.sponsorship) });
+  return { publicClient, account, client, sudo, sponsorship: config.sponsorship };
 }
 
 export async function createPermissionPlugin(config: KernelConfig, policy: KernelGrantPolicy) {
