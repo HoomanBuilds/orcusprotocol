@@ -23,6 +23,9 @@
     "test:contracts": "vitest run scripts/lib/compile-operator-paymaster.test.ts packages/wallets/src/operator-paymaster.test.ts",
     "verify:hyperliquid": "node --env-file-if-exists=.env --import tsx scripts/verify-hyperliquid.ts",
     "verify:browser": "node --import tsx scripts/verify-browser.ts",
+    "verify:cre": "node --env-file-if-exists=.env --import tsx scripts/verify-cre.ts",
+    "verify:service-payment-fork": "node --import tsx scripts/verify-service-payment-fork.ts",
+    "verify:compute-funding-fork": "node --import tsx scripts/verify-compute-funding-fork.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:cre": "vitest run workflows/cre/strategy/workflow.test.ts"
