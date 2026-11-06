@@ -8,7 +8,11 @@ describe("safe actionable wallet and API errors", () => {
   });
   it("prioritizes uncertain submission recovery instead of suggesting a second transaction", () => {
     expect(displayError(Object.assign(new Error("network timeout with private details"), { phase: "submitted-unknown" }))).toMatch(/do not submit a replacement/);
+    expect(displayError({ phase: "submitted-unknown", cause: { code: 4001, message: "user rejected" } })).toMatch(/do not submit a replacement/);
     expect(displayError({ code: "QUOTE_EXPIRED" })).toMatch(/fresh quote/);
+  });
+  it("separates the owner-paid initial deposit fee from sponsored trading", () => {
+    expect(displayError({ code: "INSUFFICIENT_GAS" })).toMatch(/external-wallet deposits/);
   });
   it.each(["PAYMASTER_UNCONFIGURED", "SPONSORSHIP_UNCONFIGURED", "SPONSORSHIP_REJECTED"]) ("does not offer owner-paid fallback for %s", code => {
     expect(displayError({ code })).toMatch(/owner-paid/);

@@ -37,6 +37,7 @@ const safeErrors: Record<string, string> = {
   PRICE_REQUIRED: "Enter a positive limit price before reviewing this order.",
   TRIGGER_REQUIRED: "Enter a positive trigger price before reviewing this order.",
   INSUFFICIENT_FUNDS: "The account paying this transfer lacks the amount or network fee. Check its balance before retrying.",
+  INSUFFICIENT_GAS: "Your owner wallet needs Sepolia ETH for the deposit network fee. Trading gas sponsorship does not cover external-wallet deposits.",
   INSUFFICIENT_BALANCE: "Fund the selected trading account with the input asset before trading.",
   INSUFFICIENT_TOKEN_BALANCE: "Fund the selected trading account with the input asset before trading.",
   PREFLIGHT_FAILED: "Preflight could not verify the action. Refresh balances, quote, and gas sponsorship before retrying.",
@@ -81,8 +82,8 @@ export function displayError(error: unknown): string {
       current = value.cause;
     }
   } catch { return "The action could not be completed. Refresh and try again."; }
-  if (nodes.some(node => node.code === 4001 || node.code === "ACTION_REJECTED" || node.code === "OWNER_REJECTED" || /user rejected|user denied/i.test(node.message ?? ""))) return "Cancelled in your wallet. Nothing new was submitted.";
   if (nodes.some(node => node.phase === "submitted-unknown" || node.code === "SUBMISSION_UNKNOWN")) return safeErrors.SUBMISSION_UNKNOWN!;
+  if (nodes.some(node => node.code === 4001 || node.code === "ACTION_REJECTED" || node.code === "OWNER_REJECTED" || /user rejected|user denied/i.test(node.message ?? ""))) return "Cancelled in your wallet. Nothing new was submitted.";
   for (const node of nodes) if (typeof node.code === "string" && Object.hasOwn(safeErrors, node.code)) return safeErrors[node.code]!;
   if (nodes.some(node => node.status === 401 || node.code === 4100)) return safeErrors.AUTH_REQUIRED!;
   if (nodes.some(node => node.code === -32002)) return "A wallet request is already open. Confirm or dismiss it in your wallet.";
