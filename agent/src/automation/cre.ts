@@ -9,6 +9,39 @@ import { engineConfig } from "../config";
 import { EngineError, requireConfigured } from "../errors";
 
 const run = promisify(execFile);
+const workflowRunners = new Map<string, { tail: Promise<void>; count: number }>();
+
+export async function withCreRunner<T>(workflowDir: string, expiresAt: number, operation: () => Promise<T>): Promise<T> {
+  const queue = workflowRunners.get(workflowDir) ?? { tail: Promise.resolve(), count: 0 };
+  if (queue.count >= 2) throw new EngineError("CRE_RUNNER_BUSY", "The CRE workflow already has an active and waiting evaluation. No new CLI process was started.", 503);
+  const previous = queue.tail;
+  let release!: () => void;
+  queue.tail = new Promise<void>(resolve => { release = resolve; });
+  queue.count++;
+  workflowRunners.set(workflowDir, queue);
+  await previous;
+  try {
+    if (expiresAt <= Date.now()) throw new EngineError("STALE_EVALUATION", "The strategy evaluation expired while waiting for the CRE runner. No CLI process was started.", 422);
+    return await operation();
+  } finally {
+    queue.count--;
+    release();
+    if (!queue.count) workflowRunners.delete(workflowDir);
+  }
+}
+
+export function creRunFailure(error: unknown): EngineError {
+  const failure = error && typeof error === "object" ? error as { code?: unknown; killed?: unknown; stderr?: unknown; stdout?: unknown } : {};
+  const text = `${typeof failure.stderr === "string" ? failure.stderr : ""} ${typeof failure.stdout === "string" ? failure.stdout : ""}`;
+  if (failure.code === "ENOENT") return new EngineError("CRE_CLI_UNAVAILABLE", "The configured CRE CLI executable was not found. No evaluation result was accepted.", 503);
+  if (failure.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return new EngineError("CRE_OUTPUT_LIMIT", "The CRE CLI exceeded its output limit. No evaluation result was accepted.", 502);
+  if (failure.killed === true) return new EngineError("CRE_RUN_TIMEOUT", "The CRE CLI was stopped or exceeded its runtime limit. No evaluation result was accepted.", 504);
+  if (/not logged in|authentication required|CRE_API_KEY/i.test(text)) return new EngineError("CRE_AUTH_REQUIRED", "The CRE CLI requires login or CRE_API_KEY. No strategy trade was authorized.", 503);
+  if (/\.cre_build_tmp.*(?:not found|no such|cannot find)|(?:not found|no such|cannot find).*\.cre_build_tmp/i.test(text)) return new EngineError("CRE_BUILD_CONFLICT", "CRE compilation lost a shared build artifact. Run only one CLI process per workflow directory. No evaluation result was accepted.", 503);
+  if (/failed to compile|compilation failed|failed to build|error compiling/i.test(text)) return new EngineError("CRE_BUILD_FAILED", "CRE compilation failed. Check the workflow toolchain and source before retrying. No evaluation result was accepted.", 502);
+  return new EngineError("CRE_RUN_FAILED", "The CRE workflow could not complete. Check CLI availability, authentication, toolchain and target-chain access. No fallback evaluator was used.", 502);
+}
+
 const childEnvNames = ["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "CRE_API_KEY", "ORCUS_CRE_PROPOSAL_TOKEN"];
 export function creChildEnvironment(): NodeJS.ProcessEnv {
   return { NODE_ENV: process.env.NODE_ENV ?? "production", ...Object.fromEntries(childEnvNames.flatMap(name => process.env[name] === undefined ? [] : [[name, process.env[name]!]])) };
@@ -81,12 +114,11 @@ export async function evaluateStrategy(input: CreEvaluationInput) {
     }), { mode: 0o600 });
     let stdout: string;
     try {
-      const result = await run(cliPath, ["workflow", "simulate", "strategy", "--target", cfg.target, "--config", configPath, "--env", envPath, "--public-env", publicEnvPath, "--non-interactive", "--trigger-index", "0"], { cwd: workflowDir, timeout: 90_000, maxBuffer: 1_000_000, env: creChildEnvironment(), windowsHide: true });
+      const result = await withCreRunner(workflowDir, input.expiresAt, () => run(cliPath, ["workflow", "simulate", "strategy", "--target", cfg.target, "--config", configPath, "--env", envPath, "--public-env", publicEnvPath, "--non-interactive", "--trigger-index", "0"], { cwd: workflowDir, timeout: 90_000, maxBuffer: 1_000_000, env: creChildEnvironment(), windowsHide: true }));
       stdout = result.stdout;
     } catch (error) {
-      const text = `${(error as { stderr?: string }).stderr ?? ""} ${(error as { stdout?: string }).stdout ?? ""}`;
-      if (/not logged in|authentication required|CRE_API_KEY/i.test(text)) throw new EngineError("CRE_AUTH_REQUIRED", "The CRE CLI requires login or CRE_API_KEY. No strategy trade was authorized.", 503);
-      throw new EngineError("CRE_RUN_FAILED", "The CRE workflow could not complete. Check CLI availability, authentication, toolchain and target-chain access. No fallback evaluator was used.", 502);
+      if (error instanceof EngineError) throw error;
+      throw creRunFailure(error);
     }
     const result = parseCreOutput(stdout);
     if ((result.kind ?? "trade") !== kind || result.evaluationId !== input.evaluationId || result.automationId !== input.automationId || result.accountId !== input.account.id || result.chainId !== input.account.chainId || result.controlRevision !== input.controlRevision || result.policyVersion !== input.policyVersion || result.expiresAt !== input.expiresAt || result.expiresAt <= Date.now() || result.observedAt > Date.now() + 5_000 || Date.now() - result.observedAt > 120_000 || (result.requestId || undefined) !== input.requestId) throw new EngineError("CRE_BINDING_MISMATCH", "The evaluation does not match the approved account, policy, request or validity window.", 422);
