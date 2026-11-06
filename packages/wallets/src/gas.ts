@@ -4,7 +4,7 @@ import { sepolia } from "viem/chains";
 import type { PaymasterActions } from "viem/account-abstraction";
 import { WalletActionError } from "./preflight";
 
-export type KernelGasSponsorship = { getPaymasterData: PaymasterActions["getPaymasterData"]; maxOperationGasWei: string; onSignedOperation?: (operation: Record<string, unknown>, hash: Hex) => void | Promise<void>; onReceipt?: (receipt: unknown) => void | Promise<void> };
+export type KernelGasSponsorship = { getPaymasterData: PaymasterActions["getPaymasterData"]; getPaymasterStubData?: PaymasterActions["getPaymasterData"]; maxOperationGasWei: string; onSignedOperation?: (operation: Record<string, unknown>, hash: Hex) => void | Promise<void>; onReceipt?: (receipt: unknown) => void | Promise<void> };
 const quantities = ["callGasLimit", "verificationGasLimit", "preVerificationGas", "paymasterVerificationGasLimit", "paymasterPostOpGasLimit"] as const;
 
 export function assertSponsoredOperation(value: Record<string, unknown>, capWei: string) {
@@ -19,19 +19,19 @@ export function assertSponsoredOperation(value: Record<string, unknown>, capWei:
 }
 
 export function requiredKernelPaymaster(sponsorship?: KernelGasSponsorship) {
-  const sponsor: PaymasterActions["getPaymasterData"] = async input => {
+  const sponsor = (estimation: boolean): PaymasterActions["getPaymasterData"] => async input => {
     if (!sponsorship) throw new WalletActionError("SPONSORSHIP_UNCONFIGURED", "Gas sponsorship is not configured. No transaction was submitted. Owner recovery must use an explicitly reviewed direct account transaction.");
     let response;
-    try { response = await sponsorship.getPaymasterData(input); }
+    try { response = await (estimation ? sponsorship.getPaymasterStubData ?? sponsorship.getPaymasterData : sponsorship.getPaymasterData)(input); }
     catch (error) { if (error instanceof WalletActionError) throw error; throw new WalletActionError("SPONSORSHIP_UNAVAILABLE", "The gas sponsor did not approve this operation. Nothing was submitted; no owner-paid fallback was used."); }
     assertSponsoredOperation({ ...input, ...response }, sponsorship.maxOperationGasWei);
     return response;
   };
-  const stub: PaymasterActions["getPaymasterStubData"] = async input => await sponsor(input) as Awaited<ReturnType<PaymasterActions["getPaymasterStubData"]>>;
-  return { getPaymasterData: sponsor, getPaymasterStubData: stub };
+  const stub: PaymasterActions["getPaymasterStubData"] = async input => await sponsor(true)(input) as Awaited<ReturnType<PaymasterActions["getPaymasterStubData"]>>;
+  return { getPaymasterData: sponsor(false), getPaymasterStubData: stub };
 }
 
 export function browserGasSponsorship(url: string, maxOperationGasWei: string): KernelGasSponsorship {
   const client = createZeroDevPaymasterClient({ chain: sepolia, transport: http(url, { retryCount: 0, timeout: 30_000 }) });
-  return { maxOperationGasWei, getPaymasterData: input => client.sponsorUserOperation({ userOperation: input, shouldOverrideFee: false }) };
+  return { maxOperationGasWei, getPaymasterData: input => client.sponsorUserOperation({ userOperation: input, shouldOverrideFee: false, shouldConsume: true }), getPaymasterStubData: input => client.sponsorUserOperation({ userOperation: input, shouldOverrideFee: false, shouldConsume: false }) };
 }

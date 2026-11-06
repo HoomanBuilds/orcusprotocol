@@ -26,4 +26,10 @@ describe("required Kernel gas sponsorship", () => {
     await sponsor.getPaymasterStubData(input); await sponsor.getPaymasterData(input);
     expect(getPaymasterData).toHaveBeenCalledTimes(2);
   });
+  it("allows non-consuming estimation to be separate from final sponsorship", async () => {
+    const final = vi.fn().mockResolvedValue(operation()), stub = vi.fn().mockResolvedValue(operation()), input = operation() as unknown as GetPaymasterDataParameters;
+    const sponsor = requiredKernelPaymaster({ maxOperationGasWei: "300", getPaymasterData: final, getPaymasterStubData: stub });
+    await sponsor.getPaymasterStubData(input); expect(stub).toHaveBeenCalledOnce(); expect(final).not.toHaveBeenCalled();
+    await sponsor.getPaymasterData(input); expect(final).toHaveBeenCalledOnce();
+  });
 });
