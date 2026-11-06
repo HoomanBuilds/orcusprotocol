@@ -113,5 +113,5 @@ try {
 } finally {
   socket?.close(); browser.kill("SIGTERM");
   await new Promise(resolve => { if (browser.exitCode !== null) resolve(undefined); else { browser.once("exit", resolve); setTimeout(resolve, 3000); } });
-  rmSync(profile, { recursive: true, force: true });
+  rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
