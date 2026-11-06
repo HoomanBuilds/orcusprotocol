@@ -58,7 +58,7 @@ export class AgentRun{
         if(reference===this.runId){if(!this.initialReservation)throw new ApiError("EVALUATION_PENDING","This first model call was already attempted. A duplicate billable call is blocked.",409);this.initialReservation=false;}
         else if(!reserveBudget(this.store,this.userId,reference,this.reservation))throw new ApiError("EVALUATION_PENDING","This model call is already pending reconciliation.",409);
         this.modelCalls++;this.progress({stage:"thinking",modelCalls:this.modelCalls});
-      },afterCall:async(input:{callId:string;outcome:"completed"|"rejected"|"unknown";requestId?:string;usage?:unknown;billing?:unknown})=>{
+      },afterCall:async(input:{callId:string;outcome:"completed"|"rejected"|"unknown";requestId?:string;usage?:unknown;billing?:unknown;billingOrigin?:string;billingApiKeyId?:string;model?:string})=>{
         const reference=this.callReference(input.callId);
         settleComputeReservation(this.store,this.userId,reference,input);
       }},

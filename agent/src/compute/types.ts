@@ -47,7 +47,7 @@ export interface AgentContext extends PlannerContext {
   modelBudget?: {
     maxCostUsd?: string;
     beforeCall(input: { callId: string; maxTokens: number }): Promise<void>;
-    afterCall(input: { callId: string; outcome: "completed" | "rejected" | "unknown"; requestId?: string; usage?: ModelUsage; billing?: unknown }): Promise<void>;
+    afterCall(input: { callId: string; outcome: "completed" | "rejected" | "unknown"; requestId?: string; usage?: ModelUsage; billing?: unknown; billingOrigin?: string; billingApiKeyId?: string; model?: string }): Promise<void>;
   };
   maxModelCalls?: number;
   maxToolCalls?: number;
