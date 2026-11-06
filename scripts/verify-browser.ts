@@ -63,6 +63,7 @@ try {
   const until = async (expression: string, message: string) => { for (let attempt = 0; attempt < 150; attempt++) { if (await evaluate(expression)) return; await delay(200); } throw new Error(`${message} ${await evaluate("[...document.querySelectorAll('[role=alert]')].map(e=>e.textContent).join(' ')")}`); };
   const click = async (selector: string) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw new Error('Action unavailable');e.click();})()`);
   const clickText = async (selector: string, text: string) => evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.textContent.trim()===${JSON.stringify(text)});if(!e||e.disabled)throw new Error('Action unavailable');e.click();})()`);
+  const visibleInChat = async (selector: string) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}),scroll=document.querySelector('.chat-scroll');if(!e||!scroll)return false;const r=e.getBoundingClientRect(),s=scroll.getBoundingClientRect();return r.top>=Math.max(0,s.top)-1&&r.bottom<=Math.min(innerHeight,s.bottom)+1&&r.left>=0&&r.right<=innerWidth;})()`);
   const navigate = async (label: string) => {
     const path = label === "Overview" ? "/" : `/${label.toLowerCase()}`;
     await evaluate(`(()=>{const mobile=innerWidth<=760;if(mobile&&document.querySelector('#mobile-workspace-navigation').hidden)document.querySelector('.workspace-menu-toggle').click();const e=[...document.querySelectorAll(mobile?'#mobile-workspace-navigation a':'.primary-nav a')].find(e=>e.getAttribute('href')===${JSON.stringify(path)});if(!e)throw new Error('Navigation unavailable');e.click();})()`);
@@ -199,19 +200,25 @@ try {
     await screenshot("fixture-desktop-approval");
     assert.ok(await evaluate("document.querySelector('.chat-compose').getBoundingClientRect().bottom<=innerHeight"), "Desktop composer should stay visible.");
     await rpc("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-    await evaluate("document.querySelector('.chat-scroll').scrollTop=0;scrollTo(0,0)");
+    await evaluate("document.querySelector('.agent-table-scroll').scrollIntoView({block:'center',behavior:'instant'})");
+    assert.ok(await visibleInChat(".agent-table-scroll"), "Research table must be fully visible on mobile.");
     await screenshot("fixture-mobile-research");
     assert.ok(await evaluate("document.documentElement.scrollWidth<=innerWidth"), "Populated research must not overflow mobile.");
-    await evaluate("document.querySelector('.automation-approval-card').scrollIntoView({block:'start'})");
+    await evaluate("document.querySelector('.automation-approval-card > button.button.primary').scrollIntoView({block:'end',behavior:'instant'})");
+    assert.ok(await visibleInChat(".approval-acknowledgement"), "Approval acknowledgement must be visible on mobile.");
+    assert.ok(await visibleInChat(".automation-approval-card > button.button.primary"), "Activation button must be visible on mobile.");
     await screenshot("fixture-mobile-approval");
     await rpc("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+    await evaluate("document.querySelector('.automation-approval-card > button.button.primary').scrollIntoView({block:'end',behavior:'instant'})");
+    assert.ok(await visibleInChat(".approval-acknowledgement"), "Acknowledgement must be visible before user approval.");
     await click(".approval-acknowledgement input");
     await until("!document.querySelector('.automation-approval-card > button.button.primary').disabled", "Reviewed fixture proposal remained unavailable.");
+    assert.ok(await visibleInChat(".automation-approval-card > button.button.primary"), "Activation must be visible before clicking.");
     await evaluate("(()=>{const button=document.querySelector('.automation-approval-card > button.button.primary');button.click();button.click()})()");
     assert.equal(await evaluate("window.__orcusAgentFixture.posts"), 1);
     assert.deepEqual(await evaluate("window.__orcusAgentFixture.bodies[0]"), proposal);
     await evaluate("window.__orcusAgentFixture.releases.shift()(false)");
-    await until("document.querySelector('.automation-approval-card').innerText.includes('Fixture refusal')", "Activation refusal was not visible.");
+    await until("document.querySelector('.automation-approval-card [role=alert]')?.innerText==='The action could not be completed. Refresh and try again.'", "Sanitized activation refusal was not visible.");
     assert.ok(await evaluate("!document.querySelector('.automation-approval-card').innerText.includes('Automation activated')"));
     await click(".automation-approval-card > button.button.primary");
     assert.equal(await evaluate("window.__orcusAgentFixture.posts"), 2);
