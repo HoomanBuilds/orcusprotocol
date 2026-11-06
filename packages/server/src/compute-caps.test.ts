@@ -9,6 +9,10 @@ afterEach(() => { store.db.close(); vi.unstubAllEnvs(); vi.useRealTimers(); });
 function user(digit = "1") { const owner = store.ensureUser(`0x${digit.repeat(40)}`); setBudget(store, owner.id, "100", "0.1", false); return owner; }
 
 describe("operator-controlled compute ceilings", () => {
+  it.each(["MODEL_UNAVAILABLE","MODEL_NOT_ALLOWED","RUN_MODEL_MISMATCH"])("releases a zero-call model preflight failure: %s",code=>{
+    const owner=user(),run=new AgentRun(store,owner.id,"model-preflight","Explain spot");run.start();
+    try{run.fail(Object.assign(new Error("Model preflight failed"),{code}));expect(getBudget(store,owner.id).reservedUsd).toBe("0.000000");expect(store.db.prepare("SELECT status FROM expenses WHERE reference=?").get("model-preflight")).toEqual({status:"released"});}finally{run.close();}
+  });
   it("allows six bounded research steps while charging each reservation and rejects the seventh", async () => {
     const owner = user(), run = new AgentRun(store, owner.id, "research-run", "Research current markets");
     run.start();

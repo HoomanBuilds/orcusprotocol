@@ -38,6 +38,25 @@ function computeFixture(onPlan?: (context: AgentContext) => Promise<void> | void
 }
 
 describe("durable owner-scoped agent requests", () => {
+  it("persists model preference per wallet and snapshots queued work without changing its authority",async()=>{
+    const first=setup("1"),other=setup("2");
+    const queued=first.platform.enqueueChat(first.user,{...first.input,modelId:"qwen3.5-plus"}).request;
+    const revision=first.platform.agent(first.user).controlRevision;
+    first.platform.control(first.user,{command:"update",modelId:"glm-5.3"});
+    expect(first.platform.agent(first.user)).toMatchObject({modelId:"glm-5.3",controlRevision:revision});
+    expect(other.platform.agent(other.user).modelId).toBeUndefined();
+    expect(first.platform.enqueueChat(first.user,first.input).request.modelId).toBe("qwen3.5-plus");
+    expect(()=>first.platform.enqueueChat(first.user,{...first.input,modelId:"glm-5.3"})).toThrow(/already used/);
+    computeFixture(context=>{expect(context.modelId).toBe("qwen3.5-plus");});
+    await first.platform.tickAgentRequests(()=>{});
+    expect(first.platform.agentRequest(first.user,queued.id).request).toMatchObject({status:"completed",modelId:"qwen3.5-plus",response:{modelId:"qwen3.5-plus"}});
+  });
+  it("rejects unsupported model IDs before persisting requests or controls",()=>{
+    const {platform,user,input}=setup();
+    expect(()=>platform.enqueueChat(user,{...input,modelId:"arbitrary-provider-model"})).toThrow(/supported model/);
+    expect(()=>platform.control(user,{command:"update",modelId:"arbitrary-provider-model"})).toThrow(/supported model/);
+    expect(platform.agentRequests(user).requests).toHaveLength(0);
+  });
   it("persists intake and conversation before acceptance, with no model call or budget charge", () => {
     const { user, platform, input } = setup(), engine = vi.spyOn(boundary, "callEngine");
     const result = platform.enqueueChat(user, input).request;
@@ -245,5 +264,20 @@ describe("durable owner-scoped agent requests", () => {
     expect((await request(`agent/requests/${first.input.requestId}`)).status).toBe(200);
     const otherChallenge = store.createChallenge(other.user.address, origin), otherToken = store.createSession(otherChallenge.id, other.user.address).token;
     expect((await request(`agent/requests/${first.input.requestId}`, undefined, otherToken)).status).toBe(404);
+  });
+  it("validates model changes but restores exact request replays without a catalog dependency",async()=>{
+    const {platform,user,input}=setup(),origin="http://localhost:3125";vi.stubEnv("ORCUS_APP_URL",origin);
+    const challenge=store.createChallenge(user.address,origin),token=store.createSession(challenge.id,user.address).token;
+    const request=(path:string,body:unknown)=>handleRequest(new Request(`${origin}/api/${path}`,{method:"POST",headers:{Origin:origin,Cookie:`orcus_session=${token}`,"Content-Type":"application/json"},body:JSON.stringify(body)}),store);
+    const boundaryCall=vi.spyOn(boundary,"callEngine").mockImplementation(async(name,...args)=>{if(name==="validateAgentModel")return args[0];throw new Error("Unexpected model request");});
+    const revision=platform.agent(user).controlRevision;
+    expect((await request("agent/control",{command:"update",modelId:"qwen3.5-plus"})).status).toBe(200);
+    expect(platform.agent(user)).toMatchObject({modelId:"qwen3.5-plus",controlRevision:revision});
+    expect((await request("agent/requests",{...input,modelId:"qwen3.5-plus"})).status).toBe(202);
+    const calls=boundaryCall.mock.calls.length;
+    boundaryCall.mockRejectedValue(new Error("Catalog offline"));platform.control(user,{command:"update",modelId:"glm-5.3"});
+    expect((await request("agent/requests",{...input,modelId:"qwen3.5-plus"})).status).toBe(202);
+    expect((await request("agent/requests",{...input,modelId:"glm-5.3"})).status).toBe(409);
+    expect(boundaryCall).toHaveBeenCalledTimes(calls);
   });
 });

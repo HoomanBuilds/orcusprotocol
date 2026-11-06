@@ -46,7 +46,9 @@ describe("durable proposal and progress namespaces", () => {
       expect(progress).toMatchObject({ runId: reference, status: "completed" });
       expect(cached).toMatchObject({ reference, result: { proposal, requestId: "fixture-provider-request" } });
       expect(new Platform(store).runStatus(user, input.requestId)).toMatchObject({ id: reference, status: "completed" });
+      store.update(user.id,"message",`${reference}:assistant`,{automationId:"accepted-automation"});
       expect((await request("agent/chat", input)).data.data.proposal).toEqual(proposal);
+      expect(store.get(user.id,"message",`${reference}:assistant`)).toMatchObject({automationId:"accepted-automation"});
       store.db.close(); store = new Store(path);
       expect((await request("agent/chat", input)).data.data.proposal).toEqual(proposal);
       expect(compute.mock.calls.filter(([name]) => name === "planWith0G")).toHaveLength(1);
@@ -77,7 +79,7 @@ describe("durable proposal and progress namespaces", () => {
     } finally { store.db.close(); rmSync(directory, { recursive: true, force: true }); }
   });
 
-  it("reads legacy caches and run status without rebilling or changing the logical run ID", async () => {
+  it("keeps legacy progress readable but refuses to replay a cache with unknown model binding", async () => {
     const directory = mkdtempSync(join(tmpdir(), "orcus-legacy-cache-")); vi.stubEnv("ORCUS_DATA_DIR", directory);
     const store = new Store(":memory:");
     try {
@@ -86,7 +88,8 @@ describe("durable proposal and progress namespaces", () => {
       store.put("proposal", { id: "legacy-cache", userId: user.id, result: { message: "Saved legacy result" }, createdAt: now, updatedAt: now });
       store.put("agent-run", { id: reference, userId: user.id, threadId: `agent:${user.id}`, status: "completed", stage: "completed", modelCalls: 1, toolCalls: 0, startedAt: now, createdAt: now, updatedAt: now });
       const compute = vi.spyOn(boundary, "callEngine");
-      expect(await new Platform(store).proposal(user, "Read saved result", undefined, "legacy-cache")).toEqual({ message: "Saved legacy result" });
+      await expect(new Platform(store).proposal(user, "Read saved result", undefined, "legacy-cache")).rejects.toMatchObject({code:"RUN_MODEL_MISMATCH"});
+      expect(store.get(user.id,"proposal","legacy-cache")).toMatchObject({result:{message:"Saved legacy result"}});
       expect(new Platform(store).runStatus(user, requestId)).toMatchObject({ id: reference, status: "completed", modelCalls: 1 });
       expect(compute).not.toHaveBeenCalled();
     } finally { store.db.close(); rmSync(directory, { recursive: true, force: true }); }

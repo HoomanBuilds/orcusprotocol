@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { AgentRequest, ChatMessage } from "@orcus/core";
-import { tradeRequestSchema } from "@orcus/core";
+import { tradeRequestSchema, agentModelIdSchema } from "@orcus/core";
 import { z } from "zod";
 import { readAgentRunStatus } from "./agent-runtime";
 import { ApiError } from "./errors";
@@ -8,10 +8,10 @@ import type { Store } from "./store";
 import type { StoredAgentRequest, StoredMessage } from "./types";
 import { safeAgentToolSteps } from "./agent-evidence";
 
-export const agentRequestSchema = z.object({ requestId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9:_-]{0,99}$/), message: z.string().trim().min(1).max(10_000), accountId: z.string().min(1).max(100).optional(), autonomous: z.boolean().default(false) }).strict();
+export const agentRequestSchema = z.object({ modelId: agentModelIdSchema.optional(), requestId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9:_-]{0,99}$/), message: z.string().trim().min(1).max(10_000), accountId: z.string().min(1).max(100).optional(), autonomous: z.boolean().default(false) }).strict();
 export type AgentRequestInput = z.infer<typeof agentRequestSchema>;
 export const chatRequestReference = (userId: string, requestId: string) => createHash("sha256").update(`${userId}|chat|${requestId}`).digest("hex");
-export const chatRequestFingerprint = (input: { message: string; accountId?: string; autonomous?: boolean }) => createHash("sha256").update(JSON.stringify({ message: input.message, accountId: input.accountId ?? null, autonomous: input.autonomous ?? false })).digest("hex");
+export const chatRequestFingerprint = (input: { message: string; accountId?: string; autonomous?: boolean; modelId?: string }) => createHash("sha256").update(JSON.stringify({ ...(input.modelId ? { modelId: input.modelId } : {}), message: input.message, accountId: input.accountId ?? null, autonomous: input.autonomous ?? false })).digest("hex");
 export const agentRequestRecordId = (userId: string, requestId: string) => `agent-request:${userId}:${createHash("sha256").update(requestId).digest("hex")}`;
 export const agentRequestLease = (recordId: string) => `agent-request-work:${recordId}`;
 
@@ -27,10 +27,10 @@ export function agentRequestView(store: Store, request: StoredAgentRequest): Age
   const automation = cached?.result?.automationProposal as { kind?: unknown; accountId?: unknown } | undefined;
   const response: ChatMessage | undefined = message ? {
     id: message.id, role: message.role, content: message.content, createdAt: message.createdAt,
-    requestId: message.requestId, proposedAction: message.proposedAction, automationProposal: message.automationProposal,
-    actionId: message.actionId, privacy: message.privacy, privacyEvidence: message.privacyEvidence, toolSteps: message.toolSteps,
+    modelId: message.modelId, requestId: message.requestId, proposedAction: message.proposedAction, automationProposal: message.automationProposal,
+    automationId: message.automationId, actionId: message.actionId, privacy: message.privacy, privacyEvidence: message.privacyEvidence, toolSteps: message.toolSteps,
   } : typeof cached?.result?.message === "string" && cached.result.message.length <= 20_000 ? {
-    id: `${request.runId}:assistant`, role: "assistant", content: cached.result.message, createdAt: cached.updatedAt,
+    modelId: typeof cached.result.modelId === "string" && cached.result.modelId === request.modelId ? cached.result.modelId : undefined, id: `${request.runId}:assistant`, role: "assistant", content: cached.result.message, createdAt: cached.updatedAt,
     requestId: typeof cached.result.requestId === "string" && cached.result.requestId.length <= 200 ? cached.result.requestId : undefined,
     proposedAction: proposed.success && request.accountBindings.some(account => account.id === proposed.data.accountId) ? proposed.data : undefined,
     automationProposal: automation && ["trade", "alert"].includes(String(automation.kind)) && request.accountBindings.some(account => account.id === automation.accountId) && JSON.stringify(automation).length <= 20_000 ? automation : undefined,
@@ -39,7 +39,7 @@ export function agentRequestView(store: Store, request: StoredAgentRequest): Age
   const stage = request.status === "queued" ? "waiting-for-worker" : request.status === "running" ? run?.stage ?? "starting" : request.status;
   return {
     id: request.requestId, requestId: request.requestId, runId: request.runId, userMessageId: request.userMessageId,
-    message: request.message, accountId: request.accountId, autonomous: request.autonomous, status: request.status,
+    modelId: request.modelId, message: request.message, accountId: request.accountId, autonomous: request.autonomous, status: request.status,
     stage, tool: request.status === "running" ? run?.tool : undefined,
     modelCalls: run?.modelCalls ?? 0, toolCalls: run?.toolCalls ?? 0,
     createdAt: request.createdAt, updatedAt: Math.max(request.updatedAt, run?.updatedAt ?? 0), expiresAt: request.expiresAt,

@@ -1,7 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 import { getAddress, verifyMessage, type Hex } from "viem";
 import { z } from "zod";
-import { automationUpdateSchema,tradeActionSchema,venueSchema,type HealthStatus,type Market,type MarketCandle,type User } from "@orcus/core";
+import { agentModelIdSchema,automationUpdateSchema,tradeActionSchema,venueSchema,type HealthStatus,type Market,type MarketCandle,type User } from "@orcus/core";
+import { agentRequestSchema, storedAgentRequest } from "./agent-requests";
+import { selectedAgentModel } from "./agent-models";
 import { callEngine } from "./engine";
 import { ApiError } from "./errors";
 import { Platform } from "./platform";
@@ -175,18 +177,25 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
       return json({data:path.endsWith("/submit")?submitOstiumAllowance(store,user,input.intentId,input.transactionHash):path.endsWith("/reconcile")?await reconcileOstiumAllowance(store,user,input.intentId,input.transactionHash):cancelOstiumAllowance(store,user,input.intentId,input.ownerRejected)});
     }
     if (path === "agent" && method === "GET") return json({ data: platform.agentState(user) });
+    if (path === "agent/models" && method === "GET") return json({ data: await callEngine("getAgentModels", platform.agent(user).modelId) });
     if (path === "agent/requests" && method === "GET") return json({ data: platform.agentRequests(user) });
-    if (path === "agent/requests" && method === "POST") return json({ data: platform.enqueueChat(user, await readBody(request)) }, 202);
+    if (path === "agent/requests" && method === "POST") {
+      const input=agentRequestSchema.parse(await readBody(request));
+      if(storedAgentRequest(store,user.id,input.requestId))return json({data:platform.enqueueChat(user,input)},202);
+      if(input.modelId!==undefined&&selectedAgentModel(input.modelId)!==selectedAgentModel())await callEngine("validateAgentModel",input.modelId);
+      return json({ data: platform.enqueueChat(user, input) }, 202);
+    }
     const agentRequestMatch=path.match(/^agent\/requests\/([^/]+)$/);
     if(agentRequestMatch&&method==="GET")return json({data:platform.agentRequest(user,z.string().regex(/^[A-Za-z0-9][A-Za-z0-9:_-]{0,99}$/).parse(decodeURIComponent(agentRequestMatch[1])))});
     const runMatch=path.match(/^agent\/runs\/([^/]+)$/);
     if(runMatch&&method==="GET")return json({data:platform.runStatus(user,z.string().max(100).parse(runMatch[1]))});
     if (path === "agent/control" && method === "POST") {
-      const input = z.object({ command: z.enum(["pause", "resume", "take-over", "update"]), mode: z.enum(["approval-required", "autonomous"]).optional(), preferences: z.string().max(4000).optional(), privateInferenceRequired: z.boolean().optional(), privateVerification: z.enum(["independent-gateway", "gateway-reported"]).optional() }).strict().parse(await readBody(request));
+      const input = z.object({ modelId: agentModelIdSchema.optional(), command: z.enum(["pause", "resume", "take-over", "update"]), mode: z.enum(["approval-required", "autonomous"]).optional(), preferences: z.string().max(4000).optional(), privateInferenceRequired: z.boolean().optional(), privateVerification: z.enum(["independent-gateway", "gateway-reported"]).optional() }).strict().parse(await readBody(request));
+      if(input.modelId!==undefined){if(input.command!=="update")throw new ApiError("INVALID_MODEL_CONTROL","Use update to choose the model for future requests.");if(selectedAgentModel(input.modelId)!==selectedAgentModel())await callEngine("validateAgentModel",input.modelId);}
       return json({ data: platform.control(user, input) });
     }
     if (path === "agent/chat" && method === "POST") {
-      const input = z.object({ message: z.string().min(1).max(10_000), accountId: z.string().max(100).optional(), autonomous: z.boolean().optional(), requestId: z.string().min(1).max(100).optional() }).strict().parse(await readBody(request));
+      const input = z.object({ modelId: agentModelIdSchema.optional(), message: z.string().min(1).max(10_000), accountId: z.string().max(100).optional(), autonomous: z.boolean().optional(), requestId: z.string().min(1).max(100).optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.chat(user, input) });
     }
     if (path === "actions/prepare" && method === "POST") return json({ data: await platform.prepare(user, await readBody(request), request.headers.get("idempotency-key") ?? undefined,request.headers.get("x-orcus-initiator")==="agent"?"agent":"manual",{messageId:z.string().min(1).max(200).optional().parse(request.headers.get("x-orcus-message-id")??undefined)}) });

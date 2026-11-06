@@ -15,6 +15,7 @@ import { AgentMemoryStore,rejectMemorySecrets } from "./memory";
 import { AgentRun,readAgentRunStatus } from "./agent-runtime";
 import { listStorageExpenses,recordStorageExpense } from "./storage-expenses";
 import { safeAgentToolSteps } from "./agent-evidence";
+import { selectedAgentModel } from "./agent-models";
 import { selectStoragePayer,assertStoragePayerAllowance,publicStoragePayerMetadata } from "./storage-payer";
 import { createSessionSponsorship } from "./sponsorship";
 import { agentRequestSchema,agentRequestRecordId,agentRequestLease,agentRequestView,chatRequestFingerprint,chatRequestReference,listAgentRequests,queuedAgentRequests,readAgentRequest,recoverInterruptedAgentRequests,safeAgentRequestError,storedAgentRequest } from "./agent-requests";
@@ -25,7 +26,7 @@ export const accountSchema=z.object({venue:venueSchema,address:z.string().option
 export const automationSchema=automationInputSchema;
 const terminalStates=new Set(["confirmed","rejected","cancelled"]);
 const evaluationSchema=z.object({id:z.string(),automationId:z.string(),accountId:z.string(),chainId:z.number().int(),decision:z.enum(["allow","reject","no-action"]),reason:z.string(),source:z.literal("local-simulation"),observedAt:z.number().int(),expiresAt:z.number().int(),controlRevision:z.number().int(),policyVersion:z.number().int(),requestId:z.string().optional()}).passthrough();
-type AgentReply={message:string;proposal?:TradeRequest;automationProposal?:unknown;requestId?:string;requestIds?:string[];modelCalls?:number;usage?:unknown;costUsd?:string;requiresClarification?:boolean;privacy?:StoredMessage["privacy"];privacyEvidence?:unknown;toolTrace?:unknown};
+type AgentReply={modelId?:string;message:string;proposal?:TradeRequest;automationProposal?:unknown;requestId?:string;requestIds?:string[];modelCalls?:number;usage?:unknown;costUsd?:string;requiresClarification?:boolean;privacy?:StoredMessage["privacy"];privacyEvidence?:unknown;toolTrace?:unknown};
 
 export class Platform {
   constructor(readonly store:Store=getStore()){}
@@ -77,11 +78,12 @@ export class Platform {
     const totalEquityUsd=accounts.length>0&&valuations.size===accounts.length&&errors.length===0?formatUnits([...valuations.values()].reduce((sum,value)=>sum+value,0n),6):undefined;
     return {accounts,balances,positions,orders,totalEquityUsd,observedAt:observations.length?Math.min(...observations):Date.now(),errors};
   }
-  control(user:User,input:{command:string;mode?:"approval-required"|"autonomous";preferences?:string;privateInferenceRequired?:boolean;privateVerification?:"independent-gateway"|"gateway-reported"}){
+  control(user:User,input:{modelId?:string;command:string;mode?:"approval-required"|"autonomous";preferences?:string;privateInferenceRequired?:boolean;privateVerification?:"independent-gateway"|"gateway-reported"}){
     const agent=this.agent(user);if(!["pause","resume","take-over","update"].includes(input.command))throw new ApiError("INVALID_CONTROL","Use pause, resume, take-over or update.");
+    const modelId=input.modelId===undefined?agent.modelId:selectedAgentModel(input.modelId),modelOnly=input.command==="update"&&input.modelId!==undefined&&Object.keys(input).every(key=>["command","modelId"].includes(key));
     const paused=input.command==="pause"||input.command==="take-over"?true:input.command==="resume"?false:agent.paused;
     return this.store.db.transaction(()=>{
-      const updated=this.store.update<StoredAgent>(user.id,"agent",agent.id,{paused,mode:input.mode??agent.mode,preferences:input.preferences??agent.preferences,privateInferenceRequired:input.privateInferenceRequired??agent.privateInferenceRequired,privateVerification:input.privateVerification??agent.privateVerification??"independent-gateway",controlRevision:agent.controlRevision+1});
+      const updated=this.store.update<StoredAgent>(user.id,"agent",agent.id,{modelId,paused,mode:input.mode??agent.mode,preferences:input.preferences??agent.preferences,privateInferenceRequired:input.privateInferenceRequired??agent.privateInferenceRequired,privateVerification:input.privateVerification??agent.privateVerification??"independent-gateway",controlRevision:agent.controlRevision+(modelOnly?0:1)});
       if(input.preferences!==undefined){
         const memory=new AgentMemoryStore(this.store,user.id);
         for(const row of this.store.db.prepare("SELECT id FROM agent_memories WHERE user_id=? AND source='profile' AND source_id=?").all(user.id,agent.id)as{id:string}[])memory.forget(row.id);
@@ -449,24 +451,27 @@ export class Platform {
     await Promise.all(actions.filter(action=>["submitting","submitted-unknown","pending","partially-filled"].includes(action.status)).slice(0,10).map(action=>this.reconcile(user,action)));
     return {actions:this.store.list<StoredAction>(user.id,"action",100)};
   }
-  async proposal(user:User,message:string,account:StoredAccount|undefined,reference:string,toolProfile:"interactive"|"strategy"="interactive",assertCurrent?:()=>void){
+  async proposal(user:User,message:string,account:StoredAccount|undefined,reference:string,toolProfile:"interactive"|"strategy"="interactive",assertCurrent?:()=>void,requestedModelId?:string){
     assertCurrent?.();
-    const recordId=`proposal:${user.id}:${reference}`;
+    const modelId=selectedAgentModel(requestedModelId??this.agent(user).modelId),recordId=`proposal:${user.id}:${reference}`;
     const cached=this.store.get<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"proposal",recordId)??this.store.get<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"proposal",reference);
     if(cached){
+      if(cached.modelId!==modelId)throw new ApiError("RUN_MODEL_MISMATCH","This saved result belongs to another or unknown model. Start a new request.",409);
       if((cached.toolProfile??"interactive")!==toolProfile)throw new ApiError("TOOL_PROFILE_MISMATCH","This proposal belongs to a different tool profile. Start a new authorized evaluation.",409);
       const agent=this.agent(user),result=cached.result as AgentReply,required=agent.privateVerification==="gateway-reported"?"gateway-reported-private":"independently-attested-private";
       if(agent.privateInferenceRequired&&result.privacy!==required)throw new ApiError("PRIVACY_POLICY_CHANGED","This saved result does not satisfy your current private inference policy. Start a new request.",409);
       return result;
     }
-    const runtime=new AgentRun(this.store,user.id,reference,message,memoryId=>this.forgetMemory(user,memoryId));runtime.start();
+    const runtime=new AgentRun(this.store,user.id,reference,message,memoryId=>this.forgetMemory(user,memoryId),modelId);runtime.start();
     try{
       const agent=this.agent(user),portfolio=await this.portfolio(user);
       const pendingPrompts=new Set(this.store.list<StoredAgentRequest>(user.id,"agent-request",100).filter(request=>request.status==="queued"||request.status==="running").map(request=>request.userMessageId));
       pendingPrompts.add(`${reference}:user`);
       const history=this.store.list<StoredMessage>(user.id,"message",20).filter(item=>!pendingPrompts.has(item.id)).slice(0,9).reverse();
       const context=runtime.context();
-      const result=await callEngine<AgentReply>("planWith0G",message,{...context,modelBudget:{...context.modelBudget,beforeCall:async(input:{callId:string;maxTokens:number})=>{assertCurrent?.();await context.modelBudget.beforeCall(input);}},toolProfile,evaluationId:reference,account,accounts:this.accounts(user),permissions:this.plannerPermissions(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired,privateVerification:agent.privateVerification??"independent-gateway"});
+      const result=await callEngine<AgentReply>("planWith0G",message,{...context,modelId,modelBudget:{...context.modelBudget,beforeCall:async(input:{callId:string;maxTokens:number})=>{assertCurrent?.();await context.modelBudget.beforeCall(input);}},toolProfile,evaluationId:reference,account,accounts:this.accounts(user),permissions:this.plannerPermissions(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired,privateVerification:agent.privateVerification??"independent-gateway"});
+      if(result.modelId!==undefined&&result.modelId!==modelId)throw new ApiError("MODEL_RESPONSE_MISMATCH","The model response did not match this run's selected model. No proposal was accepted.",502);
+      result.modelId=modelId;
       if(typeof result.message!=="string"||!result.message.trim())throw new ApiError("INVALID_AI_RESULT","The model did not return a valid response. No action was taken.",502);
       if(result.proposal){
         const selected=account??(this.accounts(user).length===1?this.accounts(user)[0]:undefined);
@@ -480,7 +485,7 @@ export class Platform {
           delete result.automationProposal;result.requiresClarification=true;result.message="Clarify the target account and valid strategy settings before creating an automation. No job was created.";
         }else result.automationProposal=parsed.data;
       }
-      this.store.put("proposal",{id:recordId,reference,userId:user.id,toolProfile,result,createdAt:Date.now(),updatedAt:Date.now()});
+      this.store.put("proposal",{id:recordId,reference,userId:user.id,toolProfile,modelId,result,createdAt:Date.now(),updatedAt:Date.now()});
       runtime.complete(result);
       return result;
     }catch(error){
@@ -491,8 +496,8 @@ export class Platform {
   runStatus(user:User,requestId:string){
     const reference=createHash("sha256").update(`${user.id}|chat|${requestId}`).digest("hex"),run=readAgentRunStatus(this.store,user.id,requestId)??readAgentRunStatus(this.store,user.id,reference);
     if(!run)throw new ApiError("RUN_NOT_FOUND","This agent run has not started yet.",404);
-    const{id,status,stage,tool,modelCalls,toolCalls,startedAt,updatedAt,completedAt,errorCode}=run;
-    return{id:run.runId??id,status,stage,tool,modelCalls,toolCalls,startedAt,updatedAt,completedAt,errorCode};
+    const{id,modelId,status,stage,tool,modelCalls,toolCalls,startedAt,updatedAt,completedAt,errorCode}=run;
+    return{id:run.runId??id,modelId,status,stage,tool,modelCalls,toolCalls,startedAt,updatedAt,completedAt,errorCode};
   }
   memories(user:User,query?:string){const memory=new AgentMemoryStore(this.store,user.id);return{notes:query?memory.search(query,25):memory.list(50),checkpointAvailable:Boolean(memory.loadCheckpoint(memory.threadId)),warning:"Memory cannot change wallet permissions. Forgetting current notes does not delete existing encrypted 0G backups."};}
   remember(user:User,input:unknown){return new AgentMemoryStore(this.store,user.id).remember(input);}
@@ -507,7 +512,7 @@ export class Platform {
     const data=agentRequestSchema.parse(input);
     rejectMemorySecrets(data.message,{allowPublicHashes:true,code:"CREDENTIAL_INPUT_REJECTED"});
     return this.store.db.transaction(()=>{
-      const fingerprint=chatRequestFingerprint(data),existing=storedAgentRequest(this.store,user.id,data.requestId);
+      const existing=storedAgentRequest(this.store,user.id,data.requestId),modelId=selectedAgentModel(data.modelId??existing?.modelId??this.agent(user).modelId),fingerprint=chatRequestFingerprint({...data,modelId});
       if(existing){if(existing.requestFingerprint!==fingerprint)throw new ApiError("IDEMPOTENCY_CONFLICT","This request ID was already used for another instruction, account or execution mode.",409);return{request:agentRequestView(this.store,existing)};}
       const agent=this.agent(user);if(data.accountId)this.account(user,data.accountId);
       if(data.autonomous&&(agent.paused||agent.mode!=="autonomous"))throw new ApiError("AGENT_NOT_AUTHORIZED","Enable autonomous mode explicitly before requesting background execution.",403);
@@ -517,8 +522,8 @@ export class Platform {
       const reference=chatRequestReference(user.id,data.requestId),userMessageId=`${reference}:user`,prior=this.store.get<StoredMessage>(user.id,"message",userMessageId),answer=this.store.get<StoredMessage>(user.id,"message",`${reference}:assistant`);
       if(prior&&prior.requestFingerprint!==fingerprint)throw new ApiError("IDEMPOTENCY_CONFLICT","This request ID already belongs to another or legacy chat instruction. Review its saved result instead of reusing the ID.",409);
       const now=Date.now(),status=answer?"completed":prior?"interrupted":"queued";
-      if(!prior)this.store.put("message",{id:userMessageId,userId:user.id,role:"user",content:data.message,requestFingerprint:fingerprint,accountId:data.accountId,createdAt:now,updatedAt:now}satisfies StoredMessage);
-      const request:StoredAgentRequest={id:agentRequestRecordId(user.id,data.requestId),userId:user.id,...data,runId:reference,userMessageId,status,requestFingerprint:fingerprint,agentRevision:agent.controlRevision,mode:agent.mode,privateInferenceRequired:agent.privateInferenceRequired,privateVerification:agent.privateVerification??"independent-gateway",accountBindings:this.requestAccountBindings(user),permissionBindings:this.requestPermissionBindings(user),expiresAt:now+15*60_000,createdAt:now,updatedAt:now,...(status!=="queued"?{completedAt:now}:{}),...(status==="interrupted"?{errorCode:"AGENT_REQUEST_INTERRUPTED",error:"This instruction was already attempted. Review its saved result and billing; no inference or execution was repeated."}:{})};
+      if(!prior)this.store.put("message",{id:userMessageId,userId:user.id,role:"user",content:data.message,modelId,requestFingerprint:fingerprint,accountId:data.accountId,createdAt:now,updatedAt:now}satisfies StoredMessage);
+      const request:StoredAgentRequest={id:agentRequestRecordId(user.id,data.requestId),userId:user.id,...data,modelId,runId:reference,userMessageId,status,requestFingerprint:fingerprint,agentRevision:agent.controlRevision,mode:agent.mode,privateInferenceRequired:agent.privateInferenceRequired,privateVerification:agent.privateVerification??"independent-gateway",accountBindings:this.requestAccountBindings(user),permissionBindings:this.requestPermissionBindings(user),expiresAt:now+15*60_000,createdAt:now,updatedAt:now,...(status!=="queued"?{completedAt:now}:{}),...(status==="interrupted"?{errorCode:"AGENT_REQUEST_INTERRUPTED",error:"This instruction was already attempted. Review its saved result and billing; no inference or execution was repeated."}:{})};
       this.store.put("agent-request",request);
       return{request:agentRequestView(this.store,request)};
     }).immediate();
@@ -560,7 +565,7 @@ export class Platform {
       try{
         if(claimed.expiresAt<=Date.now())throw new ApiError("AGENT_REQUEST_EXPIRED","The queued instruction expired.",409);
         assertCurrent();const user=this.storedUser(claimed.userId)!;
-        await this.chat(user,{message:claimed.message,accountId:claimed.accountId,autonomous:claimed.autonomous,requestId:claimed.requestId},{requestId:claimed.requestId,assertCurrent});
+        await this.chat(user,{message:claimed.message,accountId:claimed.accountId,autonomous:claimed.autonomous,modelId:claimed.modelId,requestId:claimed.requestId},{requestId:claimed.requestId,assertCurrent});
         assertCurrent();this.store.update<StoredAgentRequest>(user.id,"agent-request",claimed.id,{status:"completed",completedAt:Date.now()});
         results.push({kind:"agent-request",requestId:claimed.requestId,status:"completed"});
       }catch(error){
@@ -580,12 +585,13 @@ export class Platform {
     }
     return results;
   }
-  async chat(user:User,input:{message:string;accountId?:string;autonomous?:boolean;requestId?:string},background?:{requestId:string;assertCurrent:()=>void}){
+  async chat(user:User,input:{modelId?:string;message:string;accountId?:string;autonomous?:boolean;requestId?:string},background?:{requestId:string;assertCurrent:()=>void}){
     rejectMemorySecrets(input.message,{allowPublicHashes:true,code:"CREDENTIAL_INPUT_REJECTED"});
     if(input.requestId&&storedAgentRequest(this.store,user.id,input.requestId)&&background?.requestId!==input.requestId)throw new ApiError("AGENT_REQUEST_EXISTS","This instruction is already persisted. Read its existing request instead of resubmitting it.",409);
     background?.assertCurrent();
     const reference=input.requestId?createHash("sha256").update(`${user.id}|chat|${input.requestId}`).digest("hex"):id();
-    const requestFingerprint=createHash("sha256").update(JSON.stringify({message:input.message,accountId:input.accountId??null,autonomous:input.autonomous??false})).digest("hex");
+    const storedInput=this.store.get<StoredMessage>(user.id,"message",`${reference}:user`),modelId=selectedAgentModel(input.modelId??storedInput?.modelId??this.agent(user).modelId);
+    const requestFingerprint=chatRequestFingerprint({...input,modelId});
     const priorUserMessage=this.store.get<StoredMessage>(user.id,"message",`${reference}:user`);
     if(priorUserMessage&&(priorUserMessage.requestFingerprint?priorUserMessage.requestFingerprint!==requestFingerprint:priorUserMessage.content!==input.message))throw new ApiError("IDEMPOTENCY_CONFLICT","This request ID was already used for another chat instruction.",409);
     const priorAssistant=this.store.get<StoredMessage>(user.id,"message",`${reference}:assistant`);
@@ -595,9 +601,9 @@ export class Platform {
       return{message:priorAssistant,proposal:priorAssistant.proposedAction,automationProposal:priorAssistant.automationProposal,runId:reference,requestId:priorAssistant.requestId,action};
     }
     const agent=this.agent(user),account=input.accountId?this.account(user,input.accountId):undefined;
-    if(!priorUserMessage)this.store.put("message",{id:`${reference}:user`,userId:user.id,role:"user",content:input.message,requestFingerprint,accountId:input.accountId,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
-    const result=await this.proposal(user,input.message,account,reference,"interactive",background?.assertCurrent);
-    let message:StoredMessage=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,privacy:result.privacy,privacyEvidence:result.privacyEvidence,toolSteps:safeAgentToolSteps(result.toolTrace),createdAt:priorAssistant?.createdAt??Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
+    if(!priorUserMessage)this.store.put("message",{id:`${reference}:user`,userId:user.id,role:"user",content:input.message,modelId,requestFingerprint,accountId:input.accountId,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
+    const result=await this.proposal(user,input.message,account,reference,"interactive",background?.assertCurrent,modelId);
+    let message:StoredMessage=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",modelId,automationId:priorAssistant?.automationId,content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,privacy:result.privacy,privacyEvidence:result.privacyEvidence,toolSteps:safeAgentToolSteps(result.toolTrace),createdAt:priorAssistant?.createdAt??Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     background?.assertCurrent();
     let action:StoredAction|undefined;
     if(result.proposal&&input.autonomous&&agent.mode==="autonomous"&&!agent.paused){

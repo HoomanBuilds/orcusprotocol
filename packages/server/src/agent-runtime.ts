@@ -6,9 +6,9 @@ import { id,type Store } from "./store";
 import type { StoredRecord } from "./types";
 
 type Progress={stage:string;tool?:string;message?:string;modelCalls?:number;toolCalls?:number};
-export type AgentRunStatus=StoredRecord&{runId?:string;threadId:string;status:"running"|"completed"|"failed";stage:string;tool?:string;modelCalls:number;toolCalls:number;startedAt:number;completedAt?:number;errorCode?:string};
+export type AgentRunStatus=StoredRecord&{modelId?:string;runId?:string;threadId:string;status:"running"|"completed"|"failed";stage:string;tool?:string;modelCalls:number;toolCalls:number;startedAt:number;completedAt?:number;errorCode?:string};
 const stages=new Set(["recall","thinking","tool","completed","failed","budget-stop"]);
-const preflightCodes=new Set(["COMPUTE_UNCONFIGURED","PRIVATE_INFERENCE_UNAVAILABLE","PRIVATE_INFERENCE_UNVERIFIED","INTEGRATION_UNCONFIGURED","NOT_CONFIGURED","INVALID_MESSAGE","CREDENTIAL_INPUT_REJECTED","TOOL_PROFILE_MISMATCH","INVALID_TOOL_PROFILE"]);
+const preflightCodes=new Set(["COMPUTE_UNCONFIGURED","PRIVATE_INFERENCE_UNAVAILABLE","PRIVATE_INFERENCE_UNVERIFIED","INTEGRATION_UNCONFIGURED","NOT_CONFIGURED","INVALID_MESSAGE","CREDENTIAL_INPUT_REJECTED","TOOL_PROFILE_MISMATCH","INVALID_TOOL_PROFILE","MODEL_UNAVAILABLE","MODEL_NOT_ALLOWED","RUN_MODEL_MISMATCH"]);
 export const agentRunRecordId=(userId:string,runId:string)=>`agent-run:${userId}:${runId}`;
 export function readAgentRunStatus(store:Store,userId:string,runId:string){return store.get<AgentRunStatus>(userId,"agent-run",agentRunRecordId(userId,runId))??store.get<AgentRunStatus>(userId,"agent-run",runId);}
 
@@ -21,7 +21,7 @@ export class AgentRun{
   private initialReservation=false;
   private billingUncertain=false;
   private timer?:ReturnType<typeof setInterval>;
-  constructor(readonly store:Store,readonly userId:string,readonly runId:string,readonly message:string,readonly onForget?:(memoryId:string)=>boolean){this.memory=new AgentMemoryStore(store,userId);this.scope=`agent-thread:${userId}`;}
+  constructor(readonly store:Store,readonly userId:string,readonly runId:string,readonly message:string,readonly onForget?:(memoryId:string)=>boolean,readonly modelId?:string){this.memory=new AgentMemoryStore(store,userId);this.scope=`agent-thread:${userId}`;}
   start(){
     if(!this.store.takeLease(this.scope,this.holder,180_000))throw new ApiError("AGENT_BUSY","Your agent is still working on another request. Wait for its result before starting another.",409);
     try{
@@ -43,13 +43,13 @@ export class AgentRun{
     this.assertLease();
     const previous=readAgentRunStatus(this.store,this.userId,this.runId),now=Date.now();
     const stage=stages.has(input.stage)?input.stage:"thinking",tool=input.tool&&/^[a-z][a-z0-9_]{0,59}$/i.test(input.tool)?input.tool:undefined;
-    this.store.put("agent-run",{id:agentRunRecordId(this.userId,this.runId),runId:this.runId,userId:this.userId,threadId:this.memory.threadId,status:stage==="completed"?"completed":stage==="failed"?"failed":"running",stage,tool,modelCalls:Math.max(previous?.modelCalls??0,Math.min(6,input.modelCalls??this.modelCalls)),toolCalls:Math.max(previous?.toolCalls??0,Math.min(6,input.toolCalls??0)),startedAt:previous?.startedAt??now,createdAt:previous?.createdAt??now,updatedAt:now,...(stage==="completed"||stage==="failed"?{completedAt:now}:{})}satisfies AgentRunStatus);
+    this.store.put("agent-run",{id:agentRunRecordId(this.userId,this.runId),runId:this.runId,modelId:this.modelId??previous?.modelId,userId:this.userId,threadId:this.memory.threadId,status:stage==="completed"?"completed":stage==="failed"?"failed":"running",stage,tool,modelCalls:Math.max(previous?.modelCalls??0,Math.min(6,input.modelCalls??this.modelCalls)),toolCalls:Math.max(previous?.toolCalls??0,Math.min(6,input.toolCalls??0)),startedAt:previous?.startedAt??now,createdAt:previous?.createdAt??now,updatedAt:now,...(stage==="completed"||stage==="failed"?{completedAt:now}:{})}satisfies AgentRunStatus);
   }
   context(){
     const explicitRemember=/\b(remember|save|store|note|prefer|preference)\b/i.test(this.message)&&!/(?:don't|do not|never)\s+(remember|save|store)/i.test(this.message);
     const explicitForget=/\b(forget|delete|remove)\b/i.test(this.message);
     return{
-      threadId:this.memory.threadId,maxModelCalls:6,maxToolCalls:6,maxTotalTokens:12000,timeoutMs:75_000,
+      modelId:this.modelId,threadId:this.memory.threadId,maxModelCalls:6,maxToolCalls:6,maxTotalTokens:12000,timeoutMs:75_000,
       checkpoints:{load:async(threadId:string)=>{this.assertLease();return this.memory.loadCheckpoint(threadId);},save:async(threadId:string,state:unknown)=>{this.assertLease();this.memory.saveCheckpoint(threadId,state);}},
       memoryStore:{search:async(query:string,limit?:number)=>this.memory.search(query,limit),remember:async(input:unknown)=>{if(!explicitRemember)throw new ApiError("MEMORY_CONSENT_REQUIRED","Save memory only when the user explicitly asks to remember a preference or note.",403);const value=memoryInputSchema.parse(input);return this.memory.remember(value,"user-request",this.runId);},forget:async(memoryId:string)=>{if(!explicitForget)throw new ApiError("MEMORY_CONSENT_REQUIRED","Forget memory only when the user explicitly requests it.",403);return this.onForget?this.onForget(memoryId):this.memory.forget(memoryId);}},
       onProgress:async(input:Progress)=>{this.progress(input);},

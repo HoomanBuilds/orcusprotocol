@@ -11,6 +11,7 @@ export type StoredMessage = ChatMessage & { userId: string; updatedAt: number;au
 export interface StoredRecord { id: string; userId: string; createdAt: number; updatedAt: number; accountId?: string }
 export type StoredEvaluationRun = StoredRecord & { automationId:string;status:"running"|"completed"|"failed"|"interrupted";policyVersion?:number;controlRevision?:number;reason?:string;completedAt?:number };
 export type StoredAgentRequest = StoredRecord & {
+  modelId?: string;
   requestId: string; runId: string; userMessageId: string; message: string; autonomous: boolean;
   status: AgentRequest["status"]; requestFingerprint: string; expiresAt: number;
   agentRevision: number; mode: AgentProfile["mode"]; privateInferenceRequired: boolean;
