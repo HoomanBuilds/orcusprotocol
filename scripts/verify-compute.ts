@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { verifyComputeRestartReplay } from "./lib/compute-restart-proof";
 
 if (!process.argv.includes("--allow-paid-inference")) throw new Error("This check spends real compute credits. Run with --allow-paid-inference to consent.");
 const target = new URL(process.env.ORCUS_VERIFY_APP_URL ?? "http://localhost:3000");
@@ -8,6 +9,8 @@ if (!["localhost", "127.0.0.1", "[::1]"].includes(target.hostname) || target.pro
 const origin = target.origin;
 const owner = privateKeyToAccount(generatePrivateKey());
 let cookie = "";
+const restartReplay = process.argv.includes("--restart-replay");
+if (restartReplay && !process.argv.includes("--extended")) throw new Error("Restart replay requires the extended proof, which exhausts the authorized cap before restart.");
 
 async function request(path: string, body?: unknown, expectedError?: string) {
   const response = await fetch(`${origin}/api/${path}`, { method: body ? "POST" : "GET", headers: { Origin: origin, ...(cookie ? { Cookie: cookie } : {}), ...(body ? { "Content-Type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(120_000), redirect: "error" });
@@ -76,6 +79,11 @@ try {
     assert.equal(exhausted.spentUsd, budget.spentUsd);
     assert.equal(exhausted.reservedUsd, "0.000000");
     cases.push({ name: "credential-rejection-no-charge" }, { name: "budget-stop-before-inference" });
+  }
+  if (restartReplay) {
+    console.log(JSON.stringify({ phase: "restart-ready", spentUsdEquivalent: budget.spentUsd, instruction: "Restart this same local app with its existing runtime directory, then send one newline. No new owner or paid request is created." }));
+    await new Promise<void>(resolve => { process.stdin.once("data", () => resolve()); });
+    cases.push(await verifyComputeRestartReplay(request, { instruction, requestIds: reply.requestIds, spentUsd: budget.spentUsd }));
   }
   console.log(JSON.stringify({ status: "passed", cases, privacy: reply.message.privacy, recalledPreferences: memory.notes.length, spentUsdEquivalent: budget.spentUsd, publicChainWrites: 0, deployment: false }, null, 2));
 } finally {
