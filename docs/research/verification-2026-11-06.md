@@ -138,6 +138,12 @@ Wallet tests now include actual SDK approval and order signing against an inject
 
 Primary references: [Hyperliquid exchange API](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint) and [native API wallets and nonces](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets).
 
+## Testnet service payment expiry and recovery
+
+The testnet checkout has fixed pricing: one Sepolia test USDC grants one USD-equivalent test credit. Quote expiry blocks starting a new wallet flow. It does not reject an exact successful transfer merely because the wallet was approved late, the transaction mined after expiry, or the unpaid intent was dismissed. ERC20 transfers have no onchain deadline, so a receipt upper-time cutoff could otherwise take the transfer without granting its credits.
+
+Recovery still verifies the exact owner, token, treasury, amount, zero native value, post-creation block and canonical confirmed Transfer event. Global transaction/log uniqueness prevents double credit. A pre-intent transaction cannot qualify. This is test-token accounting, not live revenue or a token refund.
+
 ## Remaining external acceptance
 
 - CRE CLI authentication will be supplied later. Workflow compilation is not a successful CLI simulation, and no hosted DON execution is claimed.

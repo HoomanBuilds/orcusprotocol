@@ -92,8 +92,6 @@ describe("verified testnet service-credit payments", () => {
     await expect(reconcileServicePayment(store, secondUser, h.intent.id, transactionHash)).rejects.toMatchObject({ code: "SERVICE_PAYMENT_NOT_FOUND" });
     const savedTimestamp = timestamp; timestamp = h.intent.notBefore - 1;
     await expect(reconcileServicePayment(store, h.user, h.intent.id, transactionHash)).rejects.toMatchObject({ code: "SERVICE_PAYMENT_WINDOW_INVALID" });
-    timestamp = Math.ceil(h.intent.expiresAt / 1000) + 1;
-    await expect(reconcileServicePayment(store, h.user, h.intent.id, transactionHash)).rejects.toMatchObject({ code: "SERVICE_PAYMENT_WINDOW_INVALID" });
     timestamp = savedTimestamp; (receipt!.logs as { removed: boolean }[])[0].removed = true;
     await expect(reconcileServicePayment(store, h.user, h.intent.id, transactionHash)).rejects.toMatchObject({ code: "SERVICE_PAYMENT_EVIDENCE_INVALID" });
     (receipt!.logs as { removed: boolean }[])[0].removed = false;
@@ -101,6 +99,16 @@ describe("verified testnet service-credit payments", () => {
     const duplicate = { ...h.intent, id: "other-intent", status: "prepared" as const };
     store.put("service-payment", duplicate);
     await expect(reconcileServicePayment(store, h.user, duplicate.id, transactionHash)).rejects.toMatchObject({ code: "SERVICE_PAYMENT_REPLAY" });
+  });
+  it("recovers an exact delayed transfer after quote expiry or dismissal without forfeiting paid funds", async () => {
+    const h = await fixture();
+    store.update<ServicePaymentIntent>(h.user.id, "service-payment", h.intent.id, { expiresAt: Date.now() - 1000 });
+    expect(() => recordServicePaymentSubmission(store, h.user, h.intent.id)).toThrow(/expired/);
+    cancelServicePayment(store, h.user, h.intent.id);
+    timestamp = Math.ceil(h.intent.expiresAt / 1000) + 60;
+    expect((await reconcileServicePayment(store, h.user, h.intent.id, transactionHash)).status).toBe("credited");
+    expect((await reconcileServicePayment(store, h.user, h.intent.id, transactionHash)).status).toBe("credited");
+    expect(servicePaymentSummary(store, h.user).credits.paidUsd).toBe("1.000000");
   });
   it("shares paid-credit reservation, spend, release and unknown evidence with the existing capped compute ledger", async () => {
     const h = await fixture(); await reconcileServicePayment(store, h.user, h.intent.id, transactionHash); setBudget(store, h.user.id, "2", "0.1", false);
