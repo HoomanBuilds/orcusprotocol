@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { ExchangeClient, HttpTransport, type IRequestTransport } from "@nktkas/hyperliquid";
 import { getAddress, isAddressEqual } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { tradeRequestSchema, type Market, type MarketCandle, type PreparedAction, type TradingAccount, type TradeRequest } from "@orcus/core";
@@ -126,14 +126,34 @@ export async function prepareHyperliquidAction(input: TradeRequest, account: Tra
   return { ...base, request: { ...base.request, amount, side, reduceOnly }, hyperliquid: { method: "order", params: { orders: [{ a: assetIndex, b: side === "buy", p: price, s: size, r: reduceOnly, t: trigger, c: cloid }], grouping: "na" } } };
 }
 
-export async function submitHyperliquidAgentAction(prepared: PreparedAction, account: TradingAccount, key: string): Promise<SubmissionResult> {
+export async function submitHyperliquidAgentAction(prepared: PreparedAction, account: TradingAccount, key: string, options: { assertAuthority?: () => void | Promise<void> } = {}): Promise<SubmissionResult> {
+  let sendAttempted = false, authorityFailure: (Error & { phase: "not-submitted" }) | undefined;
+  try {
   assertAccount(account);
   if (prepared.expiresAt < Date.now() || prepared.controlRevision !== account.controlRevision || prepared.account.id !== account.id || !isAddressEqual(getAddress(prepared.account.address), getAddress(account.address))) throw new EngineError("STALE_ACTION", "The account or permission revision changed; prepare the action again.");
   const wallet = privateKeyToAccount(key as `0x${string}`);
   if (!account.agentAddress || !isAddressEqual(wallet.address, getAddress(account.agentAddress))) throw new EngineError("SIGNER_MISMATCH", "This agent credential is not approved for this trading account.");
   if (!prepared.hyperliquid) throw new EngineError("INVALID_ACTION", "Missing venue operation.");
-  const client = new ExchangeClient({ transport: new HttpTransport({ isTestnet: true }), wallet, isTestnet: true });
-  try {
+  const assertReady = async () => {
+    try {
+      await options.assertAuthority?.();
+      if (prepared.expiresAt <= Date.now()) throw new EngineError("STALE_ACTION", "The prepared action expired before signing or submission.", 409);
+    } catch (error) {
+      authorityFailure = Object.assign(error instanceof Error ? error : new EngineError("CONTROL_CHANGED", "Account authority changed before submission.", 409), { phase: "not-submitted" as const });
+      throw authorityFailure;
+    }
+  };
+  const guardedWallet: typeof wallet = { ...wallet, signTypedData: async parameters => { await assertReady(); return wallet.signTypedData(parameters); } };
+  const transport = new HttpTransport({ isTestnet: true });
+  const guardedTransport: IRequestTransport = {
+    isTestnet: true,
+    async request<T>(endpoint: "info" | "exchange", payload: unknown, signal?: AbortSignal): Promise<T> {
+      await assertReady();
+      sendAttempted = true;
+      return transport.request<T>(endpoint, payload, signal);
+    },
+  };
+  const client = new ExchangeClient({ transport: guardedTransport, wallet: guardedWallet, defaultExpiresAfter: prepared.expiresAt });
     const result = prepared.hyperliquid.method === "order"
       ? await client.order(prepared.hyperliquid.params as Parameters<typeof client.order>[0])
       : prepared.hyperliquid.method === "cancel"
@@ -147,7 +167,8 @@ export async function submitHyperliquidAgentAction(prepared: PreparedAction, acc
     const oid = typeof status === "object" ? status?.resting?.oid ?? status?.filled?.oid : undefined;
     return { status: "pending", orderId: oid ? String(oid) : undefined, evidence: { clientOrderId: (prepared.hyperliquid.params.orders as Array<{ c: string }>)[0]?.c, response: body.response ?? {} } };
   } catch (error) {
-    if (error instanceof EngineError) throw error;
+    if (authorityFailure) throw authorityFailure;
+    if (!sendAttempted) throw Object.assign(error instanceof EngineError ? error : new EngineError("VENUE_PREFLIGHT_FAILED", "The venue request could not be signed or validated. Nothing was submitted.", 409), { phase: "not-submitted" as const });
     return { status: "submitted-unknown", evidence: { message: "Submission result is unknown. Reconcile order state before any retry." } };
   }
 }
