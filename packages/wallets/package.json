@@ -14,7 +14,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --maxWorkers=2 --no-file-parallelism"
   },
   "dependencies": {
     "@nktkas/hyperliquid": "^0.33.3",
