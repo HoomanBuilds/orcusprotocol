@@ -297,6 +297,7 @@ export class Platform {
       }
       const prepared=await callEngine<PreparedAction>("prepareAction",request,account);
       prepared.id=actionId;prepared.request=tradeRequestSchema.parse({...prepared.request,accountId:account.id,venue:account.venue,mode:request.mode});prepared.account=account;prepared.controlRevision=account.controlRevision;
+      if(request.mode==="agent")permission=await this.checkAgentPolicy(user,prepared.request,account);
       if(!prepared.expiresAt||prepared.expiresAt<=Date.now())throw new ApiError("QUOTE_EXPIRED","The prepared action expired. Request a new quote.",409);
       const agent=this.agent(user),action=this.store.put("action",{id:actionId,userId:user.id,accountId:account.id,request,status:"awaiting-approval",initiator:initiator!=="manual"?initiator:request.mode==="agent"?"agent":"manual",prepared,controlRevision:account.controlRevision,agentRevision:agent.controlRevision,expiresAt:prepared.expiresAt,providerRequestId,audit:{instruction:instruction.slice(0,10_000),sourceMessageId:context?.messageId,providerRequestId,evaluationId:context?.evaluationId,permission:{decision:permission?"allowed":"owner-signature-required",checkedAt:Date.now(),permissionId:permission?.id,enforcement:permission?.enforcement??"owner",controlRevision:account.controlRevision,agentRevision:agent.controlRevision}},createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAction);
       return {action,execution:prepared,preview:prepared.quote};
@@ -329,6 +330,7 @@ export class Platform {
       const permission=await this.checkAgentPolicy(user,action.request,current);
       const fresh=await callEngine<PreparedAction>("prepareAction",action.request,current);
       fresh.id=action.id;fresh.request=tradeRequestSchema.parse({...fresh.request,accountId:current.id,venue:current.venue,mode:"agent"});fresh.account=current;fresh.controlRevision=current.controlRevision;
+      await this.checkAgentPolicy(user,fresh.request,current);
       const assertAuthority=()=>{
         assertLease();const latest=this.account(user,current.id),latestAgent=this.agent(user),latestPermission=this.store.get<StoredPermission>(user.id,"permission",permission.id);
         if(latest.controlRevision!==action!.controlRevision||latest.status!=="authorized"||latestAgent.paused||latestAgent.controlRevision!==action!.agentRevision||latestPermission?.status!=="active"||latestPermission.expiresAt<=Date.now())throw new ApiError("CONTROL_CHANGED","Authority changed during preparation. No new action was signed.",409);

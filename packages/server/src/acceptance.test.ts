@@ -107,6 +107,37 @@ describe("shared-account server acceptance with explicit venue fixtures",()=>{
       expect((await h.request("actions/prepare","POST",ownerRequest)).status).toBe(200);
     }finally{h.close();}
   });
+  it("checks the actual full close size against the agent cap before storing its review",async()=>{
+    const h=await harness();
+    try{
+      const grant=await h.request("permissions","POST",{accountId:h.account.id,action:"prepare",allowedSymbols:["ETH"],maxTradeUsd:"5000"});
+      await h.request("permissions","POST",{accountId:h.account.id,action:"activate",permissionId:grant.result.data.permission.id});
+      h.setPosition("3");
+      const request={accountId:h.account.id,venue:"hyperliquid",type:"close",symbol:"ETH",side:"sell",amount:"0.001",mode:"agent"};
+      const result=await h.request("actions/prepare","POST",request);
+      expect(result.status).toBe(403);expect(result.result.error.code).toBe("TRADE_LIMIT");
+      expect(h.store.list(h.store.getUser(h.account.ownerAddress)!.id,"action")).toHaveLength(0);
+      expect((await h.request("actions/prepare","POST",{...request,mode:"manual"})).status).toBe(200);
+      expect(h.engine.mock.calls.some(([name])=>name==="submitAgentAction")).toBe(false);
+    }finally{h.close();}
+  });
+  it("rechecks the normalized close size after the owner changes a reviewed position",async()=>{
+    const h=await harness();
+    try{
+      const grant=await h.request("permissions","POST",{accountId:h.account.id,action:"prepare",allowedSymbols:["ETH"],maxTradeUsd:"5000"});
+      await h.request("permissions","POST",{accountId:h.account.id,action:"activate",permissionId:grant.result.data.permission.id});
+      h.setPosition("1");
+      const request={accountId:h.account.id,venue:"hyperliquid",type:"close",symbol:"ETH",side:"sell",amount:"1",mode:"agent"};
+      const prepared=await h.request("actions/prepare","POST",request);
+      expect(prepared.status).toBe(200);
+      h.setPosition("3");
+      const submitted=await h.request("actions/submit","POST",{actionId:prepared.result.data.action.id});
+      expect(submitted.status).toBe(403);expect(submitted.result.error.code).toBe("TRADE_LIMIT");
+      expect(h.engine.mock.calls.some(([name])=>name==="submitAgentAction")).toBe(false);
+      const user=h.store.getUser(h.account.ownerAddress)!;
+      expect(h.store.get<StoredAction>(user.id,"action",prepared.result.data.action.id)?.status).toBe("awaiting-approval");
+    }finally{h.close();}
+  });
   it("binds owner-reviewed proposals to the original instruction and rejects changed orders",async()=>{
     const h=await harness();
     try{
