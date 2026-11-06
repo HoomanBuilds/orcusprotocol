@@ -26,6 +26,8 @@ describe("explicit automation review", () => {
     expect(() => reviewAutomation({ ...draft, request: { ...draft.request, accountId: "other" } }, [account])).toThrow("different account");
   });
   it("distinguishes a scheduled repeat from a crossing that first arms", () => {
+    expect(executionLabel("recurring", "alert")).toBe("Notify on match, then after rearming");
+    expect(executionLabel("recurring", "trade")).toBe("Repeat at each interval");
     const repeat = reviewAutomation({ ...draft, condition: undefined, executionMode: "recurring", maxExecutions: 5 }, [account]);
     expect(triggerLabel(repeat)).toBe("Scheduled execution, no price condition");
     expect(triggerLabel({ ...repeat, executionMode: "on-crossing", condition: { symbol: "ETH", operator: "below", price: "2000" } })).toContain("after a new crossing");

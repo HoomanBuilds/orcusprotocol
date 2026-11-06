@@ -17,8 +17,8 @@ export function reviewAutomation(value: unknown, accounts: TradingAccount[], now
   return draft;
 }
 
-export function executionLabel(mode?: string) {
-  return mode === "once" ? "Run once" : mode === "recurring" ? "Repeat at each interval" : mode === "on-crossing" ? "On each new crossing" : "Policy review required";
+export function executionLabel(mode?: string, kind?: "trade" | "alert") {
+  return mode === "once" ? "Run once" : mode === "recurring" ? kind === "alert" ? "Notify on match, then after rearming" : "Repeat at each interval" : mode === "on-crossing" ? "On each new crossing" : "Policy review required";
 }
 
 export function triggerLabel(draft: Pick<ReviewedAutomation, "condition" | "executionMode">) {

@@ -2,7 +2,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AgentResponse, AgentToolActivity, safeResearchUrl } from "./agent-response";
-import { AutomationPolicySummary } from "./automation-review-card";
+import { AutomationPolicySummary, AutomationSuggestion } from "./automation-review-card";
+import type { Workspace } from "@/lib/use-workspace";
 
 describe("grounded conversation presentation", () => {
   it("renders actual markdown lists and comparison tables", () => {
@@ -35,5 +36,12 @@ describe("grounded conversation presentation", () => {
     const markup = renderToStaticMarkup(<AutomationPolicySummary draft={{ name: "Change BTC order", kind: "trade", accountId: "account", executionMode: "once", maxExecutions: 1, intervalSeconds: 300, request: { accountId: "account", venue: "ostium", type: "edit-order", side: "buy", symbol: "BTC/USD", amount: "100.000000000000001", amountUnit: "collateral-usdc", price: "90000", leverage: 5, takeProfit: "100000", stopLoss: "0", orderId: "order-42", mode: "agent", reduceOnly: false, slippageBps: 50 } }}/>);
     expect(markup).toContain("100.000000000000001 USDC collateral"); expect(markup).toContain("edit-order"); expect(markup).toContain("order-42"); expect(markup).toContain("90000 USD"); expect(markup).toContain("Clear protection"); expect(markup).toContain("5x leverage");
     expect(markup).not.toContain("100 BTC");
+  });
+  it("restores an accepted expired proposal without offering a second activation", () => {
+    const proposal = { name: "Saved ETH alert", kind: "alert", accountId: "account", executionMode: "once", maxExecutions: 1, intervalSeconds: 300, condition: { symbol: "ETH", operator: "above", price: "2000" }, expiresAt: 1000 };
+    const workspace = { session: { user: { id: "owner" }, accounts: [{ id: "account", venue: "hyperliquid" }] }, automations: [{ id: "saved-rule", status: "completed" }] } as unknown as Workspace;
+    const markup = renderToStaticMarkup(<AutomationSuggestion proposal={proposal} messageId="message" automationId="saved-rule" workspace={workspace}/>);
+    expect(markup).toContain("Saved ETH alert"); expect(markup).toContain("completed"); expect(markup).toContain("View saved automation");
+    expect(markup).not.toContain("Approve and activate"); expect(markup).not.toContain("Not active yet"); expect(markup).not.toContain("Incomplete automation");
   });
 });
