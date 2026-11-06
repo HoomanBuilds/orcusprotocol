@@ -104,6 +104,10 @@ export function setupDemo(options: SetupOptions) {
     if (localKey && localKey.content.length !== 32) throw new Error("The existing master.key must contain exactly 32 bytes. Restore the original key; setup will not replace it.");
     if (env.ORCUS_MASTER_KEY) {
       if (!validMasterKey(env.ORCUS_MASTER_KEY)) throw new Error("ORCUS_MASTER_KEY must encode exactly 32 bytes as hex or base64. Restore the original key; setup will not replace it.");
+      const configuredKey = Buffer.from(env.ORCUS_MASTER_KEY, /^[\da-fA-F]{64}$/.test(env.ORCUS_MASTER_KEY) ? "hex" : "base64");
+      try {
+        if (localKey && !configuredKey.equals(localKey.content)) throw new Error("ORCUS_MASTER_KEY does not match the existing master.key. Restore the original runtime configuration; setup will not change either key.");
+      } finally { configuredKey.fill(0); }
     } else {
       if (options.check) throw new Error("ORCUS_MASTER_KEY is missing. Run demo:setup using the original runtime key.");
       if (!localKey && existsSync(directory) && readdirSync(directory).length) throw new Error("The runtime directory is nonempty but its master key is missing. Configure the original ORCUS_MASTER_KEY; setup will not generate a replacement.");

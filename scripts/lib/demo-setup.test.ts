@@ -64,6 +64,23 @@ describe("demo runtime setup", () => {
     expect(parseEnv(readFileSync(envFile, "utf8")).ORCUS_MASTER_KEY).toBe(master);
   });
 
+  it.each(["hex", "base64"] as const)("accepts a matching configured and local master key: %s", encoding => {
+    mkdirSync(dataDir, { mode: 0o700 });
+    writeFileSync(join(dataDir, "master.key"), Buffer.from(master, "hex"), { mode: 0o600 });
+    writeEnv(configured().replace(master, Buffer.from(master, "hex").toString(encoding)));
+    setupDemo(options());
+    expect(readFileSync(join(dataDir, "master.key"))).toEqual(Buffer.from(master, "hex"));
+  });
+
+  it.each([false, true])("refuses a configured/local key mismatch without changing either key, check mode: %s", check => {
+    mkdirSync(dataDir, { mode: 0o700 });
+    const local = Buffer.alloc(32, 1), keyPath = join(dataDir, "master.key");
+    writeFileSync(keyPath, local, { mode: 0o600 }); writeEnv(configured());
+    expect(() => setupDemo({ ...options(), check })).toThrow(/does not match/);
+    expect(readFileSync(keyPath)).toEqual(local);
+    expect(readFileSync(envFile, "utf8")).toBe(configured());
+  });
+
   it.each(["short", "!".repeat(64)])("never replaces invalid configured master keys", value => {
     writeEnv(configured().replace(master, value));
     const original = readFileSync(envFile);
