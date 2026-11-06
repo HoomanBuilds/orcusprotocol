@@ -2,13 +2,19 @@
 
 This is execution evidence, not deployment configuration. Initial trading verification used local forks only. Later, separately authorized Galileo storage and capped Hyperliquid testnet handoff tests submitted the public testnet actions recorded below. No token launch, mainnet trade or public contract deployment was performed. Local Uniswap fork hashes are not public explorer receipts.
 
+## Current evidence summary
+
+The sections below preserve earlier passes on this date rather than presenting them as a fresh repeat of every integration. Current independent root acceptance includes five actual authenticated CRE simulations with real Sepolia/HTTP observations, a durable worker alert with no duplicate, seven production-build Chromium cases using injected wallets, and an operator-paymaster fork with six successful operations and nine denials. No hosted DON execution, canonical external bundler admission, real extension or public contract deployment is claimed.
+
+The latest real 0G application recheck failed on its first upstream HTTP 502. Its unverified 0.010000 USD-equivalent expense remains reserved; no retry or new cold-restart proof followed. Earlier successful real inference and storage evidence remains valid only within its recorded scope. See the final section for the unchanged failure record.
+
 ## Automated verification
 
-The latest suite passed 340 tests: 26 frontend, 160 engine, 9 core, 114 server and 31 wallet tests. All application workspaces typechecked. The Next.js production build and official CRE WASM build passed. Verification scripts also passed a standalone strict TypeScript check. Earlier output-trace checks included no inspiration checkout, environment file or Git metadata; the configured credentials remain excluded from Git.
+Application/workspace tests and typechecks, the Next production build, separate CRE capability tests/typecheck/WASM build and solc/paymaster helper tests passed in the unified closeout. Final totals are not frozen here while narrow review fixes are still being integrated; the earlier 340-test and 404-test snapshots are not the latest suite. Earlier output-trace checks excluded the inspiration checkout, environment files and Git metadata. Credentials remain excluded from Git.
 
-These results do not imply live CRE authentication, public execution or production-security certification.
+Compatibility fixes resolved the root dependency graph's known npm audit findings; full and production-only root audits report zero. The separate CRE workflow graph still reports two high upstream SDK-transitive findings. A proposed zod override broke the SDK's `z.function().args` runtime and actual WASM execution, so it was not retained; preserving a working official SDK is not a claim that those findings are resolved. Root audit results do not cover the separate workflow lockfile. This limitation requires a compatible upstream fix or validated migration before production, and neither functional tests nor dependency scans are formal security certification.
 
-## Real 0G application flow
+## Earlier real 0G application flow
 
 `ORCUS_VERIFY_APP_URL=http://localhost:3100 npm run verify:compute -- --allow-paid-inference --gateway-reported-private` passed against the running application:
 
@@ -42,7 +48,7 @@ Provider-reported billing is recorded in native units with its separate USD equi
 
 The Galileo funding implementation checks the exact beneficiary, operating payer, chain, native currency, owner policy revision, expiry, lifetime deposit/gas cap, receipt identity and Router synchronization. It blocks a second deposit while an earlier credit is unresolved. Owner revocation remains possible when the provider is offline.
 
-The production Router is chain 16661. Galileo funding uses chain 16602 and the official testnet Router. A production 0g-mode credit balance does not authorize a Galileo deposit. An inference-only key does not reveal a verified funding beneficiary. No management key was created and no native funding transfer was submitted.
+The production Router is chain 16661. Galileo funding uses chain 16602 and the official testnet Router. A production 0g-mode credit balance does not authorize a Galileo deposit. An inference-only key does not reveal a verified funding beneficiary. No management key was created and no public native compute-funding transfer was submitted; the later PaymentVault proof below writes only to an isolated fork.
 
 PaymentVault uses `depositFor(address)` and `balanceOf(address)`. The distinct RouterPayment contract's `getUserBalance` getter must not be used against the vault. Sources: [0G deposits](https://docs.0g.ai/developer-hub/building-on-0g/compute-network/router/account/deposits), [official PC application](https://pc.0g.ai/), and its public network/ABI configuration. Read-only Galileo RPC confirmed the vault has deployed code and accepts `balanceOf` calls.
 
@@ -66,7 +72,7 @@ The official Storage SDK version 1.2.13 transaction flow was inspected. Storage 
 
 Unknown uploads block duplicate paid backups. The owner can check the persisted receipt without re-uploading, re-signing or supplying transaction metadata. A confirmed payment does not prove file availability; finality and retrievability checks precede a successful backup status. Signing, cap, uncertainty and ledger edge cases use explicit fixtures. The successful funded round trip below uses the actual network.
 
-## Expanded live compute verification
+## Earlier expanded live compute verification
 
 `npm run verify:compute -- --allow-paid-inference --gateway-reported-private --extended`, against the local app, passed:
 
@@ -79,7 +85,7 @@ Unknown uploads block duplicate paid backups. The owner can check the persisted 
 | Typed limit-order draft | propose_action | `12122dd7-bd6a-4bc8-a444-5ebb569b361b`, `90bcadc8-4aea-489d-aa4f-ebd028d8bf2d` |
 | Typed price-alert draft | propose_automation | `76b1c70b-afe9-46ed-bc47-c74e1ae07560`, `ebd31295-2524-48b5-a689-1b4e206d03a5` |
 
-All 12 calls used gateway-reported sealed inference. Provider-reported total was 0.001472 USD equivalent, with zero outstanding reservation. Replaying the same request added no charge. Conflicting request reuse, credential-bearing input and exhausted allowance stopped without extra inference. Drafts did not submit an order or activate a job. Public API evidence contains only compact tool names, outcomes, timestamps and request IDs, not raw prompts/results or keys.
+All 12 calls in this earlier pass used gateway-reported sealed inference. Provider-reported total was 0.001472 USD equivalent, with zero outstanding reservation for that pass. Replaying the same request added no charge. Conflicting request reuse, credential-bearing input and exhausted allowance stopped without extra inference. Drafts did not submit an order or activate a job. Public API evidence contains only compact tool names, outcomes, timestamps and request IDs, not raw prompts/results or keys. These results do not supersede the later 502/unknown-billing recheck.
 
 ## Funded platform-paid storage proof
 
@@ -104,7 +110,7 @@ The existing Kernel account stack is retained. Both owner and agent paths requir
 
 Gas accounting covers all five ERC-4337 v0.7 gas components. Per-operation, per-user/day, per-user operation-count and shared project/day ceilings use exact wei accounting. Returned approval fields are validated; provider errors do not disclose credentials. Estimation and final approval have separate provider-consumption flags. Unresolved issued approvals remain conservatively reserved across days, including the highest still-valid cost after a cheaper reissue. Trusted receipt reconciliation supports RPC hex values and SDK bigint values and is idempotent. Configuration does not imply funded provider approval.
 
-Provider selection now defaults to `ORCUS_GAS_SPONSOR_PROVIDER=operator`: a platform-wallet-funded EntryPoint deposit, a server-only gas-approval signer and a generic `BUNDLER_RPC_URL`. The Kernel account implementation and user/agent keys do not change. ZeroDev's hosted service is used only when explicitly selected as the secondary. Browser sponsorship uses the authenticated same-origin `orcus_sponsorUserOperation` method and never sends provider credentials or automatically falls back to another payer. Operator paymaster deployment, ETH deposit and public bundler acceptance remain unperformed external steps.
+Provider selection defaults to `ORCUS_GAS_SPONSOR_PROVIDER=operator`: a platform-wallet-funded EntryPoint deposit, a server-only gas-approval signer and a generic `BUNDLER_RPC_URL`. Kernel and user/agent keys do not change. ZeroDev hosted service is an explicitly selected secondary only. Browser sponsorship uses authenticated same-origin `orcus_sponsorUserOperation` without exposing provider credentials or falling back to another payer. Public paymaster deployment, EntryPoint ETH deposit/stake and canonical bundler admission remain unperformed external steps; the separate operator fork proof uses an ephemeral local deployment only.
 
 The [current ZeroDev pricing page](https://www.zerodev.app/pricing), checked November 6, 2026, lists a $0 testnet-only Sandbox, 10,000 monthly credits and 20 credits per bundled operation. It also lists an 8% sponsorship premium, but does not clarify its treatment for testnet funds. Launch is $69/month. This is a bounded optional hosted service, not a promise of unlimited free testnet gas; ordinary users never need to create its account.
 
@@ -117,13 +123,37 @@ Native ETH input is an exact WETH deposit plus protected swap in one smart-accou
 
 The fork rejects token/native transfers outside the grant, wrapping above the cap, a changed swap recipient and expired authority. Repeated permitted wrapping keeps WETH in the same user account. Earlier pinned-block proofs also passed, but later replay encountered unavailable historical state from the public RPC. Selecting a retained block restored the proof; an archival provider is needed for reliable replay of the older pinned fixture.
 
-CRE now reads native ETH through its actual `balanceAt` capability at the observed block for native-input strategies. WETH/USDC inputs retain ERC20 balance reads. Proposal comparison binds the native-input choice, and missing or insufficient native evidence rejects the evaluation. Three explicit capability-fixture tests and the official typecheck/WASM compiler pass. This is not a successful authenticated CLI simulation.
+The earlier native-input pass added actual CRE `balanceAt` capability reads at the observed block. WETH/USDC retain ERC20 balance reads. Proposal comparison binds native-input choice, and missing/insufficient native evidence rejects. That pass had three capability fixtures and a typecheck/WASM build, not an authenticated simulation. The later actual CLI proof below supersedes that authentication limitation.
 
-Verification totals: 404 application tests and three workflow capability-fixture tests; application, script and workflow typechecks; Next production build; CRE WASM build. Real read-only diagnostics returned one Uniswap market and 159 Hyperliquid markets. No additional paid inference, public storage payment, public trade or deployment was performed during this pass.
+That earlier 404-application-test snapshot and three workflow fixtures were historical build checks, not current suite totals. Its read-only diagnostics returned one Uniswap market and 159 Hyperliquid markets. No additional paid inference, public storage payment, public trade or deployment occurred during that pass.
 
-`npm audit --omit=dev` reports 11 existing upstream dependency findings: four high and seven moderate. They include Axios through the storage SDK and WebSocket dependencies through ethers. No blind major-version override was applied. Compatibility and actual exposure require triage before production or real-fund use. Relevant upstream advisories: [Axios absolute-URL handling](https://github.com/advisories/GHSA-jr5f-v2jv-69x6) and [WebSocket memory exhaustion](https://github.com/advisories/GHSA-96hv-2xvq-fx4p).
+The earlier root audit reported 11 upstream findings, including storage-SDK Axios and ethers WebSocket dependencies. Those findings were subsequently addressed with compatible dependency overrides and regression/fork checks; they are not current unresolved root findings. The separate CRE workflow audit remains independently tracked in the automated-verification summary.
 
 The implementation follows the existing SDKs and primary references: [ZeroDev sponsorship](https://docs.zerodev.app/smart-accounts/sponsor-gas/evm), [provider gas policies](https://docs.zerodev.app/api-and-toolings/infrastructure/gas-policies), and [Uniswap Sepolia deployments](https://developers.uniswap.org/docs/protocols/v3/deployments/v3-ethereum-deployments).
+
+## Independent operator-paymaster fork acceptance
+
+`npm run verify:operator-paymaster-fork` passed independently against actual Sepolia protocol state on isolated Anvil. Only the ephemeral local paymaster and Kernel account were deployed. Six successful local UserOperations exercised owner wrapping/swaps, native input, scoped agent execution and owner management of agent-acquired holdings. EntryPoint events reported successful execution with the operator paymaster; its deposit paid the exact gas costs while both owner and agent signer ETH balances remained zero. Trading capital remained in the user's Kernel account, separate from sponsor funds.
+
+Nine negative sponsorship cases rejected expired/future authorization, wrong chain/EntryPoint, invalid signature or estimation stub, tampered gas/calldata and excessive authorized cost. Solidity and TypeScript EIP-712 hashes matched. Administrative non-owner calls and native session-policy violations were also rejected. The verifier binds the exact operation envelope, reconciles deposit debits and leaves unknown outcomes reserved rather than retrying.
+
+This is real local EntryPoint/paymaster execution, not merely mocked sponsorship. It does not exercise a canonical public bundler's admission rules, a publicly deployed/funded/staked paymaster or a live browser-extension sponsored trade. No public network write occurred.
+
+## Authenticated CRE CLI and actual worker consumption
+
+`npm run verify:cre -- --account-address=<read-only observation address>` passed five actual simulations through the official authenticated CLI, SDK and configured Sepolia/external HTTP capabilities. An independent root rerun observed Sepolia blocks `12075622`-`12075624`. The verifier uses no signing key and makes zero billable inference calls or public network writes.
+
+| Case | Actual result |
+| --- | --- |
+| Native ETH input with sufficient observed balance | Allow, with native balance, block and market-source evidence |
+| ERC20 input without sufficient observed balance | Reject |
+| Unsatisfied market condition | No action |
+| Candidate altered from the approved request | Reject |
+| Real worker read-only price alert | Allow consumed into one persisted notification, zero trading actions |
+
+The alert passed through `Platform.tick()` and the real local runner rather than directly inserting a final result. Repeating the tick produced no second notification or action. Closing/reopening SQLite retained the notification. Namespaced evaluation-run/proposal/progress records prevent global-ID collisions from silently dropping final results; fixture tests separately cover duplicate request recovery without extra inference charges.
+
+The workflow connects real onchain observations and external data to a user-visible automation feature. Local simulation is not hosted DON consensus. This read-only proof does not establish a fresh real 0G proposal -> CRE allow -> permissioned venue settlement chain; that combined trading acceptance remains open. Hosted deployment approval, report verification and commercial access remain separate future gates, not prerequisites for the demonstrated CLI simulation.
 
 ## Actual Hyperliquid testnet owner/agent handoff
 
@@ -172,13 +202,13 @@ The position-selection guard now matches explicit instrument tokens rather than 
 
 ## Remaining external acceptance
 
-The shared inference account is protected by exact operator-controlled USD-equivalent ceilings in the existing atomic compute reservation path. Defaults are 1 per user per UTC day and 10 across the project. Five focused tests plus the 175-test server suite passed, covering the exact micro-dollar boundary, simultaneous tenants, owner cap edits, duplicate requests, held unknown costs across midnight, actual settlement-day accounting, rejected-call release, invalid configuration and refusal before agent/provider work begins. These are spending controls, not customer payment evidence or a guarantee about unreported provider billing.
+The shared inference account is protected by exact operator-controlled USD-equivalent ceilings in the existing atomic compute reservation path. Defaults are 1 per user per UTC day and 10 across the project. Focused tests cover the exact micro-dollar boundary, simultaneous tenants, owner cap edits, duplicate requests, held unknown costs across midnight, actual settlement-day accounting, rejected-call release, invalid configuration and refusal before agent/provider work begins. These are spending controls, not customer payment evidence or a guarantee about unreported provider billing.
 
-- CRE CLI login is now reported configured locally. A successful current workflow simulation still needs its own execution evidence; compilation or login alone is not a successful workflow or hosted DON execution.
+- Actual authenticated CRE CLI simulation and durable alert consumption now pass. The combined real 0G planning/CRE/trade-settlement demonstration and hosted DON execution remain unproved, for different reasons.
 - The capped native Hyperliquid owner/agent handoff is live testnet-verified. Complete browser-extension acceptance, additional account modes and external Sepolia bundler execution remain separate.
-- Encrypted storage upload/download/restore is now live-verified with a funded platform payer. Actual compute replenishment still needs a matching verified Router account and management-read access. Compute credits and native storage funds are separate.
+- Encrypted storage upload/download/restore is live-verified with a funded platform payer. The deployed compute PaymentVault and receipt recovery pass on fork, but actual matching Router management access and post-deposit credit synchronization remain unproved. Compute credits and native storage funds are separate.
 - Testnet-only service checkout and receipt-backed credit accounting are implemented and fork-verified; real-money collection remains disabled. Capped Uniswap sponsorship uses the platform's operator path by default, but its paymaster deployment, EntryPoint ETH deposit and stake, generic bundler configuration and live external acceptance are not configured or proven. ZeroDev remains an explicit secondary, not an automatic fallback.
-- Dependency-audit findings remain unresolved. The hackathon implementation is not certified production-safe by these functional checks.
+- Root full/production dependency audits report zero known findings after compatibility fixes. The separate workflow dependency graph retains two upstream high findings because an attempted incompatible override broke actual SDK/WASM execution. Neither graph nor these functional checks certify production safety.
 - Optional earned funding remains off. Sponsor credits, owner deposits and theoretical trading profit are not proof of service revenue funding inference.
 - Public repository publication, feedback-form submission, hosted deployment and demo recording were not performed.
 

@@ -11,6 +11,20 @@ Sponsor targets: 0G inference and encrypted memory, Uniswap spot execution, and 
 - [Reuse inventory](docs/research/reuse-inventory.md): inspected source paths and revisions, adaptations, known hazards and baseline-test results.
 - [Verified flows and remaining gates](docs/research/verification-2026-11-06.md): real inference, billing and isolated-fork receipts.
 
+## Current implementation and evidence
+
+Manual and agent execution, scoped permissions, memory, operating budgets, test-USDC checkout, durable automation and explicit failure/recovery states are implemented. The checklist separates those features from external acceptance:
+
+| Integration | Verified scope | Still unproven or disabled |
+| --- | --- | --- |
+| 0G | Earlier real HTTP inference/tool loops and billing; public Galileo encrypted memory round trip; deployed PaymentVault deposit/recovery on isolated fork | Latest inference recheck stopped at upstream 502 with 0.010000 USD equivalent held as unknown. Independent strict attestation and matching Router deposit/credit sync remain unproven |
+| Uniswap | Actual owner/session swaps on Sepolia fork; operator-paymaster fork with six successful operations and nine denials, owner/agent signer ETH balances zero | Public paymaster deployment, EntryPoint deposit/stake and canonical external bundler admission |
+| Hyperliquid | One approved 19.84522 mock-USDC testnet position, protective orders, owner/agent handoff and flat/revoked cleanup | Mainnet, other account modes and a complete installed-extension trading demonstration |
+| Chainlink CRE | Five actual authenticated CLI simulations with chain/HTTP observations; real worker alert consumption, persistence and no duplicate notification/action | Combined actual 0G proposal -> CRE decision -> venue settlement; hosted DON execution |
+| Product interface | Seven Chromium cases against actual local HTTP/SQLite with disposable injected wallets | Injected-provider evidence is not installed-extension, funded-trading or public-deployment certification |
+
+No token launch or earned-revenue/self-sustaining claim is required. Public deployment, judge-accessible packaging, feedback submission and video recording remain separate owner/operator actions.
+
 ## Local development
 
 Requires Node 22.16 or later and npm. Install dependencies, copy `.env.example` to a local `.env`, then run:
@@ -107,13 +121,19 @@ npm run verify:uniswap-fork
 npm run verify:kernel-fork
 ```
 
-The fork verifier needs Anvil and Sepolia RPC access. Its pinned historical block needs an archival source; use `ORCUS_FORK_SOURCE_RPC` for one or explicitly select a retained block with `ORCUS_FORK_BLOCK`. It performs real local-fork swaps with ephemeral accounts, not public transactions. After installing the separate CRE workflow dependencies, `npm run test:cre` runs its three capability-fixture tests. To intentionally spend a small amount of compute credits against a running local app:
+The fork verifiers need Anvil and the target network's read-only RPC access. A pinned historical block needs an archival source; use `ORCUS_FORK_SOURCE_RPC` or explicitly select a retained block with `ORCUS_FORK_BLOCK`. They execute real contracts locally, not public transactions. `npm run verify:operator-paymaster-fork` additionally deploys only an ephemeral local paymaster and verifies sponsored Kernel execution and rejection cases. No public paymaster address or canonical bundler admission is implied.
+
+After installing the separate CRE workflow dependencies/toolchain, `npm run test:cre` runs capability fixtures. `npm run verify:cre -- --account-address=<read-only observation address>` invokes the actual authenticated CLI for four allow/reject/no-action cases and a worker-consumed alert. The supplied verifier account must satisfy its documented native/token-balance assumptions. It signs nothing, submits no trade and makes no billable model call. SQLite reopen and a repeated tick verify that one notification persists without duplication. See [CRE setup](workflows/cre/README.md) for local runner requirements; hosted approval is not required for simulation.
+
+`npm run verify:service-payment-fork` verifies actual Circle USDC settlement and exact test-credit accounting locally; `npm run verify:compute-funding-fork` verifies the existing Galileo PaymentVault locally. Their fixture-backed provider inputs are labelled and do not prove real revenue or Router credit synchronization.
+
+To intentionally spend a small amount of compute credits against a running local app:
 
 ```sh
 npm run verify:compute -- --allow-paid-inference --gateway-reported-private
 ```
 
-Add `--extended` to verify real market reads, candle analysis, typed order/alert drafts, memory recall, duplicate-request billing and budget-stop behavior. It never activates a strategy or executes a trade.
+Add `--extended` to verify real market reads, candle analysis, typed order/alert drafts, memory recall, duplicate-request billing and budget-stop behavior. Optional `--restart-replay` pauses after those checks for restarting the same app/database, then checks cached request IDs, memory and unchanged billing. It never activates a strategy or executes a trade. The latest real recheck failed at its first upstream 502 and never reached these extended/restart gates; earlier successful runs remain dated evidence, not a guarantee of current availability. Unknown costs stay reserved and must be reconciled before retrying.
 
 Storage verification defaults to a read-only fee quote:
 
@@ -139,9 +159,9 @@ Use `ORCUS_VERIFY_APP_URL=http://localhost:3100` when the app runs on another po
 
 `doctor` checks configuration and performs read-only market requests. It does not submit transactions, upload storage objects or spend inference credits. An installed SDK or configured endpoint is not evidence of live authorization or successful execution.
 
-The checklist remains the end-to-end acceptance record. Code implementation, local compile checks, public read connectivity and a funded owner-signed live demonstration are distinct milestones. Missing credentials and disabled integrations are surfaced instead of replaced with fabricated balances, fills or workflow results.
+The checklist records implemented behavior separately from external and combined acceptance. Code, fixture tests, local forks, public read connectivity, real testnet actions and installed-extension demonstrations are distinct evidence scopes. Missing credentials and disabled integrations are surfaced instead of replaced with fabricated balances, fills or workflow results. Final unified test totals and exact historical receipts belong in the dated verification record.
 
-The dependency audit still reports upstream findings, including transitive storage-SDK and WebSocket dependencies. These need compatibility and exposure review before production or real-fund use; passing application tests is not a clean dependency-security audit.
+The root dependency graph's full and production-only npm audits report zero known findings after compatibility-tested fixes. The separate CRE workflow dependency graph retains two upstream high findings: an attempted zod override broke actual SDK/WASM execution and was not retained. A compatible upstream fix or validated migration is still required before production. A clean root audit is not an all-project audit, and functional checks or dependency scans are not formal security certification or authorization for real-fund use.
 
 ## Boundaries
 

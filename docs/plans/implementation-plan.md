@@ -1,13 +1,13 @@
 # Hackathon Implementation Plan
 
 Date: 2026-11-06
-Status: local implementation and acceptance closeout. Real 0G tool loops, gateway-reported sealed inference, memory writes/recovery and provider-reported billing pass through authenticated HTTP. An authorized, platform-paid encrypted storage round trip passes on Galileo with zero native 0G in the synthetic user's accounts. Actual Uniswap/Kernel fork operations prove shared owner/agent control and native permission rejection. Capped compute-funding policies, APIs, UI and durable recovery are implemented. The supplied production Router key is not a verified Galileo funding account. CRE authentication will be supplied later; no live simulation or hosted deployment is claimed. See the checklist and dated verification record for remaining external gates.
+Status: implementation and acceptance closeout. Earlier real 0G tool loops, gateway-reported sealed inference, memory recovery and billing passed; the latest isolated recheck stopped on its first upstream 502 with 0.010000 USD equivalent reserved as unknown and no retry. Encrypted storage passed on Galileo with a platform payer. Actual Kernel/Uniswap and operator-paymaster forks prove shared control and bounded gas authorization; one capped public Hyperliquid testnet position ended flat with the fresh agent revoked. Five authenticated CRE CLI cases now pass, including an actual worker-consumed alert persisted across restart without duplication. No hosted DON execution, public paymaster deployment, strict independent TEE success or matching Router credit synchronization is claimed. See the checklist and dated verification record for exact scopes and remaining gates.
 
 ## 1. Product and fixed scope
 
 Build a personal-agent trading platform. A user connects their wallet, authorizes their own agent, and can research, trade, automate and manage the same supported accounts through either the interface or conversation. The agent has its own operating wallet and separate, restricted trading credentials. The user's private key never leaves their wallet.
 
-The [product checklist](../specs/product-checklist.md) contains 57 current acceptance items. This revision replaces the former EF/Anon-RPC sponsor requirements with Chainlink CRE requirements; all manual trading, agent, ownership, memory and budget capabilities remain. The passes below are execution order within the hackathon, not a sequence of future product releases. Optional earned funding remains optional exactly as in the checklist.
+The [product checklist](../specs/product-checklist.md) contains 57 implementation and acceptance items. A check identifies implemented behavior with its stated evidence, not automatic external readiness. This revision replaces the former EF/Anon-RPC requirements with Chainlink CRE; all manual trading, agent, ownership, memory and budget capabilities remain. The passes below record execution order within the hackathon, not future product releases. Optional earned funding stays optional.
 
 | Integration | Actual product responsibility | What we must demonstrate |
 | --- | --- | --- |
@@ -35,7 +35,7 @@ Exact original paths, revisions and known problems belong in the [reuse inventor
 
 Port the smallest working dependency closure, including relevant tests. Adapt imports and domain types locally. Do not preserve old package names merely to make a large import graph compile.
 
-## 3. Small target structure
+## 3. Current repository structure
 
 Use npm consistently. Keep the working framework versions from the selected base initially; resolve actual compatibility conflicts individually. Do not combine lockfiles from different package managers or install every dependency used by the source products.
 
@@ -44,31 +44,31 @@ web/                         Next.js interface and authenticated HTTP routes
   src/app/                   Trading, agent settings and activity screens
   src/components/trading/    Chart, order ticket, positions and orders
   src/components/agent/      Chat, action preview, permissions and budget
-  src/lib/wallets/            Owner signing and venue authorization
-  src/lib/rpc/                Explicit browser read transport and freshness handling
-  src/server/                Session auth and account-scoped API handlers
-agent/                       Durable worker and protected signing service
+  src/lib/wallets.ts          Wallet-package facade for the interface
+  src/lib/use-workspace.ts    Owner-scoped session and workspace state
+agent/                       Agent engine, venue adapters and worker entry point
   src/compute/               0G inference adapter and evidence
   src/storage/               Encrypted memory upload and recovery
-  src/execution/             Policy validation, leases, journal, reconciliation
   src/venues/uniswap/        Quotes, bounded calls and settlement checks
   src/venues/hyperliquid/    Account state, orders, approval and reconciliation
-  src/automation/            Durable jobs, CRE runner, evaluation handoff and alerts
-  src/budget/                Operating ledger and compute replenishment
+  src/automation/            Bounded CRE CLI runner and evaluation validation
+  src/budget/                Compute billing and replenishment adapters
 packages/core/               Shared validated plans, money types and states
-packages/server/             Database, migrations, auth and keystore helpers
+packages/server/             HTTP auth, SQLite, policy, leases, journal and worker orchestration
+packages/wallets/            Owner/session signing, Kernel, sponsor and funding helpers
 workflows/cre/               CLI-generated TypeScript workflow, config and simulation tests
-contracts/                   Existing Hardhat test harness; bounded executor only if needed
+contracts/                   Operator paymaster Solidity source and deployment instructions
+scripts/                     Read-only, paid-opt-in, browser and isolated-fork verifiers
 docs/specs/                 Product acceptance checklist
 docs/plans/                 Implementation sequence
 docs/research/              Reference-only reuse evidence
 ```
 
-These are planned destinations, not existing implementations. Keep web and worker as the two main application processes; the worker manages bounded CRE CLI child processes for the simulation demo. No separate service is needed for each adapter. Generate the CRE project with the official CLI and use its required WASM build toolchain, while retaining npm for the application. Do not transplant the Node agent or its signing/storage dependencies into the CRE WASM runtime. Shared packages must not introduce circular dependencies.
+These paths describe implemented modules. Web and worker are the two main application processes; the worker manages bounded CRE CLI child processes for local simulation. No separate service is needed for each adapter. CRE retains its separate SDK dependencies and required WASM toolchain, with npm for the application. Node signing/storage dependencies do not belong in the CRE WASM runtime. Shared packages must not introduce circular dependencies.
 
 Use one SQLite database on persistent local disk for the hackathon deployment, with WAL, foreign keys, transactional updates and account-scoped leases. Run web and worker where they can safely share that disk; do not use ephemeral serverless storage or a network filesystem as a shortcut. Encrypted 0G objects are memory backups, not the transaction queue or authoritative account balance.
 
-Reuse the existing Vitest agent test setup and Hardhat contract tests. Run shared-module tests through the existing test setup. No new UI automation framework is required: keep a reproducible manual end-to-end script for browser signing, plus unit/integration tests for execution boundaries.
+Use the existing Vitest setup for application, workflow capability and solc/helper tests. Anvil verifiers exercise existing protocol contracts on isolated forks. Chromium acceptance uses the existing browser runtime and disposable injected EIP-1193 wallets against actual HTTP/SQLite, not a new testing framework or a claimed installed-extension session.
 
 ## 4. Account and control model
 
@@ -83,7 +83,7 @@ One logical personal agent can have different signing credentials for different 
 
 ### Uniswap path
 
-1. Connect the owner wallet and create or recover its smart account. Use ERC-4337 with Kernel permissions if the compatibility gate below succeeds.
+1. Connect the owner wallet and create or recover its ERC-4337 Kernel account. Bounded owner/session execution is fork-verified; external bundler admission remains separate.
 2. Show the smart-account address and let the owner explicitly fund it. Tokens remaining in the owner's EOA are not automatically agent-controllable.
 3. The owner signs manual smart-account actions. A separately authorized agent signer can submit only approved action types.
 4. Start with a direct Uniswap V3 quote and router integration using R05/R10. An extra Trading API key is not required for that path. Verify the selected router ABI, factory, chain and liquidity; do not mix SwapRouter and SwapRouter02 parameters.
@@ -144,8 +144,8 @@ The existing Kernel SDK and account addresses remain unchanged. ZeroDev's hosted
 CRE powers conditional automation, not just an unused timer. Manual trades and immediate conversational commands still use the shared execution path below. Venue-native protective orders remain native to the venue rather than relying on periodic CRE evaluation.
 
 1. The owner approves a strategy and its limits. The durable worker selects a due job, records an evaluation ID and snapshots the account control revision and approved policy version.
-2. The runner invokes the actual CRE workflow. CRE reads current holdings or relevant contract state through its EVM capability and calls an external market-data API. A simulation must use real configured endpoints, not mocked results presented as live.
-3. Where planning is needed, CRE requests a structured 0G proposal through an authenticated internal worker endpoint. The worker reserves the compute budget and deduplicates by evaluation ID; repeated workflow calls return the same proposal rather than paying for inference repeatedly. Persist request status before calling 0G. If a timeout leaves provider usage unknown, hold the evaluation for reconciliation instead of blindly retrying a potentially billable request. Never place a raw billable 0G call in per-node execution without a deduplication design.
+2. Where planning is needed, the worker prepares a structured 0G proposal under the evaluation ID and passes bounded fields to CRE. Exact owner-approved recurring requests and read-only alerts need no model call. The worker reserves budget and persists request status before inference; namespaced progress/cache records let repeated references reuse the proposal without rebilling. An unknown provider outcome holds its reservation rather than blindly retrying. Do not place raw billable model calls in per-node workflow execution.
+3. The runner invokes the actual CRE workflow. CRE reads current holdings or relevant contract state through its EVM capability and calls an external market-data API. A simulation must use real configured endpoints, not mocked results presented as live.
 4. CRE evaluates the approved strategy conditions, observation freshness and candidate limits. Return allow, reject or no-action with the evaluation ID, strategy/account/network binding, proposal ID, policy version, observed block/time, expiry and reasons.
 5. The runner validates the output and delivers it to the execution worker. In local mode this is trusted operator infrastructure, explicitly labeled simulation; do not invent a DON signature or accept a client-supplied approval flag as a valid result.
 6. Before signing, the worker independently checks current owner authorization, policy/control revisions, fresh balances/positions, amount, recipient, slippage, budget and idempotency. Only the approved venue signer can submit. A CRE allow result is never permission to exceed the owner's grant.
@@ -196,10 +196,12 @@ Use database migrations and server-side account ownership checks. Source snapsho
 
 ## 6. Build passes and exit checks
 
+The following passes preserve the agreed build sequence and required exit criteria. Their wording is not a claim that every external acceptance step passed. Current implementation/evidence and unresolved boundaries are tracked separately in sections 7-8 and the checklist.
+
 ### P0. Copy selectively and prove the external dependencies
 
 - Initialize the new repo and retain this plan/checklist as the agreed scope. Copy source files, not source `.git` directories, secrets, databases, broadcast artifacts or installed packages.
-- Preserve the source revisions in the reuse inventory. Review licenses before the public open-source submission; some source packages currently declare `UNLICENSED`.
+- Preserve source revisions and applicable notices in the reuse inventory. Review the actual imported code/assets and ownership before public open-source submission; an upstream snapshot is not a publication license by itself.
 - Bring over R01/R03 and their selected tests. Establish npm scripts for dev, worker, typecheck, test and build without a broad dependency upgrade.
 - Run a tiny real inference request using the credits already available. Verify endpoint, model, authentication and request-ID evidence. Classify credentials as app-wide or genuinely per-user before presenting account balances.
 - Prove actual compute-account funding/replenishment and required payment asset/network. Demo credits alone do not prove the operating wallet can replenish them. Treat a missing funding interface as an explicit blocker for that checklist item.
@@ -305,7 +307,7 @@ Mandatory automated cases, using the existing test frameworks:
 - Two users and simultaneous budget reservations; exhausted credit; funding confirmation pending; storage upload failure; encrypted memory recovery and key isolation.
 - CRE malformed output, wrong source mode/account/network, expired observation or policy revision, repeated proposal fetch without extra compute charge, duplicate result, stale/late result, paused strategy, failed internal authentication and runner timeout/restart. A simulation result must not be accepted as a production DON report.
 
-Manual acceptance sequence:
+Final combined acceptance sequence, not a claim that all steps have already run together:
 
 1. Connect owner, inspect existing balances/positions, authorize agent and explicitly fund a bounded budget.
 2. Make a manual spot swap; show actual Uniswap settlement and current account state.
@@ -321,14 +323,16 @@ Use seeded test scenarios and controlled failures, but label simulation/fork evi
 
 | Gate | Consequence if unresolved |
 | --- | --- |
-| 0G PC credentials, request evidence and actual funding interface | AI integration and operating-budget acceptance cannot be marked complete merely because sponsor credits exist |
-| Verified private-inference mode | Do not advertise TEE-protected reasoning or route private-only requests through a weaker mode |
-| Smart-account/router/network compatibility and test liquidity | Do not enable agent swaps with broad authority as a workaround; keep the checklist item blocked until a bounded route works |
-| Hyperliquid existing-account modes and agent authorization | Show supported modes explicitly; do not flatten a user's account or reject all existing positions to reuse old onboarding unchanged |
-| CRE authentication, toolchain, enabled network and real chain/HTTP calls | CRE acceptance remains blocked until the actual workflow drives an action/no-action/reject result; a timer or log-only script is insufficient |
-| Runner authentication, freshness, idempotency and quota/latency behavior | Do not allow unattended execution from untrusted or stale workflow output, or promise continuous scheduling after the runner stops |
+| Current 0G availability and unknown billing | Earlier real inference passed; the latest first request returned 502 with unknown billing held. Do not retry it or call earlier proof current availability |
+| Independent private-inference evidence | The official verifier and no-downgrade path are implemented, but the matching raw manifest remains unavailable. Gateway-reported sealed inference is not strict independent attestation |
+| Matching Galileo compute account and Router management reads | Actual deployed-vault deposit/recovery is fork-proven with fixture management input. Keep ordinary replenishment disabled until the correct account and post-deposit credit sync are verified |
+| Public gas sponsor and canonical bundler admission | Local operator-paymaster proof is six operations/nine denials with unfunded owner/agent signers. Public deployment, EntryPoint ETH deposit/stake, selected-provider policy and bundler acceptance remain operator gates |
+| Complete browser-extension and supported-account acceptance | Seven actual local Chromium cases use injected wallets; the capped native Hyperliquid SDK handoff does not certify every real extension or additional account mode |
+| Combined 0G planning -> CRE -> permitted venue settlement | Five actual authenticated CLI cases and durable alert consumption pass with real observations. They make no model call or trade; the entire combined trading path still needs its own evidence |
+| Runner availability and trust boundary | Authentication, freshness, deduplication and failure handling have regression coverage. The operator's local CLI is not an always-on DON, and stopped runners stop conditional jobs |
 | Optional hosted CRE access and billing | Not required for the simulation bounty. Confirm approval, report verification and commercial terms before promising hosted or free decentralized automation |
-| Public-repo licensing of copied code/assets | Confirm ownership/license before publishing, including inherited `UNLICENSED` packages and fonts |
+| Optional earned funding | Remains disabled. Sponsor credits, owner deposits, test USDC checkout and theoretical trading profit do not prove revenue paying for inference |
+| Publication and sponsor packaging | Confirm imported code/asset licensing, publish the open-source repo and judge demo, submit feedback and record the required video. Local evidence is not a submission |
 
 No hard calendar estimates are assumed without team size and the results of P0. The fastest first integration proof is one real manual action followed by an agent action on the same account, with sponsor dependencies tested early. Defer cosmetic polish and extra venues before weakening authorization or dropping checklist capabilities.
 
@@ -337,7 +341,7 @@ No hard calendar estimates are assumed without team size and the results of P0. 
 - Source code and tests were inspected; exact provenance is in the reuse inventory.
 - A focused test command was attempted in the original agent package and stopped with `vitest: command not found` (exit 127). No source test pass is claimed.
 - No source dependencies were installed, no application code was ported, and no onchain transaction was submitted during the original planning pass. Subsequent implementation uses the isolated worktrees and commits in this repository.
-- This plan is not evidence that any integration is already live. Checkboxes remain open until demonstrated in this repository.
+- This original planning baseline is historical, not the current implementation status. Current checks distinguish implemented safeguards from external acceptance and link to dated execution evidence.
 
 ## Implementation references
 
