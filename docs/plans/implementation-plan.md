@@ -1,7 +1,7 @@
 # Hackathon Implementation Plan
 
 Date: 2026-11-06
-Status: implementation and acceptance closeout. Earlier real 0G tool loops, gateway-reported sealed inference, memory recovery and billing passed; the latest isolated recheck stopped on its first upstream 502 with 0.010000 USD equivalent reserved as unknown and no retry. Encrypted storage passed on Galileo with a platform payer. Actual Kernel/Uniswap and operator-paymaster forks prove shared control and bounded gas authorization; one capped public Hyperliquid testnet position ended flat with the fresh agent revoked. Five authenticated CRE CLI cases now pass, including an actual worker-consumed alert persisted across restart without duplication. No hosted DON execution, public paymaster deployment, strict independent TEE success or matching Router credit synchronization is claimed. See the checklist and dated verification record for exact scopes and remaining gates.
+Status: implementation and acceptance closeout. Serial post-reboot checks at `df9428f` passed 643 workspace tests, workspace typechecks, the production build and separate workflow/helper checks. Earlier real 0G tool loops, gateway-reported sealed inference, memory recovery and billing passed. The latest isolated recheck stopped on its first upstream 502, holding 0.010000 USD equivalent as unknown before its temporary database was lost after reboot; no retry or zero-charge claim follows. Encrypted storage passed on Galileo with a platform payer. Actual Kernel/Uniswap and operator-paymaster forks prove shared control and bounded gas authorization; one capped public Hyperliquid testnet position ended flat with the fresh agent revoked. Five authenticated CRE CLI cases pass, including an actual worker-consumed alert persisted across restart without duplication. No hosted DON execution, public paymaster deployment, strict independent TEE success or matching Router credit synchronization is claimed. See the checklist and dated verification record for exact scopes and remaining gates.
 
 ## 1. Product and fixed scope
 
@@ -253,6 +253,7 @@ Exit: the agent controls the same account state as the user; takeover and ambigu
 - On startup, reconcile uncertain submissions before resuming jobs. Add bounded retries, stale-data checks and safe pause on expired permissions.
 - Encrypt memory before upload, confirm persistence, store the versioned reference, and restore after restart. Preserve upload failures as failures with retriable work, not imaginary stored receipts.
 - Show compute balance, owner-funded budget, actual consumption and replenishment separately. Serialize spending reservations so concurrent requests cannot both consume the same remaining budget.
+- Provide a read-only owner-scoped billing check for unknown compute expenses. Match saved Router network, public API-key ID, request, model and call window against bounded complete management history before settling an exact USD cost once. Keep native-only, missing or conflicting evidence reserved; never replay inference or accept a browser-supplied cost. A billed HTTP error is not a free rejection.
 - Use the real funding path proven in P0. Restrict replenishment to approved destination/account and caps; wait for funding confirmation before treating it as spendable compute.
 - Surface low balance, exhausted credits, funding pending/failed and storage failure. Pause new autonomous risk when needed without disabling manual exits or pretending protective orders disappeared.
 - If genuine earned funding is enabled: sell an actual opted-in service, record payment, route its authorized revenue to compute, and show the next inference consuming it. No token, fabricated customer, self-trading revenue or assumption of profitable trading. If that loop is not demonstrated, call the feature budgeted/self-paying, not self-sustaining, and do not enter that extra bounty.
@@ -323,7 +324,8 @@ Use seeded test scenarios and controlled failures, but label simulation/fork evi
 
 | Gate | Consequence if unresolved |
 | --- | --- |
-| Current 0G availability and unknown billing | Earlier real inference passed; the latest first request returned 502 with unknown billing held. Do not retry it or call earlier proof current availability |
+| Current 0G availability and unknown billing | Earlier real inference passed; the latest first request returned 502 with an unknown reservation. Its temporary database was lost after reboot, not reconciled or proved free. Do not retry it or call earlier proof current availability |
+| Provider-history recovery access | The API/UI path and exact-USD recovery guards are regression-tested. A matching management credential and original public API-key ID are required; native-only costs or missing historical identity remain reserved |
 | Independent private-inference evidence | The official verifier and no-downgrade path are implemented, but the matching raw manifest remains unavailable. Gateway-reported sealed inference is not strict independent attestation |
 | Matching Galileo compute account and Router management reads | Actual deployed-vault deposit/recovery is fork-proven with fixture management input. Keep ordinary replenishment disabled until the correct account and post-deposit credit sync are verified |
 | Public gas sponsor and canonical bundler admission | Local operator-paymaster proof is six operations/nine denials with unfunded owner/agent signers. Public deployment, EntryPoint ETH deposit/stake, selected-provider policy and bundler acceptance remain operator gates |
@@ -332,7 +334,8 @@ Use seeded test scenarios and controlled failures, but label simulation/fork evi
 | Runner availability and trust boundary | Authentication, freshness, deduplication and failure handling have regression coverage. The operator's local CLI is not an always-on DON, and stopped runners stop conditional jobs |
 | Optional hosted CRE access and billing | Not required for the simulation bounty. Confirm approval, report verification and commercial terms before promising hosted or free decentralized automation |
 | Optional earned funding | Remains disabled. Sponsor credits, owner deposits, test USDC checkout and theoretical trading profit do not prove revenue paying for inference |
-| Publication and sponsor packaging | Confirm imported code/asset licensing, publish the open-source repo and judge demo, submit feedback and record the required video. Local evidence is not a submission |
+| Separate workflow dependency findings | The root audit is clean, but the workflow lockfile retains two upstream high findings. An incompatible override is not a safe fix; obtain a compatible upstream update or validate migration before production |
+| Publication and sponsor packaging | Confirm the project-level open-source license and imported code/asset notices, publish the repo and judge demo, submit feedback and record the required video. Local evidence is not a submission |
 
 No hard calendar estimates are assumed without team size and the results of P0. The fastest first integration proof is one real manual action followed by an agent action on the same account, with sponsor dependencies tested early. Defer cosmetic polish and extra venues before weakening authorization or dropping checklist capabilities.
 

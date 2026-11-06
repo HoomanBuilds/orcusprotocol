@@ -15,9 +15,11 @@ Sponsor targets: 0G inference and encrypted memory, Uniswap spot execution, and 
 
 Manual and agent execution, scoped permissions, memory, operating budgets, test-USDC checkout, durable automation and explicit failure/recovery states are implemented. The checklist separates those features from external acceptance:
 
+The post-reboot serial baseline at source `df9428f` passed 643 workspace tests, all workspace typechecks, the production build and separate workflow/contract checks. Exact results and remaining gates are in the [dated verification record](docs/research/verification-2026-11-06.md); this is not a public-deployment or current-provider-availability claim.
+
 | Integration | Verified scope | Still unproven or disabled |
 | --- | --- | --- |
-| 0G | Earlier real HTTP inference/tool loops and billing; public Galileo encrypted memory round trip; deployed PaymentVault deposit/recovery on isolated fork | Latest inference recheck stopped at upstream 502 with 0.010000 USD equivalent held as unknown. Independent strict attestation and matching Router deposit/credit sync remain unproven |
+| 0G | Earlier real HTTP inference/tool loops and billing; public Galileo encrypted memory round trip; deployed PaymentVault deposit/recovery on isolated fork | Latest inference recheck stopped at upstream 502 with 0.010000 USD equivalent held at failure; its temporary evidence database was later lost, not reconciled. Independent strict attestation and matching Router deposit/credit sync remain unproven |
 | Uniswap | Actual owner/session swaps on Sepolia fork; operator-paymaster fork with six successful operations and nine denials, owner/agent signer ETH balances zero | Public paymaster deployment, EntryPoint deposit/stake and canonical external bundler admission |
 | Hyperliquid | One approved 19.84522 mock-USDC testnet position, protective orders, owner/agent handoff and flat/revoked cleanup | Mainnet, other account modes and a complete installed-extension trading demonstration |
 | Chainlink CRE | Five actual authenticated CLI simulations with chain/HTTP observations; real worker alert consumption, persistence and no duplicate notification/action | Combined actual 0G proposal -> CRE decision -> venue settlement; hosted DON execution |
@@ -95,7 +97,7 @@ Inference records the actual Router request, native billing currency and USD-equ
 
 Unknown compute expenses have an explicit read-only billing check in Settings. Configure the original inference key's non-secret `ZEROG_COMPUTE_API_KEY_ID` before making calls, plus a server-only `ZEROG_COMPUTE_MANAGEMENT_KEY` scoped to `account:read`. Recovery matches the saved Router origin, API-key ID, request ID, model and call window against the [official usage ledger](https://0gfoundation.github.io/0g-router/). It reads at most five 100-record pages with five-second per-call timeouts, never repeats inference, and records only compact matching evidence. Exact USD-mode micro-USD costs can settle once. Missing identity/history, duplicates, oversized windows, mismatched records and native 0G costs without a verified per-request USD equivalent stay reserved. Historical records are not silently assigned the current key or network. A failed inference or exhausted allowance does not disable manual owner trade controls.
 
-Operator-paid inference also has independent server-enforced UTC-day ceilings: `ORCUS_COMPUTE_USER_DAILY_USD=1` per user and `ORCUS_COMPUTE_PROJECT_DAILY_USD=10` across the project by default. The operator can adjust these exact six-decimal USD-equivalent limits; zero stops new reservations. They apply even when checkout is disabled and are not raised by an owner changing the expense cap or adding test credits. Reservations are atomic across users, unknown costs remain held across midnight, actual settled costs count on their server-recorded settlement day, and rejected requests release their reservation. Exhaustion stops the next provider call rather than consuming unbounded shared Router credits.
+Operator-paid inference also has independent server-enforced UTC-day ceilings: `ORCUS_COMPUTE_USER_DAILY_USD=1` per user and `ORCUS_COMPUTE_PROJECT_DAILY_USD=10` across the project by default. The operator can adjust these exact six-decimal USD-equivalent limits; zero stops new reservations. They apply even when checkout is disabled and are not raised by an owner changing the expense cap or adding test credits. Reservations are atomic across users, unknown costs remain held across midnight and actual settled costs count on their server-recorded settlement day. A rejection without billing releases its reservation; an HTTP error carrying verified billing records its actual charge instead. Exhaustion stops the next provider call rather than consuming unbounded shared Router credits.
 
 Encrypted backups have explicit per-request native gas and storage-fee caps. The operating signer allows one bounded Galileo Flow transaction, persists its hash before broadcast and records receipt-confirmed costs separately from the USD inference allowance. An unknown write blocks another backup until receipt reconciliation. A paid transaction alone is not labelled a successful backup: finalized object availability must also be confirmed.
 
@@ -114,6 +116,14 @@ Private inference is an explicit owner setting. Independent mode runs the offici
 Upstream product and official-verifier clones live in the ignored `inspiration/` directory. They are also excluded from server output traces. Imported modules must live in this repository, preserve applicable license notices and never depend on a local ignored checkout at runtime. See the reuse inventory for source revisions, candidate modules and adaptation constraints.
 
 ## Verification
+
+Run heavy checks one at a time across all worktrees. Vitest defaults to at most two workers with serial test files; Next limits static-build workers to two. These are not aggregate memory limits. On Linux with a user systemd manager, a hard cap can contain the whole build and its child processes:
+
+```sh
+systemd-run --user --scope -p MemoryHigh=3G -p MemoryMax=4G -p MemorySwapMax=512M -p CPUQuota=200% npm run build
+```
+
+Keep billable acceptance data in a persistent absolute `ORCUS_DATA_DIR` outside the checkout, not `/tmp`. Preserve uncertain billing evidence until reconciled; losing a temporary database does not establish a free request or permit a duplicate paid attempt.
 
 ```sh
 npm run doctor

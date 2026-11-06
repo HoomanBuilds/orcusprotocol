@@ -6,13 +6,28 @@ This is execution evidence, not deployment configuration. Initial trading verifi
 
 The sections below preserve earlier passes on this date rather than presenting them as a fresh repeat of every integration. Current independent root acceptance includes five actual authenticated CRE simulations with real Sepolia/HTTP observations, a durable worker alert with no duplicate, seven production-build Chromium cases using injected wallets, and an operator-paymaster fork with six successful operations and nine denials. No hosted DON execution, canonical external bundler admission, real extension or public contract deployment is claimed.
 
-The latest real 0G application recheck failed on its first upstream HTTP 502. Its unverified 0.010000 USD-equivalent expense remains reserved; no retry or new cold-restart proof followed. Earlier successful real inference and storage evidence remains valid only within its recorded scope. See the final section for the unchanged failure record.
+The latest real 0G application recheck failed on its first upstream HTTP 502. Its ledger held an unverified 0.010000 USD-equivalent expense at failure; no retry or new cold-restart proof followed. The temporary evidence database was subsequently lost after the laptop reboot, not reconciled or proved free. Earlier successful real inference and storage evidence remains valid only within its recorded scope. See the final sections for the failure and data-loss boundaries.
 
 ## Automated verification
 
-Application/workspace tests and typechecks, the Next production build, separate CRE capability tests/typecheck/WASM build and solc/paymaster helper tests passed in the unified closeout. Final totals are not frozen here while narrow review fixes are still being integrated; the earlier 340-test and 404-test snapshots are not the latest suite. Earlier output-trace checks excluded the inspiration checkout, environment files and Git metadata. Credentials remain excluded from Git.
+The post-reboot serial verification baseline is source `df9428f`, including the unknown-billing recovery control and the fix for billed HTTP error responses. The root verification pass completed the checks below under user systemd scopes capped at MemoryHigh=3G, MemoryMax=4G, MemorySwapMax=512M and CPUQuota=200%. Interrupted pre-reboot commands are not counted.
 
-Compatibility fixes resolved the root dependency graph's known npm audit findings; full and production-only root audits report zero. The separate CRE workflow graph still reports two high upstream SDK-transitive findings. A proposed zod override broke the SDK's `z.function().args` runtime and actual WASM execution, so it was not retained; preserving a working official SDK is not a claim that those findings are resolved. Root audit results do not cover the separate workflow lockfile. This limitation requires a compatible upstream fix or validated migration before production, and neither functional tests nor dependency scans are formal security certification.
+| Check | Result |
+| --- | --- |
+| Workspace application tests | 643 passed: web 98, engine 208, core 10, server 230, wallets 97 |
+| All workspace TypeScript checks | Passed |
+| Next.js Turbopack production build | Passed, with static-build CPU count limited to two |
+| Separate CRE capability fixtures | 9 passed; these are not additional live CLI simulations |
+| Contract compilation and paymaster helpers | 40 passed |
+| Verification-script helpers | 9 passed |
+| Strict verification-script TypeScript checks | Passed |
+| Separate workflow TypeScript and WASM build | Passed |
+
+Focused helper/contract commands overlap some workspace coverage; their counts must not be added to 643 as unique tests. The earlier 340-test and 404-test snapshots are historical, not the current baseline. These source-anchored results do not automatically certify later interface edits or current external-provider availability.
+
+The documentation-only closeout reconfirmed root full and production-only npm audits at zero known findings and the exact separate `workflows/cre/strategy` lockfile at two high findings. All 29 tracked Markdown files had valid local file links. The checklist contains 57 unique IDs, all present in the plan: 53 checked, with `C8.5`, `C9.6`, `C10.1` and `C10.2` intentionally open. Six existing production output-trace manifests contained 1,537 file references and no environment, secret/key, SQLite, ignored inspiration or Git paths. Tracked-path and narrow credential-pattern checks found no forbidden credential/runtime files; this is not a comprehensive secret-history audit. No new build, test suite, browser, payment, storage write or inference was run during this documentation pass.
+
+Compatibility fixes resolved the root dependency graph's known npm audit findings; full and production-only root audits report zero. The separate CRE workflow graph still reports two high upstream SDK-transitive findings from [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5), affecting its nested zod and the dependent CRE SDK. A proposed zod override broke the SDK's `z.function().args` runtime and actual WASM execution, so it was not retained; preserving a working official SDK is not a claim that those findings are resolved. Root audit results do not cover the separate workflow lockfile. This limitation requires a compatible upstream fix or validated migration before production, and neither functional tests nor dependency scans are formal security certification.
 
 ## Earlier real 0G application flow
 
@@ -222,6 +237,14 @@ A final HTTP application recheck started from unified source revision `5a86030`,
 
 Wallet authentication and budget/private-mode setup succeeded. The first model call returned an upstream 0G HTTP 502, exposed as the sanitized `INFERENCE_REJECTED` application error. The verifier stopped immediately and logged out; no retry, second synthetic user or extra provider request was initiated. The failed request had error identity `cfcaa15dc039bae7`. Its billing was unverified: local settled spend was 0.000000 USD equivalent and an unknown reservation of 0.010000 remained held. This is not evidence of a zero provider charge or a successful inference.
 
-The namespaced failed agent-run record was persisted with one model call and zero tool calls. No trade, approval, onchain payment, storage write or deployment occurred. The extended tools, memory, typed draft and cold-restart replay cases were not reached and are not claimed as newly verified. The isolated runtime remains available for billing reconciliation; existing user runtime data was not touched.
+The namespaced failed agent-run record was persisted with one model call and zero tool calls. No trade, approval, onchain payment, storage write or deployment occurred. The extended tools, memory, typed draft and cold-restart replay cases were not reached and are not claimed as newly verified. The isolated runtime was initially retained for billing reconciliation; its subsequent loss after the laptop reboot is recorded below. Existing user runtime data was not touched.
 
 The verifier now supports an optional `--restart-replay` gate after all extended checks and the budget-stop case succeed. It pauses for restarting the same app against the same database, then replays only the original request and checks unchanged provider IDs, spend, reservations and persisted memory. Four unit tests and strict script typechecking passed for this guard. That unit coverage is not a successful live restart proof; the current upstream 502 prevented reaching the gate.
+
+## Billing recovery and resource-safe verification
+
+The owner can now use Check provider billing for an unknown expense. The authenticated endpoint accepts only its expense ID and reads the official Router management history. Settlement requires the original request, public API-key ID, model, time window and official network origin, complete bounded pagination and an exact USD micro-cost within the original reservation. Global proof uniqueness and an atomic update prevent duplicate settlement across expenses or users. Missing records, missing original identity, native 0G costs without verified USD evidence, provider failures and conflicting history leave the reservation held. No inference, payment or top-up is retried. The UI rejects stale owner responses and overlapping clicks. HTTP error responses with verified booked charges no longer release their reservation as if they were free.
+
+The laptop rebooted during overlapping verification commands. The prior boot's kernel journal was unavailable, so an individual OOM culprit was not established. Interrupted command completions are not counted as passes. Further checks run serially in user systemd scopes with MemoryMax=4G, MemorySwapMax=512M and CPUQuota=200%. Vitest defaults to two workers and serial files, including ad-hoc root calls; Next static-build workers are limited to two. Native build threads still require the aggregate cgroup limit.
+
+After the reboot, the isolated paid-check directory `/tmp/orcus-final-compute-uqUzNx` was absent. Its temporary database is no longer available; the recorded request identity and unknown 0.010000 USD-equivalent reservation remain historical evidence, not proof of zero provider charges. No paid attempt was repeated. Normal application data lives on persistent local disk outside the checkout. Future billable verification must use a persistent verification directory until billing is resolved.
