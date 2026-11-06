@@ -25,7 +25,7 @@ async function harness(){
   const login=await request("auth/verify",{challengeId:challenge.result.data.id,signature});cookie=login.cookie!.split(";")[0];
   const evidence=(intent:{amountWei:string})=>({status:"confirmed",transactionHash:hash,amountWei:intent.amountWei,gasPaidWei:"100",beneficiary,chainId:16602,creditStatus:"awaiting-router-sync"});
   const engine=vi.spyOn(boundary,"callEngine").mockImplementation(async(name,...args)=>{
-    if(name==="getComputeBalance")return verified?{status:"verified",currency:"0g",accountAddress:beneficiary,balanceNeurons:"0",observedAt:Date.now(),message:"Explicit native balance fixture"}:{status:"unavailable",message:"Beneficiary account is not verified"};
+    if(name==="getComputeBalance")return verified?{status:"verified",source:"0g-router",currency:"0g",chainId:16602,accountAddress:beneficiary,balanceNeurons:"0",observedAt:Date.now(),message:"Explicit native balance fixture"}:{status:"unavailable",message:"Beneficiary account is not verified"};
     if(name==="readComputeVaultBalance")return{source:"payment-vault",chainId:16602,currency:"0g",accountAddress:beneficiary,balanceNeurons:"0",observedAt:Date.now()};
     if(name==="submitComputeFunding"){
       const intent=args[0]as{amountWei:string;payerAddress:string},key=args[1]as`0x${string}`,options=args[2]as{assertAuthority:()=>void;onSubmissionIntent:(hash:string)=>void};
