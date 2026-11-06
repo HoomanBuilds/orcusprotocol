@@ -48,18 +48,25 @@ describe("doctor runtime configuration", () => {
   });
   it("runs doctor config-only with synthetic credentials, no network and a failing verdict for missing prerequisites", () => {
     const { environment } = fixture();
-    const env = { ...environment, ZEROG_COMPUTE_API_KEY: "unit-test-inference-key", ORCUS_GAS_SPONSOR_PROVIDER: "zerodev", ZERODEV_RPC_URL: "https://rpc.zerodev.app/unit-test-bundler", ZERODEV_PAYMASTER_RPC_URL: "https://rpc.zerodev.app/unit-test-paymaster" };
+    const env = { ...environment, ZEROG_COMPUTE_API_KEY: "unit-test-inference-key", BUNDLER_RPC_URL: "https://bundler.example/unit-test" };
     const source = `process.argv = ["node", "doctor.ts", "--check-config"]; let reads = 0; globalThis.fetch = async () => { reads++; throw new Error("Network forbidden"); }; await import(${JSON.stringify(new URL("../doctor.ts", import.meta.url).href)}); if (reads) process.exitCode = 99; console.log("Synthetic network attempts: " + reads);`;
     const run = (configuration: NodeJS.ProcessEnv) => spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", source], { cwd: new URL("../../", import.meta.url), env: configuration, encoding: "utf8", timeout: 15_000 });
     const passing = run(env);
     expect(passing.status, passing.stderr).toBe(0);
     expect(passing.stdout).toContain("Synthetic network attempts: 0");
     expect(passing.stdout).toContain("operation acceptance was verified");
+    expect(passing.stdout).toContain("Trading gas: user-funded only");
+    expect(passing.stdout).not.toContain("Operator bundler stake minimum");
+    expect(passing.stdout).not.toContain("Sponsored Uniswap configuration");
     expect(passing.stdout).not.toContain(environment.ORCUS_MASTER_KEY);
     expect(passing.stdout).not.toContain(env.ZEROG_COMPUTE_API_KEY);
     const failing = run({ ...env, ORCUS_MASTER_KEY: "", ORCUS_INTERNAL_TOKEN: "", ZEROG_COMPUTE_API_KEY: "" });
     expect(failing.status, failing.stderr).toBe(1);
     expect(failing.stdout).toContain("Synthetic network attempts: 0");
     expect(failing.stdout).toContain("missing or invalid");
+    const missingBundler = run({ ...env, BUNDLER_RPC_URL: "", ORCUS_GAS_SPONSOR_PROVIDER: "zerodev", ZERODEV_RPC_URL: "https://rpc.zerodev.app/inactive" });
+    expect(missingBundler.status, missingBundler.stderr).toBe(1);
+    expect(missingBundler.stdout).toContain("Self-funded smart-account bundler: missing");
+    expect(missingBundler.stdout).toContain("Synthetic network attempts: 0");
   }, 15_000);
 });

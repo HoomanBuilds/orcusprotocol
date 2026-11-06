@@ -286,7 +286,7 @@ try {
   checks.push("wallet switch clears private drafts, old session and cross-owner trading accounts");
   checks.push("a delayed old-owner refresh cannot clear or log out the newly signed-in owner");
   assert.equal(exchangeRequests, 0); assert.equal(tradeSignatureAttempts, 0);
-  console.log(JSON.stringify({ scope: "local Chromium with injected disposable wallet and real HTTP/SQLite", checks, fixtureChecks, publicTradingWrites: 0, paidInferenceCalls: 0, notProven: ["real browser-extension behavior", "funded or public venue execution", "sponsor deployment", "worker processing or paid0G inference", ...(agentFixtures ? ["fixture activation is frontend-only proof, not backend execution"] : [])] }, null, 2));
+  console.log(JSON.stringify({ scope: "local Chromium with injected disposable wallet and real HTTP/SQLite", checks, fixtureChecks, publicTradingWrites: 0, paidInferenceCalls: 0, notProven: ["real browser-extension behavior", "funded or public venue execution", "self-funded smart-account gas payment", "worker processing or paid0G inference", ...(agentFixtures ? ["fixture activation is frontend-only proof, not backend execution"] : [])] }, null, 2));
 } finally {
   await closeBrowser?.().catch(() => undefined);
   socket?.close(); browser.kill("SIGTERM");

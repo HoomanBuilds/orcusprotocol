@@ -3,8 +3,7 @@ import { fileURLToPath } from "node:url";
 import { getHealth, getMarkets, engineConfig } from "@orcus/engine";
 import type { Venue } from "@orcus/core";
 import { entryPoint } from "@orcus/wallets/kernel";
-import { sponsorshipSummary } from "../packages/server/src/sponsorship";
-import { doctorBundlerConfiguration, doctorOperatorStakeConfiguration } from "./lib/doctor-bundler";
+import { doctorBundlerConfiguration } from "./lib/doctor-bundler";
 import { doctorRuntimeConfiguration } from "./lib/doctor-runtime";
 
 const checkConfigOnly = process.argv.includes("--check-config");
@@ -22,20 +21,17 @@ for (const [name, capability] of Object.entries(health)) {
   console.log(`${name} configuration${name === "storage" ? " (optional)" : ""}: ${capability.configured ? "configured" : "not configured"}. ${capability.message}`);
 }
 if (!health.compute.configured) process.exitCode = 1;
-const bundler = doctorBundlerConfiguration({ ORCUS_GAS_SPONSOR_PROVIDER: process.env.ORCUS_GAS_SPONSOR_PROVIDER, BUNDLER_RPC_URL: process.env.BUNDLER_RPC_URL, ZERODEV_RPC_URL: process.env.ZERODEV_RPC_URL });
+const bundler = doctorBundlerConfiguration({ BUNDLER_RPC_URL: process.env.BUNDLER_RPC_URL });
 const bundlerUrl = bundler.url;
-console.log(`Smart-account bundler: ${bundler.status}${bundler.provider ? ` (${bundler.provider})` : ""}`);
+console.log(`Self-funded smart-account bundler: ${bundler.status}`);
 if (bundler.status !== "configured") process.exitCode = 1;
-const operatorStake = doctorOperatorStakeConfiguration({ ORCUS_GAS_SPONSOR_PROVIDER: process.env.ORCUS_GAS_SPONSOR_PROVIDER, ORCUS_GAS_SPONSOR_REQUIRE_STAKE: process.env.ORCUS_GAS_SPONSOR_REQUIRE_STAKE, ORCUS_GAS_SPONSOR_MIN_STAKE_WEI: process.env.ORCUS_GAS_SPONSOR_MIN_STAKE_WEI });
-console.log(`Operator bundler stake minimum: ${operatorStake}. Configuration only; locked stake and bundler admission are not verified.`);
-if (operatorStake === "missing" || operatorStake === "invalid") process.exitCode = 1;
-const sponsorship = sponsorshipSummary();
-console.log(`Sponsored Uniswap configuration: ${sponsorship.status}. ${sponsorship.message}`);
-if (!sponsorship.configured) process.exitCode = 1;
+console.log("Trading gas: user-funded only. No paymaster, platform gas sponsorship or automatic gas top-ups.");
 console.log("Optional capabilities: strict TEE verification, 0G Storage, automatic compute top-up and testnet service payments are not launch prerequisites. Real-money payments and mainnet trading remain disabled.");
-console.log("Trading scope: Ethereum Sepolia spot and Hyperliquid testnet. No mainnet trading or automatic bridges.");
+console.log("Trading scope: Ethereum Sepolia spot, Hyperliquid testnet and Ostium on Arbitrum Sepolia. No mainnet trading or automatic bridges.");
 console.log("Customer funding: trading capital stays separate from agent service costs; backend 0G credits do not pay Ethereum gas.");
-console.log("External-wallet deposits: the owner approves the transfer and pays its network fee; smart-account sponsorship does not cover this transfer.");
+console.log("Uniswap: the user funds the trading smart account with Sepolia ETH for manual and agent gas. A session signing key is not the gas payer.");
+console.log("Ostium: the owner wallet pays gas for manual actions; the funded agent wallet pays gas for delegated actions. Hyperliquid API orders do not use an Ethereum paymaster; trading fees remain separate.");
+console.log("External-wallet deposits: the owner approves the transfer and pays its network fee.");
 
 if (!checkConfigOnly && bundlerUrl) {
   try {
@@ -51,7 +47,7 @@ if (!checkConfigOnly && bundlerUrl) {
     };
     const [chainId, supported] = await Promise.all([read("eth_chainId"), read("eth_supportedEntryPoints")]);
     if (chainId !== "0xaa36a7" || !Array.isArray(supported) || !supported.some(address => typeof address === "string" && address.toLowerCase() === entryPoint.address.toLowerCase())) throw new Error("Bundler network or EntryPoint mismatch.");
-    console.log("Bundler reads: Ethereum Sepolia and EntryPoint 0.7 verified. This does not prove funded gas sponsorship or operation acceptance.");
+    console.log("Bundler reads: Ethereum Sepolia and EntryPoint 0.7 verified. This does not prove smart-account gas funding or operation acceptance.");
   } catch {
     console.log("Bundler reads: unavailable or incompatible. Check Sepolia and EntryPoint 0.7 in the provider project.");
     process.exitCode = 1;
@@ -74,4 +70,4 @@ if (!checkConfigOnly && config.cre.enabled) {
   console.log(`CRE binary: ${result.status === 0 ? "available" : "unavailable"}. Login and workflow execution require a separate check.`);
   if (result.status !== 0) process.exitCode = 1;
 }
-console.log(checkConfigOnly ? "Configuration check only: no connectivity, provider credit, paid inference, funding or operation acceptance was verified." : "Readiness scope: public market and configured bundler reads only. Provider credits, paid inference, storage payer funding and sponsored operation acceptance remain unverified.");
+console.log(checkConfigOnly ? "Configuration check only: no connectivity, provider credit, paid inference, funding or operation acceptance was verified." : "Readiness scope: public market and configured bundler reads only. Provider credits, paid inference, storage payer funding, trading gas balances and operation acceptance remain unverified.");
