@@ -3,6 +3,7 @@ import { getHealth, getMarkets, engineConfig } from "@orcus/engine";
 import type { Venue } from "@orcus/core";
 import { entryPoint } from "@orcus/wallets/kernel";
 import { sponsorshipSummary } from "../packages/server/src/sponsorship";
+import { doctorBundlerConfiguration } from "./lib/doctor-bundler";
 
 const health = getHealth();
 console.log("Orcus configuration and read-only connectivity check");
@@ -13,8 +14,10 @@ for (const [name, capability] of Object.entries(health)) {
 }
 console.log(`Worker token: ${process.env.ORCUS_INTERNAL_TOKEN ? "configured" : "missing"}`);
 console.log(`Production keystore: ${process.env.ORCUS_MASTER_KEY ? "configured" : "not configured; development-only local key available"}`);
-const bundlerUrl = process.env.ZERODEV_RPC_URL?.trim();
-console.log(`Smart-account bundler: ${bundlerUrl ? "configured" : "missing"}`);
+const bundler = doctorBundlerConfiguration({ ORCUS_GAS_SPONSOR_PROVIDER: process.env.ORCUS_GAS_SPONSOR_PROVIDER, BUNDLER_RPC_URL: process.env.BUNDLER_RPC_URL, ZERODEV_RPC_URL: process.env.ZERODEV_RPC_URL });
+const bundlerUrl = bundler.url;
+console.log(`Smart-account bundler: ${bundler.status}${bundler.provider ? ` (${bundler.provider})` : ""}`);
+if (bundler.status === "invalid") process.exitCode = 1;
 const sponsorship = sponsorshipSummary();
 console.log(`Ethereum gas sponsorship: ${sponsorship.status}. ${sponsorship.message}`);
 console.log("Trading scope: Ethereum Sepolia spot and Hyperliquid testnet. No mainnet trading or automatic bridges.");
