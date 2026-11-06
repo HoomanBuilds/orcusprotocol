@@ -152,6 +152,15 @@ For each integrated venue, target its complete relevant trading workflow rather 
 
 Native acceptance scope: SDK/core/server paths, terminal/account controls and their local regression/visual acceptance are implemented. Native CRE observation/candidate integration and bounded result framing also have focused fixtures/typechecks and an actual managed read-only alert. None of these checks proves public Ostium funding, delegation or trading, installed-wallet behavior, or a combined 0G/CRE/native settlement. The remaining external gates above stay explicit.
 
+## Reviewed automation safety follow-up
+
+- [x] Require an owner-reviewed executable trade and an explicit schedule or supported typed price condition before activation. An AI proposal is only a draft until the owner accepts it; the worker executes that fixed request without silently asking a model to rewrite it.
+- [x] Default new trade jobs to one submission attempt. Recurring and threshold-crossing jobs require a finite execution cap; consumed attempts persist across restarts and cannot be reset by resume or policy edits. Unknown submission outcomes consume an attempt and are never automatically replayed.
+- [x] For crossing mode, observe the initial threshold state without trading, then trigger only on a false-to-true transition. Record arming, waiting, notification and submission separately from a CRE allow decision. Price alerts do not submit trades.
+- [x] Pause older unversioned policies for explicit structured review. Revalidate account ownership, current delegated permission, expiry and market binding on changes; instruction-only edits cannot silently modify an approved trade.
+- [x] Bind CRE evidence to the exact reviewed condition, account, request and policy version. ETH/WETH aliases are intentional; unrelated trade and trigger markets are rejected before evaluation.
+- [ ] Arbitrary RSI, news, sentiment, multi-leg and free-text predicates are not supported automatic triggers. Ask for clarification or keep them as research until a typed evaluator is implemented. Local fixture coverage is not public settlement or hosted CRE deployment evidence.
+
 ## Scope boundaries
 
 - No token launch, compulsory pooled vault or invented private-trading mode.

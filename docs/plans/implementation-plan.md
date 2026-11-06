@@ -386,6 +386,14 @@ No hard calendar estimates are assumed without team size and the results of P0. 
 - No source dependencies were installed, no application code was ported, and no onchain transaction was submitted during the original planning pass. Subsequent implementation uses the isolated worktrees and commits in this repository.
 - This original planning baseline is historical, not the current implementation status. Current checks distinguish implemented safeguards from external acceptance and link to dated execution evidence.
 
+## Reviewed automation follow-up
+
+The active strategy contract uses owner-reviewed typed requests, explicit schedules and supported above/below price conditions. Model-generated proposals require acceptance before activation; background ticks do not rewrite the accepted trade. New trade policies default to one attempt, while recurring and crossing policies have explicit finite caps. Crossing mode observes the initial state and requires a later false-to-true transition.
+
+Persist attempt counts and threshold state, count unknown submission outcomes conservatively, reject exhausted resumes and pause legacy unversioned jobs for review. Policy edits revalidate current authorization and retain consumed counts. Separate workflow evidence from product outcomes so an allowed observation is never presented as a completed trade. Bind the exact condition in CRE output before allowing the signer path.
+
+Unsupported free-text predicates, RSI, news, sentiment and multi-leg strategies remain clarification/research rather than executable promises. These changes strengthen the existing local acceptance path without replacing the external settlement, funding and deployment gates above.
+
 ## Implementation references
 
 Use the official references to verify exact versions and capabilities during P0; do not turn reference prose into runtime configuration.
