@@ -6,6 +6,8 @@ export interface WalletEvidence {
   transactionHash?: string;
   userOperationHash?: string;
   orderId?: string;
+  approvalIndex?: number;
+  approvals?: Array<{ transactionHash: string; approvalIndex: number }>;
 }
 
 export class WalletActionError extends Error {

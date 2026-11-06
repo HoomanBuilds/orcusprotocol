@@ -2,7 +2,7 @@ import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
 import { BrowserProvider, type TypedDataDomain, type TypedDataField } from "ethers";
 import { serializePermissionAccount } from "@zerodev/permissions";
 import { createKernelAccount, KernelV3_1AccountAbi } from "@zerodev/sdk";
-import type { PreparedAction, TradingAccount } from "@orcus/core";
+import { ostiumDelegationAcknowledgementSchema, type EvmTransaction, type PreparedAction, type TradingAccount } from "@orcus/core";
 import { BaseError, concatHex, createPublicClient, createWalletClient, custom, defineChain, encodeFunctionData, erc20Abi, getAddress, http, padHex, zeroAddress, type Address, type Chain, type EIP1193Provider, type Hex } from "viem";
 import { formatUserOperationRequest, getUserOperationHash } from "viem/account-abstraction";
 import { arbitrumSepolia, sepolia } from "viem/chains";
@@ -11,6 +11,8 @@ import { exactTokenAmount, inspectPreparedSwap, isOwnerRejection, WalletActionEr
 import { broadcastPreparedOperation } from "./execution";
 import { assertSponsoredOperation, browserGasSponsorship } from "./gas";
 import { prepareOwnerTokenTransfer } from "./token-transfer";
+import { assertOstiumOwnerDeployment, executeOstiumOwnerAction } from "./ostium-owner";
+import { OSTIUM_TESTNET, inspectOstiumOwnerPlan, inspectPreparedOstiumAction, ostiumTradingAbi, type OstiumAllowancePlan, type OstiumDelegationPlan } from "./ostium";
 
 export { WalletActionError } from "./preflight";
 
@@ -130,6 +132,74 @@ export async function approveHyperliquidAgent(agentAddress: string, agentName = 
   return client.approveAgent({ agentAddress: getAddress(agentAddress), agentName: agentName.slice(0, 16) });
 }
 
+async function ostiumOwnerContext(account: TradingAccount) {
+  const wallet = await ownerWallet(arbitrumSepolia, account.ownerAddress), publicClient = createPublicClient({ chain: arbitrumSepolia, transport: custom(provider(), { retryCount: 0 }) });
+  const ready = async () => { await accountControl(account); await assertOwner(account.ownerAddress, arbitrumSepolia); await assertOstiumOwnerDeployment(publicClient); };
+  await ready();
+  return { wallet, publicClient, ready };
+}
+
+async function changeOstiumDelegation(account: TradingAccount, plan: OstiumDelegationPlan, purpose: "grant" | "revoke") {
+  inspectOstiumOwnerPlan(account, plan, purpose);
+  const context = await ostiumOwnerContext(account);
+  const current = await context.publicClient.readContract({ address: OSTIUM_TESTNET.trading, abi: ostiumTradingAbi, functionName: "delegations", args: [getAddress(account.ownerAddress)] });
+  if (getAddress(current) !== getAddress(plan.currentDelegate)) throw new WalletActionError("CONTROL_CHANGED", "The native delegate changed after review. Refresh before signing.");
+  if (plan.alreadyActive) {
+    if (getAddress(current) !== getAddress(plan.delegate)) throw new WalletActionError("CONTROL_CHANGED", "The reviewed delegation is not active.");
+    return { alreadyActive: true as const };
+  }
+  const transaction = plan.transactions[0]!;
+  inspectOstiumOwnerPlan(account, plan, purpose); await context.ready();
+  let hash: Hex;
+  try { hash = await context.wallet.sendTransaction({ to: getAddress(transaction.to), data: transaction.data as Hex, value: 0n }); }
+  catch (error) { throw new WalletActionError(isOwnerRejection(error) ? "OWNER_REJECTED" : "SUBMISSION_UNKNOWN", isOwnerRejection(error) ? "You declined the native permission change. Nothing was submitted." : "The permission transaction has an unknown result. Read native authority before requesting another signature.", isOwnerRejection(error) ? "not-submitted" : "submitted-unknown"); }
+  let receipt;
+  try { receipt = await context.publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 }); }
+  catch { throw new WalletActionError("RECEIPT_UNKNOWN", "The permission transaction was sent. Check its receipt and native authority before retrying.", "submitted-unknown", { transactionHash: hash }); }
+  if (receipt.status !== "success") throw new WalletActionError("PERMISSION_REVERTED", "The native permission transaction reverted.", "reverted", { transactionHash: hash });
+  const delegate = await context.publicClient.readContract({ address: OSTIUM_TESTNET.trading, abi: ostiumTradingAbi, functionName: "delegations", args: [getAddress(account.ownerAddress)] });
+  if (getAddress(delegate) !== getAddress(plan.delegate)) throw new WalletActionError("PERMISSION_NOT_PROVEN", "The transaction confirmed, but the requested native authority is not active. Keep automation disabled.", "submitted-unknown", { transactionHash: hash });
+  return { transactionHash: hash, delegate, alreadyActive: false as const };
+}
+
+export async function grantOstiumPermission(input: { account: TradingAccount; plan: OstiumDelegationPlan; acknowledgement: unknown }) {
+  const acknowledgement = ostiumDelegationAcknowledgementSchema.parse(input.acknowledgement);
+  if (getAddress(acknowledgement.trader) !== getAddress(input.account.ownerAddress) || !input.account.agentAddress || getAddress(acknowledgement.agentAddress) !== getAddress(input.account.agentAddress)) throw new WalletActionError("ACKNOWLEDGEMENT_REQUIRED", "Review the broad native authority for this exact owner and agent before granting access.");
+  return changeOstiumDelegation(input.account, input.plan, "grant");
+}
+
+export async function revokeOstiumPermission(input: { account: TradingAccount; plan: OstiumDelegationPlan }) {
+  return changeOstiumDelegation(input.account, input.plan, "revoke");
+}
+
+export async function approveOstiumAllowance(input: { account: TradingAccount; intent: OstiumAllowancePlan }) {
+  inspectOstiumOwnerPlan(input.account, input.intent, "allowance");
+  const context = await ostiumOwnerContext(input.account), intentId = input.intent.id;
+  const post = async (path: string, evidence: Record<string, unknown>) => {
+    const response = await fetch(`/api/ostium/allowances/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intentId, ...evidence }) });
+    if (!response.ok) throw new Error("The owner allowance state could not be recorded. Check the existing request before retrying.");
+    return response.json();
+  };
+  await context.ready(); inspectOstiumOwnerPlan(input.account, input.intent, "allowance");
+  await post("submit", {});
+  let hash: Hex;
+  try {
+    inspectOstiumOwnerPlan(input.account, input.intent, "allowance"); await context.ready();
+    hash = await context.wallet.sendTransaction({ to: OSTIUM_TESTNET.usdc, data: input.intent.transaction.data as Hex, value: 0n });
+  } catch (error) {
+    if (isOwnerRejection(error)) { try { await post("cancel", { ownerRejected: true }); } catch {} throw new WalletActionError("OWNER_REJECTED", "You declined the exact USDC allowance. No approval was submitted."); }
+    throw new WalletActionError("SUBMISSION_UNKNOWN", "The allowance wallet response is unknown. Recover the transaction hash in the existing request; do not open another signature.", "submitted-unknown");
+  }
+  try { await post("submit", { transactionHash: hash }); }
+  catch { throw new WalletActionError("SUBMISSION_RECORDING_FAILED", "The allowance was sent, but its hash could not be saved. Recover this hash before any new signature.", "submitted-unknown", { transactionHash: hash }); }
+  let receipt;
+  try { receipt = await context.publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 }); }
+  catch { throw new WalletActionError("RECEIPT_UNKNOWN", "The allowance was sent. Reconcile its existing request after the receipt is available.", "submitted-unknown", { transactionHash: hash }); }
+  const result = await post("reconcile", { transactionHash: hash });
+  if (receipt.status !== "success") throw new WalletActionError("APPROVAL_REVERTED", "The exact USDC approval reverted.", "reverted", { transactionHash: hash });
+  return { transactionHash: hash, result };
+}
+
 async function hyperliquidOwnerSigner(owner: string) {
   await assertOwner(owner, arbitrumSepolia);
   // Hyperliquid's approval type contains a colon rejected by viem's struct validator.
@@ -150,6 +220,17 @@ export async function executePreparedAction(prepared: PreparedAction): Promise<{
   const owner = await currentWalletAddress();
   if (getAddress(prepared.account.ownerAddress) !== owner) throw new Error("Your wallet changed. Reconnect the account owner before trading.");
   await accountControl(prepared.account, prepared.controlRevision);
+  if (prepared.account.venue === "ostium") {
+    inspectPreparedOstiumAction(prepared);
+    const wallet = await ownerWallet(arbitrumSepolia, owner);
+    const publicClient = createPublicClient({ chain: arbitrumSepolia, transport: custom(provider(), { retryCount: 0 }) });
+    return executeOstiumOwnerAction(prepared, {
+      assertReady: async () => { await accountControl(prepared.account, prepared.controlRevision); await assertOwner(owner, arbitrumSepolia); await assertOstiumOwnerDeployment(publicClient); },
+      send: transaction => wallet.sendTransaction({ to: getAddress(transaction.to), data: transaction.data as Hex, value: 0n }),
+      wait: hash => publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 }),
+      record: evidence => recordSubmission(prepared.id, evidence),
+    });
+  }
   if (prepared.account.venue === "hyperliquid") {
     if (!prepared.hyperliquid || prepared.kind !== "hyperliquid") throw new Error("The venue request is missing.");
     if (prepared.account.chainId !== arbitrumSepolia.id || getAddress(prepared.account.address) !== owner || prepared.request.accountId !== prepared.account.id) throw new WalletActionError("ACCOUNT_CHANGED", "The Hyperliquid testnet account does not match this owner.");

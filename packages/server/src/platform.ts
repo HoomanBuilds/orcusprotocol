@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { formatUnits, getAddress, parseUnits } from "viem";
 import type { KernelGrantPolicy } from "@orcus/wallets/kernel";
-import { tradeRequestSchema,type PreparedAction,type TradeRequest,type User,type Portfolio,type Market,type HealthStatus } from "@orcus/core";
+import { tradeRequestSchema,venueSchema,OSTIUM_DELEGATION_NOTICE,type PreparedAction,type TradeRequest,type User,type Portfolio,type Market,type HealthStatus } from "@orcus/core";
 import { z } from "zod";
 import { getBudget,setBudget } from "./budget";
 import { assertComputeFundingAuthority,cancelComputeFunding,configureComputeFunding,getComputeFundingPolicy,prepareComputeFunding,recordComputeFundingSubmission,settleComputeFunding } from "./compute-funding";
@@ -18,8 +18,10 @@ import { safeAgentToolSteps } from "./agent-evidence";
 import { selectStoragePayer,assertStoragePayerAllowance,publicStoragePayerMetadata } from "./storage-payer";
 import { createSessionSponsorship } from "./sponsorship";
 import { agentRequestSchema,agentRequestRecordId,agentRequestLease,agentRequestView,chatRequestFingerprint,chatRequestReference,listAgentRequests,queuedAgentRequests,readAgentRequest,recoverInterruptedAgentRequests,safeAgentRequestError,storedAgentRequest } from "./agent-requests";
+import { ostiumAcknowledgement,ostiumAgentActions,ostiumAuthorization,validateOstiumExecution } from "./ostium-policy";
+import { recordOstiumActionApproval,recordUnknownOstiumApproval,rejectOstiumActionApproval,startOstiumActionApproval } from "./ostium-allowances";
 
-export const accountSchema=z.object({venue:z.enum(["uniswap","hyperliquid"]),address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
+export const accountSchema=z.object({venue:venueSchema,address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
 export const automationSchema=z.object({kind:z.enum(["trade","alert"]).default("trade"),accountId:z.string(),name:z.string().min(1).max(80),instruction:z.string().min(1).max(2000).optional(),intervalSeconds:z.number().int().min(60).max(86400).default(300),request:tradeRequestSchema.optional(),condition:z.object({symbol:z.string().min(1).max(50),operator:z.enum(["above","below"]),price:z.string().max(80).regex(/^\d+(?:\.\d+)?$/).refine(value=>/[1-9]/.test(value),"Use a positive alert threshold")}).optional(),expiresAt:z.number().int().optional()}).strict().superRefine((value,ctx)=>{if(value.kind==="alert"&&(!value.condition||value.request))ctx.addIssue({code:"custom",message:"Price alerts require a condition and cannot contain a trade request."});if(value.kind==="trade"&&!value.request&&!value.instruction)ctx.addIssue({code:"custom",message:"Trading strategies require an instruction or an explicitly approved recurring request."});});
 const terminalStates=new Set(["confirmed","rejected","cancelled"]);
 const evaluationSchema=z.object({id:z.string(),automationId:z.string(),accountId:z.string(),chainId:z.number().int(),decision:z.enum(["allow","reject","no-action"]),reason:z.string(),source:z.literal("local-simulation"),observedAt:z.number().int(),expiresAt:z.number().int(),controlRevision:z.number().int(),policyVersion:z.number().int(),requestId:z.string().optional()}).passthrough();
@@ -48,16 +50,16 @@ export class Platform {
     const accounts=this.accounts(user);
     return this.store.list<StoredPermission>(user.id,"permission").filter(permission=>permission.status==="active"&&permission.expiresAt>Date.now()).map(permission=>{
       const account=accounts.find(item=>item.id===permission.accountId);
-      return{id:permission.id,accountId:permission.accountId,venue:account?.venue,allowedActions:permission.allowedActions,allowedSymbols:permission.allowedSymbols,maxTradeUsd:permission.maxTradeUsd,expiresAt:permission.expiresAt,enforcement:permission.enforcement,controlRevision:permission.controlRevision,...(permission.policy?{onchain:{kind:"kernel-fixed-output-bands",router:permission.policy.router,recipient:permission.policy.accountAddress,nativeWrap:permission.policy.nativeWrap,swaps:permission.policy.swaps.map(swap=>({tokenIn:swap.tokenIn,tokenOut:swap.tokenOut,feeTier:swap.feeTier,maximumInputAtoms:swap.maxAmountIn,minimumOutputAtoms:swap.minAmountOut})),limitation:"Each permitted input cap has a fixed minimum output floor. A smaller input may be outside the band even below the USD cap. Propose an exact permitted amount when appropriate or ask the owner to regrant; never lower the minimum output or claim arbitrary up-to-cap amounts are executable."}}:{})};
+      return{id:permission.id,accountId:permission.accountId,venue:account?.venue,allowedActions:permission.allowedActions,allowedSymbols:permission.allowedSymbols,maxTradeUsd:permission.maxTradeUsd,maxCollateralUsd:permission.maxCollateralUsd,maxLeverage:permission.maxLeverage,nativeAuthority:account?.venue==="ostium"?OSTIUM_DELEGATION_NOTICE:undefined,expiresAt:permission.expiresAt,enforcement:permission.enforcement,controlRevision:permission.controlRevision,...(permission.policy?{onchain:{kind:"kernel-fixed-output-bands",router:permission.policy.router,recipient:permission.policy.accountAddress,nativeWrap:permission.policy.nativeWrap,swaps:permission.policy.swaps.map(swap=>({tokenIn:swap.tokenIn,tokenOut:swap.tokenOut,feeTier:swap.feeTier,maximumInputAtoms:swap.maxAmountIn,minimumOutputAtoms:swap.minAmountOut})),limitation:"Each permitted input cap has a fixed minimum output floor. A smaller input may be outside the band even below the USD cap. Propose an exact permitted amount when appropriate or ask the owner to regrant; never lower the minimum output or claim arbitrary up-to-cap amounts are executable."}}:{})};
     });
   }
   createAccount(user:User,input:unknown){
     const data=accountSchema.parse(input),address=getAddress(data.smartAccountAddress??data.address??user.address),chainId=data.chainId??(data.venue==="uniswap"?11155111:421614);
-    if(chainId!==(data.venue==="uniswap"?11155111:421614))throw new ApiError("UNSUPPORTED_NETWORK","Only configured Sepolia and Hyperliquid testnet accounts are supported.");
-    if(data.venue==="hyperliquid"&&address.toLowerCase()!==user.address.toLowerCase())throw new ApiError("OWNER_MISMATCH","Use the connected owner address for Hyperliquid.");
+    if(chainId!==(data.venue==="uniswap"?11155111:421614))throw new ApiError("UNSUPPORTED_NETWORK","Only configured Sepolia, Hyperliquid testnet and Ostium Arbitrum Sepolia accounts are supported.");
+    if(data.venue!=="uniswap"&&address.toLowerCase()!==user.address.toLowerCase())throw new ApiError("OWNER_MISMATCH","Use the connected owner address for this venue.");
     const existing=this.accounts(user).find(account=>account.venue===data.venue&&account.address.toLowerCase()===address.toLowerCase());if(existing)return existing;
     const accountId=id(),signer=createSigner(this.store,user.id,`trading:${accountId}`);
-    return this.store.put("account",{id:accountId,userId:user.id,venue:data.venue,address,ownerAddress:user.address,chainId,label:data.label??(data.venue==="uniswap"?"Uniswap Sepolia":"Hyperliquid Testnet"),agentAddress:signer.address,...(data.venue==="uniswap"&&address.toLowerCase()!==user.address.toLowerCase()?{smartAccountAddress:address}:{}),status:"connected",controlRevision:0,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAccount);
+    return this.store.put("account",{id:accountId,userId:user.id,venue:data.venue,address,ownerAddress:user.address,chainId,label:data.label??(data.venue==="uniswap"?"Uniswap Sepolia":data.venue==="ostium"?"Ostium Arbitrum Sepolia":"Hyperliquid Testnet"),agentAddress:signer.address,...(data.venue==="uniswap"&&address.toLowerCase()!==user.address.toLowerCase()?{smartAccountAddress:address}:{}),status:"connected",controlRevision:0,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAccount);
   }
   async portfolio(user:User):Promise<Portfolio>{
     const accounts=this.accounts(user),balances:Portfolio["balances"]=[],positions:Portfolio["positions"]=[],orders:Portfolio["orders"]=[],errors:NonNullable<Portfolio["errors"]>=[];
@@ -179,13 +181,18 @@ export class Platform {
     }
     return results;
   }
-  async permission(user:User,input:{accountId:string;action:string;permissionId?:string;expiresAt?:number;maxTradeUsd?:string;allowNativeInput?:boolean;allowedSymbols?:string[];allowedActions?:TradeRequest["type"][];authorization?:unknown}){
+  async permission(user:User,input:{accountId:string;action:string;permissionId?:string;expiresAt?:number;maxTradeUsd?:string;maxCollateralUsd?:string;maxLeverage?:number;allowNativeInput?:boolean;allowedSymbols?:string[];allowedActions?:TradeRequest["type"][];authorization?:unknown}){
     this.expirePermissions(user);
     let account=this.account(user,input.accountId);
     if(input.action==="revoke"||input.action==="rotate"){
+      const previousAgentAddress=account.agentAddress;
       for(const permission of this.store.list<StoredPermission>(user.id,"permission"))if(permission.accountId===account.id&&permission.status!=="revoked")this.store.update<StoredPermission>(user.id,"permission",permission.id,{status:"revoked"});
       const signer=input.action==="rotate"?createSigner(this.store,user.id,`trading:${account.id}`,true):undefined;
       account=this.store.update<StoredAccount>(user.id,"account",account.id,{status:"revoked",controlRevision:account.controlRevision+1,...(signer?{agentAddress:signer.address}:{})});
+      if(account.venue==="ostium"){
+        try{const native=await ostiumAuthorization(account),managed=new Set([previousAgentAddress,account.agentAddress,...this.store.list<StoredPermission>(user.id,"permission").filter(permission=>permission.accountId===account.id).map(permission=>permission.agentAddress)].filter(Boolean).map(address=>address!.toLowerCase())),requiresOwnerRevocation=managed.has(native.delegate.toLowerCase()),ostium=requiresOwnerRevocation?await callEngine("getOstiumDelegationTransactions",account,null):undefined;return{account,requiresOwnerRevocation,ostium,nativeAuthority:native,notice:OSTIUM_DELEGATION_NOTICE,message:"Application automation is disabled. Only the owner can change native delegation; unrelated delegates are left unchanged, and local expiry or rotation does not revoke native authority."};}
+        catch{return{account,requiresOwnerRevocation:true,notice:OSTIUM_DELEGATION_NOTICE,message:"Application automation is disabled. Native revocation is unverified because Ostium authority could not be read. The owner must remove it in the venue wallet."};}
+      }
       return {account,requiresOwnerRevocation:true,message:"Application automation is disabled. Revoke the signer in your venue wallet to remove its native authority."};
     }
     if(input.action==="prepare"){
@@ -193,19 +200,29 @@ export class Platform {
       const signer=createSigner(this.store,user.id,`trading:${account.id}`);
       const maxTradeUsd=input.maxTradeUsd??"100";
       if(decimalProductMicros(maxTradeUsd,"1")<=0n)throw new ApiError("INVALID_TRADE_CAP","Set a positive trade cap.");
+      const supported=account.venue==="uniswap"?["swap"]:account.venue==="ostium"?[...ostiumAgentActions]:["market","limit","cancel","reduce","close","stop-loss","take-profit"];
+      if(input.allowedActions?.some(action=>!supported.includes(action)))throw new ApiError("ACTION_NOT_AUTHORIZED","Choose agent actions supported by this venue. Collateral removal remains owner-only.",403);
+      const maxCollateralUsd=account.venue==="ostium"?input.maxCollateralUsd??maxTradeUsd:undefined,maxLeverage=account.venue==="ostium"?input.maxLeverage??20:undefined;
+      if(maxCollateralUsd!==undefined&&decimalProductMicros(maxCollateralUsd,"1")<=0n)throw new ApiError("INVALID_TRADE_CAP","Set a positive collateral cap.");
+      if(maxLeverage!==undefined&&(!Number.isFinite(maxLeverage)||maxLeverage<1||maxLeverage>1000||!/^\d+(?:\.\d{1,2})?$/.test(String(maxLeverage))))throw new ApiError("INVALID_LEVERAGE","Use leverage between 1 and 1000 with at most two decimal places.");
+      const native=account.venue==="ostium"?await ostiumAuthorization(account):undefined;
+      if(native&&native.delegate.toLowerCase()!=="0x0000000000000000000000000000000000000000"&&native.delegate.toLowerCase()!==signer.address.toLowerCase())throw new ApiError("OSTIUM_DELEGATE_EXISTS","Another native Ostium delegate already exists. The owner must review and remove it; it will not be silently replaced.",409);
+      const ostium=account.venue==="ostium"?await callEngine("getOstiumDelegationTransactions",account,signer.address):undefined;
       const policy=account.venue==="uniswap"?await this.kernelPolicy(account,signer.address,maxTradeUsd,expiresAt,input.allowNativeInput===true):undefined;
-      const permission=this.store.put("permission",{id:id(),userId:user.id,accountId:account.id,agentAddress:signer.address,allowedSymbols:input.allowedSymbols??[],allowedActions:input.allowedActions??(account.venue==="uniswap"?["swap"]:["market","limit","cancel","reduce","close","stop-loss","take-profit"]),maxTradeUsd,expiresAt,status:"pending",enforcement:account.venue==="hyperliquid"?"application":"account",controlRevision:account.controlRevision,policy,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredPermission);
+      const permission=this.store.put("permission",{id:id(),userId:user.id,accountId:account.id,agentAddress:signer.address,allowedSymbols:input.allowedSymbols??[],allowedActions:input.allowedActions??supported as TradeRequest["type"][],maxTradeUsd,maxCollateralUsd,maxLeverage,expiresAt,status:"pending",enforcement:account.venue==="uniswap"?"account":"application",controlRevision:account.controlRevision,policy,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredPermission);
       for(const previous of this.store.list<StoredPermission>(user.id,"permission"))if(previous.accountId===account.id&&previous.id!==permission.id&&previous.status==="pending")this.store.update<StoredPermission>(user.id,"permission",previous.id,{status:"revoked",supersededBy:permission.id});
-      return {permission,agentAddress:signer.address,agentName:"Orcus Agent",policy,authorization:account.venue==="hyperliquid"?{agentAddress:signer.address,agentName:"Orcus Agent",expiresAfter:expiresAt}:undefined};
+      return {permission,agentAddress:signer.address,agentName:"Orcus Agent",policy,ostium,notice:account.venue==="ostium"?OSTIUM_DELEGATION_NOTICE:undefined,authorization:account.venue==="hyperliquid"?{agentAddress:signer.address,agentName:"Orcus Agent",expiresAfter:expiresAt}:undefined};
     }
     if(input.action!=="activate")throw new ApiError("INVALID_PERMISSION_ACTION","Use prepare, activate, revoke or rotate.");
     const permissions=this.store.list<StoredPermission>(user.id,"permission"),permission=permissions.find(item=>item.accountId===account.id&&item.status==="pending"&&(!input.permissionId||item.id===input.permissionId));
-    if(!permission){const active=permissions.find(item=>item.accountId===account.id&&item.status==="active"&&item.expiresAt>Date.now()&&(!input.permissionId||item.id===input.permissionId));if(active&&account.status==="authorized"&&(account.venue==="hyperliquid"||canonicalJson(active.authorization)===canonicalJson(input.authorization)))return{permission:{...active,authorization:undefined},account};}
+    if(!permission){const active=permissions.find(item=>item.accountId===account.id&&item.status==="active"&&item.expiresAt>Date.now()&&(!input.permissionId||item.id===input.permissionId));if(active&&account.status==="authorized"&&(account.venue==="hyperliquid"||canonicalJson(active.authorization)===canonicalJson(input.authorization))){if(account.venue==="ostium"){ostiumAcknowledgement(account,active.agentAddress,input.authorization);await ostiumAuthorization(account,active.agentAddress);}return{permission:{...active,authorization:undefined},account};}}
     if(!permission||permission.expiresAt<=Date.now())throw new ApiError("PERMISSION_EXPIRED","Prepare a new authorization first.");
+    let nativeAuthority:StoredPermission["nativeAuthority"];
     if(account.venue==="hyperliquid")await this.verifyHyperliquidApproval(account,permission.agentAddress);
+    else if(account.venue==="ostium"){ostiumAcknowledgement(account,permission.agentAddress,input.authorization);nativeAuthority=await ostiumAuthorization(account,permission.agentAddress);}
     else await this.verifyKernelApproval(account,permission,input.authorization);
     if(this.account(user,account.id).controlRevision!==permission.controlRevision)throw new ApiError("CONTROL_CHANGED","Account control changed during authorization. Prepare a new grant.",409);
-    const active=this.store.update<StoredPermission>(user.id,"permission",permission.id,{status:"active",authorization:input.authorization});
+    const active=this.store.update<StoredPermission>(user.id,"permission",permission.id,{status:"active",authorization:input.authorization,nativeAuthority});
     for(const previous of permissions)if(previous.accountId===account.id&&previous.id!==active.id&&previous.status==="active")this.store.update<StoredPermission>(user.id,"permission",previous.id,{status:"revoked",supersededBy:active.id});
     this.store.update<StoredAccount>(user.id,"account",account.id,{status:"authorized"});
     return {permission:{...active,authorization:undefined},account:this.account(user,account.id),message:"The new application grant supersedes earlier grants. Previously signed native authority must be revoked by the owner at the venue when no longer needed."};
@@ -250,13 +267,20 @@ export class Platform {
     const timer=setInterval(()=>{this.store.renewLease(scope,holder,180_000);},30_000);timer.unref();
     try{return await run(assertLease);}finally{clearInterval(timer);this.store.releaseLease(scope,holder);}
   }
-  async checkAgentPolicy(user:User,request:TradeRequest,account:StoredAccount):Promise<StoredPermission>{
+  async checkAgentPolicy(user:User,request:TradeRequest,account:StoredAccount,prepared?:PreparedAction):Promise<StoredPermission>{
     const agent=this.agent(user);
     if(agent.paused)throw new ApiError("AGENT_PAUSED","Resume the agent before requesting autonomous actions.",409);
     const permission=this.store.list<StoredPermission>(user.id,"permission").find(item=>item.accountId===account.id&&item.status==="active"&&item.expiresAt>Date.now()&&item.controlRevision===account.controlRevision);
     if(account.status!=="authorized"||!permission)throw new ApiError("AGENT_NOT_AUTHORIZED","Authorize this agent for the selected account first.",403);
     if(permission.allowedSymbols.length&&!permission.allowedSymbols.includes(request.symbol))throw new ApiError("SYMBOL_NOT_AUTHORIZED","This instrument is outside the agent's approved symbols.",403);
     if(!permission.allowedActions.includes(request.type))throw new ApiError("ACTION_NOT_AUTHORIZED","This action is outside the agent's approved permissions.",403);
+    if(account.venue==="ostium"){
+      if(request.type==="remove-collateral")throw new ApiError("OWNER_SIGNATURE_REQUIRED","Only the owner can remove collateral through this platform.",403);
+      ostiumAcknowledgement(account,permission.agentAddress,permission.authorization);
+      await ostiumAuthorization(account,permission.agentAddress);
+      if(prepared)validateOstiumExecution(prepared,account,permission);
+      return permission;
+    }
     if(request.nativeInput&&!permission.policy?.nativeWrap)throw new ApiError("NATIVE_WRAP_NOT_AUTHORIZED","Ask the owner to opt in to bounded native ETH wrapping before the agent spends native trading funds.",403);
     if(request.type!=="cancel"){
       const markets=await callEngine<Market[]>("getMarkets",request.venue);
@@ -288,6 +312,7 @@ export class Platform {
     if(previous){if(JSON.stringify(previous.request)!==JSON.stringify(request))throw new ApiError("IDEMPOTENCY_CONFLICT","This action ID was already used for a different request.",409);return {action:previous,execution:previous.prepared,preview:previous.prepared.quote};}
     return this.withAccountLease(account.id,async()=>{
       const replay=this.store.get<StoredAction>(user.id,"action",actionId);if(replay){if(canonicalJson(replay.request)!==canonicalJson(request))throw new ApiError("IDEMPOTENCY_CONFLICT","This action ID was already used for a different request.",409);return{action:replay,execution:replay.prepared,preview:replay.prepared.quote};}
+      if(account.venue==="ostium"&&this.store.list<StoredAction>(user.id,"action").some(item=>item.accountId===account.id&&item.approvals?.some(step=>["submitting","pending","submitted-unknown"].includes(step.status))))throw new ApiError("ACCOUNT_RECONCILING","Recover the existing owner approval before preparing another native action. No wallet request will be repeated.",409);
       let permission:StoredPermission|undefined;
       if(request.mode==="agent"){
         for(const uncertain of this.store.list<StoredAction>(user.id,"action").filter(item=>item.accountId===account.id&&["submitting","submitted-unknown"].includes(item.status))){
@@ -298,24 +323,60 @@ export class Platform {
       }
       const prepared=await callEngine<PreparedAction>("prepareAction",request,account);
       prepared.id=actionId;prepared.request=tradeRequestSchema.parse({...prepared.request,accountId:account.id,venue:account.venue,mode:request.mode});prepared.account=account;prepared.controlRevision=account.controlRevision;
-      if(request.mode==="agent")permission=await this.checkAgentPolicy(user,prepared.request,account);
+      if(account.venue==="ostium")validateOstiumExecution(prepared,account,permission);
+      if(request.mode==="agent")permission=await this.checkAgentPolicy(user,prepared.request,account,prepared);
       if(!prepared.expiresAt||prepared.expiresAt<=Date.now())throw new ApiError("QUOTE_EXPIRED","The prepared action expired. Request a new quote.",409);
       const agent=this.agent(user),action=this.store.put("action",{id:actionId,userId:user.id,accountId:account.id,request,status:"awaiting-approval",initiator:initiator!=="manual"?initiator:request.mode==="agent"?"agent":"manual",prepared,controlRevision:account.controlRevision,agentRevision:agent.controlRevision,expiresAt:prepared.expiresAt,providerRequestId,audit:{instruction:instruction.slice(0,10_000),sourceMessageId:context?.messageId,providerRequestId,evaluationId:context?.evaluationId,permission:{decision:permission?"allowed":"owner-signature-required",checkedAt:Date.now(),permissionId:permission?.id,enforcement:permission?.enforcement??"owner",controlRevision:account.controlRevision,agentRevision:agent.controlRevision}},createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAction);
       return {action,execution:prepared,preview:prepared.quote};
     });
   }
-  async submit(user:User,input:{actionId:string;transactionHash?:string;txHash?:string;userOperationHash?:string;orderId?:string;response?:unknown;result?:unknown}){
+  async submit(user:User,input:{actionId:string;transactionHash?:string;txHash?:string;userOperationHash?:string;orderId?:string;approvalIndex?:number;response?:unknown;result?:unknown}){
     let action=this.store.get<StoredAction>(user.id,"action",input.actionId);
     if(!action)throw new ApiError("ACTION_NOT_FOUND","Prepare this action first.",404);
     const lateOwnerEvidence=Boolean(input.transactionHash||input.txHash||input.userOperationHash||input.orderId||input.response||input.result);
-    if(terminalStates.has(action.status)&&!(action.status==="cancelled"&&lateOwnerEvidence))return {action};
+    if(terminalStates.has(action.status)&&input.approvalIndex===undefined&&!(action.status==="cancelled"&&lateOwnerEvidence))return {action};
     const account=this.account(user,action.accountId);
     return this.withAccountLease(account.id,async assertLease=>{
       action=this.store.get<StoredAction>(user.id,"action",input.actionId)!;
-      if(terminalStates.has(action.status)&&!(action.status==="cancelled"&&lateOwnerEvidence))return{action};
+      if(terminalStates.has(action.status)&&input.approvalIndex===undefined&&!(action.status==="cancelled"&&lateOwnerEvidence))return{action};
       const transactionHash=input.transactionHash??input.txHash;
       if(transactionHash&&!/^0x[\da-fA-F]{64}$/.test(transactionHash))throw new ApiError("INVALID_TRANSACTION","Invalid transaction hash.");
       if(input.userOperationHash&&!/^0x[\da-fA-F]{64}$/.test(input.userOperationHash))throw new ApiError("INVALID_USER_OPERATION","Invalid user operation hash.");
+      const unknownOstium=z.object({venue:z.literal("ostium"),submissionUnknown:z.literal(true),phase:z.enum(["approval","trade"]),approvalIndex:z.number().int().min(0).max(4).optional()}).strict().safeParse(input.result);
+      const startingOstiumApproval=z.object({venue:z.literal("ostium"),approvalStarted:z.literal(true),approvalIndex:z.number().int().min(0).max(4)}).strict().safeParse(input.result);
+      const startingOstiumTrade=z.object({venue:z.literal("ostium"),tradeStarted:z.literal(true)}).strict().safeParse(input.result);
+      const rejectedOstium=z.object({venue:z.literal("ostium"),ownerRejected:z.literal(true),phase:z.enum(["approval","trade"]),approvalIndex:z.number().int().min(0).max(4).optional()}).strict().safeParse(input.result);
+      if(account.venue==="ostium"&&(startingOstiumApproval.success||startingOstiumTrade.success)){
+        if(transactionHash||input.userOperationHash||input.orderId)throw new ApiError("EVIDENCE_CONFLICT","Record signed evidence separately from the pre-wallet claim.",409);
+        const current=this.account(user,account.id);
+        if(action.expiresAt<=Date.now())throw new ApiError("QUOTE_EXPIRED","This unsigned quote expired. Do not open another wallet request from it.",409);
+        if(action.controlRevision!==current.controlRevision)throw new ApiError("CONTROL_CHANGED","Account control changed after this review. Prepare a fresh owner action.",409);
+        if(action.status!=="awaiting-approval"||action.transactionHash)throw new ApiError("ACCOUNT_RECONCILING","This native wallet flow already started. Recover its evidence instead of signing again.",409);
+        if(startingOstiumApproval.success)return{action:startOstiumActionApproval(this.store,user,action,startingOstiumApproval.data.approvalIndex)};
+        const approvalIndexes=(action.prepared.transactions??[]).map((transaction,index)=>({transaction,index})).filter(({transaction})=>transaction.data.slice(0,10).toLowerCase()==="0x095ea7b3").map(({index})=>index);
+        if(approvalIndexes.some(index=>!action!.approvals?.some(step=>step.index===index&&step.status==="confirmed")))throw new ApiError("ALLOWANCE_PENDING","Confirm each exact owner approval before opening the native trade wallet request.",409);
+        action=this.store.update<StoredAction>(user.id,"action",action.id,{status:"submitting",error:undefined});return{action};
+      }
+      if(account.venue==="ostium"&&rejectedOstium.success){
+        if(rejectedOstium.data.phase==="approval"){
+          if(rejectedOstium.data.approvalIndex===undefined)throw new ApiError("ALLOWANCE_STEP_INVALID","Identify the declined owner approval.",403);
+          return{action:rejectOstiumActionApproval(this.store,user,action,rejectedOstium.data.approvalIndex)};
+        }
+        if(action.status!=="submitting"||action.transactionHash)throw new ApiError("ACCOUNT_RECONCILING","An unknown or signed transaction cannot be dismissed as an unsigned wallet rejection.",409);
+        return{action:this.store.update<StoredAction>(user.id,"action",action.id,{status:"rejected",error:"The owner declined the native trade wallet request before signing."})};
+      }
+      if(account.venue==="ostium"&&unknownOstium.success){
+        if(unknownOstium.data.phase==="approval"){
+          if(unknownOstium.data.approvalIndex===undefined)throw new ApiError("ALLOWANCE_STEP_INVALID","Identify the owner approval step needing recovery.",403);
+          return{action:recordUnknownOstiumApproval(this.store,user,action,unknownOstium.data.approvalIndex)};
+        }
+        action=this.store.update<StoredAction>(user.id,"action",action.id,{status:"submitted-unknown",error:"The native wallet submission has an unknown result. Recover its hash and reconcile it before any new signature."});
+        return{action};
+      }
+      if(input.approvalIndex!==undefined){
+        if(account.venue!=="ostium"||!transactionHash||input.userOperationHash||input.orderId)throw new ApiError("ALLOWANCE_STEP_INVALID","Record a native owner approval separately from the final trading transaction.",403);
+        return{action:await recordOstiumActionApproval(this.store,user,action,input.approvalIndex,transactionHash)};
+      }
       const ownerEvidence=Boolean(transactionHash||input.userOperationHash||input.orderId||input.response||input.result);
       if(ownerEvidence){
         if(action.transactionHash&&transactionHash&&action.transactionHash.toLowerCase()!==transactionHash.toLowerCase())throw new ApiError("EVIDENCE_CONFLICT","This action already has another transaction hash.",409);
@@ -331,10 +392,12 @@ export class Platform {
       const permission=await this.checkAgentPolicy(user,action.request,current);
       const fresh=await callEngine<PreparedAction>("prepareAction",action.request,current);
       fresh.id=action.id;fresh.request=tradeRequestSchema.parse({...fresh.request,accountId:current.id,venue:current.venue,mode:"agent"});fresh.account=current;fresh.controlRevision=current.controlRevision;
-      await this.checkAgentPolicy(user,fresh.request,current);
-      const assertAuthority=()=>{
+      if(current.venue==="ostium")validateOstiumExecution(fresh,current,permission);
+      await this.checkAgentPolicy(user,fresh.request,current,fresh);
+      const assertAuthority=(rebuilt?:PreparedAction)=>{
         assertLease();const latest=this.account(user,current.id),latestAgent=this.agent(user),latestPermission=this.store.get<StoredPermission>(user.id,"permission",permission.id);
         if(latest.controlRevision!==action!.controlRevision||latest.status!=="authorized"||latestAgent.paused||latestAgent.controlRevision!==action!.agentRevision||latestPermission?.status!=="active"||latestPermission.expiresAt<=Date.now())throw new ApiError("CONTROL_CHANGED","Authority changed during preparation. No new action was signed.",409);
+        if(rebuilt&&latest.venue==="ostium")validateOstiumExecution(rebuilt,latest,latestPermission);
         if(action!.automationId){const strategy=this.store.get<StoredAutomation>(user.id,"automation",action!.automationId);if(!strategy||strategy.status!=="active"||strategy.policyVersion!==action!.automationPolicyVersion||!action!.evaluationExpiresAt||action!.evaluationExpiresAt<=Date.now())throw new ApiError("STRATEGY_CHANGED","The workflow decision expired or its strategy changed before signing.",409);}
       };
       assertAuthority();
@@ -347,7 +410,7 @@ export class Platform {
           if(typeof wallets.submitKernelSessionAction!=="function")throw new ApiError("SESSION_UNCONFIGURED","Kernel delegated execution is not configured.",503);
           assertAuthority();
           result=await (wallets.submitKernelSessionAction as (...args:unknown[])=>Promise<typeof result>)(fresh,key,permission.authorization,(evidence:{userOperationHash:string})=>{action=this.store.update<StoredAction>(user.id,"action",action!.id,{status:"pending",userOperationHash:evidence.userOperationHash});},assertAuthority,createSessionSponsorship(this.store,user,fresh));
-        }else {assertAuthority();result=await callEngine("submitAgentAction",fresh,current,key,{assertAuthority});}
+        }else {assertAuthority();result=await callEngine("submitAgentAction",fresh,current,key,{assertAuthority,onSubmitted:(evidence:{transactionHash:string;step?:string})=>{if(evidence.step==="approval")throw new ApiError("OWNER_SIGNATURE_REQUIRED","The agent cannot submit owner token allowances.",403);if(!/^0x[\da-fA-F]{64}$/.test(evidence.transactionHash))throw new ApiError("INVALID_TRANSACTION","The adapter did not provide a signed transaction hash.",503);action=this.store.update<StoredAction>(user.id,"action",action!.id,{status:"pending",transactionHash:evidence.transactionHash});}});}
         action=this.store.update<StoredAction>(user.id,"action",action.id,{status:result.status??"pending",transactionHash:result.transactionHash??result.txHash??action.transactionHash,userOperationHash:result.userOperationHash??action.userOperationHash,orderId:result.orderId,evidence:result.evidence});
         return {action:await this.reconcile(user,action)};
       }catch(error){
@@ -364,13 +427,25 @@ export class Platform {
   async reconcile(user:User,action:StoredAction):Promise<StoredAction>{
     try{
       const result=await callEngine<{status?:StoredAction["status"];transactionHash?:string;txHash?:string;orderId?:string;evidence?:unknown;error?:string}>("reconcileAction",{...action,txHash:action.transactionHash},this.account(user,action.accountId));
-      const updated=this.store.update<StoredAction>(user.id,"action",action.id,{status:result.status??action.status,transactionHash:result.transactionHash??result.txHash??action.transactionHash,orderId:result.orderId??action.orderId,evidence:result.evidence??action.evidence,error:result.error});
+      const updated=this.store.db.transaction(()=>{
+        if(action.request.venue==="ostium"&&(result.status==="confirmed"||result.status==="cancelled")){
+          const hash=result.transactionHash??result.txHash??action.transactionHash;
+          if(!hash||!/^0x[\da-fA-F]{64}$/.test(hash)||action.transactionHash&&hash.toLowerCase()!==action.transactionHash.toLowerCase())throw new ApiError("OSTIUM_SETTLEMENT_UNVERIFIED","The native settlement has no matching submitted transaction hash.",503);
+          const proofId=`ostium-trade-proof:421614:${hash.toLowerCase()}`,previous=this.store.db.prepare("SELECT body FROM records WHERE id=?").get(proofId)as{body:string}|undefined;
+          if(previous&&JSON.parse(previous.body).actionId!==action.id)throw new ApiError("TRADE_PROOF_REPLAY","This settled native transaction already belongs to a different action.",409);
+          const now=Date.now();this.store.put("ostium-trade-proof",{id:proofId,userId:user.id,actionId:action.id,transactionHash:hash,createdAt:now,updatedAt:now});
+        }
+        return this.store.update<StoredAction>(user.id,"action",action.id,{status:result.status??action.status,transactionHash:result.transactionHash??result.txHash??action.transactionHash,orderId:result.orderId??action.orderId,evidence:result.evidence??action.evidence,error:result.error});
+      }).immediate();
       try{new AgentMemoryStore(this.store,user.id).episode(updated);}catch{}
       return updated;
     }catch(error){return this.store.update<StoredAction>(user.id,"action",action.id,{error:`Reconciliation pending: ${errorMessage(error)}`});}
   }
   async activity(user:User){
     const actions=this.store.list<StoredAction>(user.id,"action",100);
+    for(const action of actions.filter(item=>item.request.venue==="ostium"&&item.approvals?.some(step=>step.status==="pending"&&step.transactionHash)).slice(0,10)){
+      try{await this.withAccountLease(action.accountId,async()=>{const current=this.store.get<StoredAction>(user.id,"action",action.id)!;for(const step of current.approvals??[])if(step.status==="pending"&&step.transactionHash)await recordOstiumActionApproval(this.store,user,current,step.index,step.transactionHash);});}catch{}
+    }
     await Promise.all(actions.filter(action=>["submitting","submitted-unknown","pending","partially-filled"].includes(action.status)).slice(0,10).map(action=>this.reconcile(user,action)));
     return {actions:this.store.list<StoredAction>(user.id,"action",100)};
   }
@@ -544,6 +619,7 @@ export class Platform {
     const existing=this.store.get<StoredAutomation>(user.id,"automation",automationId);
     if(existing){if(existing.inputFingerprint!==fingerprint)throw new ApiError("IDEMPOTENCY_CONFLICT","This acceptance ID was already used for a different automation.",409);return existing;}
     const account=this.account(user,data.accountId),agent=this.agent(user);
+    if(account.venue==="ostium")throw new ApiError("OSTIUM_AUTOMATION_PENDING","Ostium trading is supported separately; its CRE observation and candidate binding are still being integrated. No other venue's workflow is substituted.",503);
     if(agent.paused)throw new ApiError("AGENT_PAUSED","Resume the agent before enabling an automation.",409);
     const permission=this.store.list<StoredPermission>(user.id,"permission").find(item=>item.accountId===account.id&&item.status==="active"&&item.expiresAt>Date.now());
     if(data.kind==="trade"&&!permission)throw new ApiError("AGENT_NOT_AUTHORIZED","Authorize agent access before enabling an unattended trading strategy.",403);
@@ -557,6 +633,7 @@ export class Platform {
   updateAutomation(user:User,automationId:string,input:{status?:"active"|"paused";instruction?:string;intervalSeconds?:number}){
     if(input.instruction)rejectMemorySecrets(input.instruction,{allowPublicHashes:true,code:"CREDENTIAL_INPUT_REJECTED"});
     const automation=this.store.get<StoredAutomation>(user.id,"automation",automationId);if(!automation)throw new ApiError("NOT_FOUND","Automation not found.",404);
+    if(input.status==="active"&&this.account(user,automation.accountId).venue==="ostium")throw new ApiError("OSTIUM_AUTOMATION_PENDING","Ostium conditional workflows are awaiting their own verified CRE adapter. Manual and immediate authorized trading remain separate.",503);
     if(input.status==="active"&&(this.agent(user).paused||automation.expiresAt<=Date.now()))throw new ApiError("AUTOMATION_UNAVAILABLE","Resume the agent and renew expired permissions before activating this strategy.",409);
     return this.store.update<StoredAutomation>(user.id,"automation",automationId,{...input,policyVersion:automation.policyVersion+1,nextRunAt:Date.now()});
   }
@@ -639,6 +716,7 @@ export class Platform {
         if(agent.paused||current.expiresAt<=Date.now()){this.store.update<StoredAutomation>(user.id,"automation",current.id,{status:current.expiresAt<=Date.now()?"expired":"paused"});continue;}
         if(this.store.get(user.id,"evaluation",evaluationId)){this.store.update<StoredAutomation>(user.id,"automation",current.id,{status:"failed",error:"This evaluation was already consumed. Review its existing action before resuming."});continue;}
         const account=this.account(user,current.accountId);
+        if(account.venue==="ostium")throw new ApiError("OSTIUM_AUTOMATION_PENDING","The Ostium CRE observation and candidate adapter is still being integrated. No other venue's workflow or paid proposal is substituted.",503);
         if(account.controlRevision!==current.controlRevision)throw new ApiError("CONTROL_CHANGED","Account control changed. Review this strategy before resuming.",409);
         const alert=current.kind==="alert";
         if(!alert&&!this.store.list<StoredPermission>(user.id,"permission").some(permission=>permission.accountId===account.id&&permission.status==="active"&&permission.expiresAt>Date.now()&&permission.controlRevision===account.controlRevision))throw new ApiError("AGENT_NOT_AUTHORIZED","Renew agent authorization before running this strategy.",403);

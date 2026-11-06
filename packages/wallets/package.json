@@ -10,6 +10,7 @@
     "./operator-paymaster": "./src/operator-paymaster.ts",
     "./service-payment": "./src/service-payment.ts",
     "./preflight": "./src/preflight.ts",
+    "./ostium": "./src/ostium.ts",
     "./server": "./src/server.ts"
   },
   "scripts": {
