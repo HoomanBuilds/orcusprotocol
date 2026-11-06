@@ -220,6 +220,8 @@ try {
     await evaluate("window.__orcusAgentFixture.releases.shift()(false)");
     await until("document.querySelector('.automation-approval-card [role=alert]')?.innerText==='The action could not be completed. Refresh and try again.'", "Sanitized activation refusal was not visible.");
     assert.ok(await evaluate("!document.querySelector('.automation-approval-card').innerText.includes('Automation activated')"));
+    await evaluate("document.querySelector('.automation-approval-card > button.button.primary').scrollIntoView({block:'end',behavior:'instant'})");
+    assert.ok(await visibleInChat(".automation-approval-card > button.button.primary"), "Retry must be visible after refusal.");
     await click(".automation-approval-card > button.button.primary");
     assert.equal(await evaluate("window.__orcusAgentFixture.posts"), 2);
     fixtureChecks.push("frontend fixture: research table and successful-source references render on desktop/mobile without overflow");
