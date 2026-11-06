@@ -1,6 +1,6 @@
 # Trading venue capabilities
 
-Updated: 2026-11-06. Reviewed source baseline: `c21352b`.
+Updated: 2026-11-06. Reviewed source baseline: `1d4e0a8`.
 
 This is a product reference, not runtime configuration. Markets, prices, limits and authorizations are discovered and checked at execution time. A logo, API method or read-only listing is not proof that an instrument can be traded.
 
@@ -10,9 +10,9 @@ This is a product reference, not runtime configuration. Markets, prices, limits 
 | --- | --- | --- |
 | Uniswap | Ethereum Sepolia V3 spot quotes, bounded owner/session swaps and settlement verification | Public operator-paymaster deployment/funding, canonical bundler admission and installed-wallet acceptance |
 | Hyperliquid | Testnet perpetual market/limit orders, protective orders, reduction/close/cancellation, native agent authorization and lifecycle recovery | Broader account-mode/extension acceptance; capabilities not implemented below must not appear enabled |
-| Ostium | Arbitrum Sepolia discovery, data/history, SDK-native entry/management, owner/delegate signing, durable reconciliation and venue-bound CRE evaluation | Integrated terminal/account controls and final browser review are pending at this baseline; public funding, delegation and trade acceptance have not been run |
+| Ostium | Arbitrum Sepolia discovery, data/history, integrated terminal/account controls, SDK-native entry/management, owner/delegate signing, durable reconciliation and venue-bound CRE evaluation | Public funding/delegation/trade and installed-wallet acceptance remain separate from local component/browser verification |
 
-Uniswap owner/session swaps and platform-paid gas have isolated-fork evidence. Hyperliquid has one approved capped public testnet same-account handoff that ended flat with the fresh agent revoked. Ostium has source/deployment verification, unsigned reads, focused SDK/core/server regressions and an actual managed CRE read-only alert, not public trade evidence. Focused checks are not a formal security audit or a guarantee of ongoing provider availability. See the [verification record](../research/verification-2026-11-06.md) and [Ostium authority evidence](../research/ostium-authority-2026-11-06.md).
+Uniswap owner/session swaps and platform-paid gas have isolated-fork evidence. Hyperliquid has one approved capped public testnet same-account handoff that ended flat with the fresh agent revoked. Ostium has source/deployment verification, unsigned reads, focused SDK/core/server/interface regressions, integrated local visual review and an actual managed CRE read-only alert, not public trade evidence. Focused checks are not a formal security audit or a guarantee of ongoing provider availability. See the [verification record](../research/verification-2026-11-06.md) and [Ostium authority evidence](../research/ostium-authority-2026-11-06.md).
 
 ## Shared control and revocation
 
@@ -78,6 +78,8 @@ The verified native implementation blocks a delegate from granting/revoking/rota
 Quote expiry is checked locally before signing/broadcast. The native Ostium call does not carry an onchain transaction deadline. A successful initiating receipt is not a filled market/limit order: settlement additionally needs matching oracle/indexed execution evidence. Confirmed protection edits are labelled native-control success, not trade fills.
 
 Implementation: [data/history](../../agent/src/venues/ostium/data.ts), [SDK builders and submission](../../agent/src/venues/ostium/execution.ts), [native settlement](../../agent/src/venues/ostium/reconciliation.ts), [owner/calldata inspection](../../packages/wallets/src/ostium.ts), [browser signing](../../packages/wallets/src/ostium-owner.ts), [server authority/risk checks](../../packages/server/src/ostium-policy.ts), [allowance recovery](../../packages/server/src/ostium-allowances.ts), [CRE native observations](../../workflows/cre/strategy/ostium.ts), [managed runner/result validation](../../agent/src/automation/cre.ts). Protocol references: [testnet mode](https://docs.ostium.com/developer/client-modes/testnet), [SDK overview](https://docs.ostium.com/developer/sdk/overview), [delegate reference](https://docs.ostium.com/developer/reference/set-delegate). Deployed-source authority takes precedence over incompatible SDK examples; exact review evidence and upgrade assumptions are in the [authority record](../research/ostium-authority-2026-11-06.md).
+
+Integrated interface: [native order ticket](../../web/src/components/trading/ostium-order-ticket.tsx), [position/order controls](../../web/src/components/trading/ostium-account-rows.tsx), [history](../../web/src/components/trading/ostium-history.tsx), [account/permission controls](../../web/src/components/agent/ostium-account-card.tsx) and [allowance recovery](../../web/src/components/agent/ostium-allowance-controls.tsx). These use the shared execution/activity model and owner wallet helpers, not a second trading portfolio.
 
 ## Evaluated, not integrated
 
