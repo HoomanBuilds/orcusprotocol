@@ -152,6 +152,8 @@ Operator gas authorization additionally checks the actual EntryPoint deposit and
 
 ## Remaining external acceptance
 
+The shared inference account is protected by exact operator-controlled USD-equivalent ceilings in the existing atomic compute reservation path. Defaults are 1 per user per UTC day and 10 across the project. Five focused tests plus the 175-test server suite passed, covering the exact micro-dollar boundary, simultaneous tenants, owner cap edits, duplicate requests, held unknown costs across midnight, actual settlement-day accounting, rejected-call release, invalid configuration and refusal before agent/provider work begins. These are spending controls, not customer payment evidence or a guarantee about unreported provider billing.
+
 - CRE CLI login is now reported configured locally. A successful current workflow simulation still needs its own execution evidence; compilation or login alone is not a successful workflow or hosted DON execution.
 - The capped native Hyperliquid owner/agent handoff is live testnet-verified. Complete browser-extension acceptance, additional account modes and external Sepolia bundler execution remain separate.
 - Encrypted storage upload/download/restore is now live-verified with a funded platform payer. Actual compute replenishment still needs a matching verified Router account and management-read access. Compute credits and native storage funds are separate.

@@ -14,6 +14,7 @@ let store: Store, tx: Record<string, unknown> | null, receipt: Record<string, un
 beforeEach(() => {
   store = new Store(":memory:"); timestamp = Math.floor(Date.now() / 1000); chain = "0xaa36a7"; head = "0x66"; tx = null; receipt = null;
   vi.stubEnv("ORCUS_SERVICE_PAYMENT_MODE", "testnet"); vi.stubEnv("ORCUS_SERVICE_PAYMENT_TREASURY", treasury);
+  vi.stubEnv("ORCUS_COMPUTE_USER_DAILY_USD", "100"); vi.stubEnv("ORCUS_COMPUTE_PROJECT_DAILY_USD", "1000");
   vi.stubEnv("SEPOLIA_RPC_URL", "https://sepolia.example/private-rpc-secret");
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
     const body = JSON.parse(init.body as string) as { method: string; params: unknown[] };

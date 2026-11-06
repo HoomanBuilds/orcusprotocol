@@ -111,6 +111,8 @@ The expense cap and service-payment ledger are separate. Optional `ORCUS_SERVICE
 
 Record a pending intent before the wallet opens. Verify exact chain, owner, token, treasury, amount, zero native value, post-creation block, canonical receipt and two confirmations. Deduplicate the transfer event globally and preserve reconciliation across restarts. Expiry blocks new wallet flows, never forfeits an otherwise exact successful transfer that mines late. Show separate recovery for an unknown hash or delayed receipt. Owner switches invalidate pending UI responses and locks. Trading principal and collateral stay separate from service costs. An external-wallet deposit or checkout still needs owner-paid Sepolia gas; checkout verifies token balance and a fee ceiling of 0.003 ETH before opening the wallet.
 
+Protect the shared configured Router credits independently of owner-controlled expense caps and paid test credits. `ORCUS_COMPUTE_USER_DAILY_USD` defaults to 1 USD equivalent per user and `ORCUS_COMPUTE_PROJECT_DAILY_USD` to 10 across the project. The existing SQLite immediate reservation transaction applies both operator limits before inference, counts unresolved reservations from all days conservatively, and records actual settlement time on the server. Owner cap edits cannot override these ceilings; retries cannot reserve or charge twice. The operator adjusts these limits, not the model or browser.
+
 ### Low-friction trading and gas
 
 Keep the existing Kernel account and venue adapters. Improve the experience without introducing a new wallet, bridge, token or customer infrastructure balance.

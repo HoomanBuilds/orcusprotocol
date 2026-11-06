@@ -12,6 +12,16 @@ export function micros(value:string):number {
   return Number(amount);
 }
 export function usd(value:number):string {return `${Math.floor(value/1_000_000)}.${String(value%1_000_000).padStart(6,"0")}`;}
+function enforceOperatorComputeCaps(store:Store,userId:string,amount:number){
+  let userCap:number,projectCap:number;
+  try{userCap=micros(process.env.ORCUS_COMPUTE_USER_DAILY_USD??"1");projectCap=micros(process.env.ORCUS_COMPUTE_PROJECT_DAILY_USD??"10");}
+  catch{throw new ApiError("COMPUTE_CAP_CONFIG_INVALID","The operator's compute spending ceilings are invalid. No inference was requested.",503);}
+  const start=Math.floor(Date.now()/86_400_000)*86_400_000;
+  const rows=store.db.prepare("SELECT user_id,SUM(CASE WHEN status IN ('reserved','unknown') THEN amount_micros WHEN status='settled' AND COALESCE(json_extract(evidence,'$.operatorSettledAt'),created_at)>=? THEN amount_micros ELSE 0 END) AS used FROM expenses GROUP BY user_id").all(start)as{user_id:string;used:number}[];
+  const used=rows.find(row=>row.user_id===userId)?.used??0,projectUsed=rows.reduce((sum,row)=>sum+row.used,0);
+  if(used+amount>userCap)throw new ApiError("OPERATOR_COMPUTE_USER_CAP","This user's operator-paid UTC-day compute ceiling is exhausted or held by unresolved requests. Changing the owner expense cap cannot raise it.",402);
+  if(projectUsed+amount>projectCap)throw new ApiError("OPERATOR_COMPUTE_PROJECT_CAP","The shared operator-paid UTC-day compute ceiling is exhausted or held by unresolved requests. No inference was requested.",402);
+}
 export function getBudget(store:Store,userId:string):OperatingBudget & {lowBalanceUsd:string;autoReplenish:boolean;expenses:NonNullable<OperatingBudget["expenses"]>} {
   const row=store.db.prepare("SELECT * FROM budgets WHERE user_id=?").get(userId) as {cap_micros:number;spent_micros:number;reserved_micros:number;low_micros:number;auto_replenish:number};
   const expenses=store.db.prepare("SELECT id,reference,kind,amount_micros,status,evidence,created_at FROM expenses WHERE user_id=? ORDER BY created_at DESC LIMIT 50").all(userId) as {id:string;reference:string;kind:string;amount_micros:number;status:string;evidence:string|null;created_at:number}[];
@@ -29,9 +39,11 @@ export function reserveBudget(store:Store,userId:string,reference:string,amountU
   return store.db.transaction(()=>{
     if(store.db.prepare("SELECT id FROM expenses WHERE user_id=? AND reference=?").get(userId,reference))return false;
     const amount=micros(amountUsd);
-    reserveServiceCredits(store,userId,reference,amount);
+    if(amount<=0)throw new ApiError("INVALID_AMOUNT","A compute reservation must be positive.");
     const result=store.db.prepare("UPDATE budgets SET reserved_micros=reserved_micros+? WHERE user_id=? AND cap_micros-spent_micros-reserved_micros>=?").run(amount,userId,amount);
     if(result.changes!==1)throw new ApiError("INSUFFICIENT_BUDGET","Agent operating budget exhausted. Set an authorized cap or reconcile pending requests.",402);
+    enforceOperatorComputeCaps(store,userId,amount);
+    reserveServiceCredits(store,userId,reference,amount);
     store.db.prepare("INSERT INTO expenses(id,user_id,reference,kind,amount_micros,status,created_at) VALUES(?,?,?,?,?,?,?)").run(id(),userId,reference,"compute-reservation",amount,"reserved",Date.now());
     return true;
   }).immediate();
@@ -45,8 +57,9 @@ export function settleReservation(store:Store,userId:string,reference:string,sta
     if(charge>row.amount_micros){settleServiceCredits(store,userId,reference,"unknown",0);store.db.prepare("UPDATE expenses SET status='unknown',evidence=? WHERE user_id=? AND reference=?").run(JSON.stringify({billingStatus:"exceeds-reservation",evidence}),userId,reference);return;}
     settleServiceCredits(store,userId,reference,status,charge);
     store.db.prepare("UPDATE budgets SET reserved_micros=MAX(0,reserved_micros-?),spent_micros=spent_micros+? WHERE user_id=?").run(row.amount_micros,charge,userId);
-    store.db.prepare("UPDATE expenses SET status=?,amount_micros=?,evidence=? WHERE user_id=? AND reference=?").run(status,charge,JSON.stringify(evidence??null),userId,reference);
-  })();
+    const recorded=evidence&&typeof evidence==="object"&&!Array.isArray(evidence)?{...evidence,operatorSettledAt:Date.now()}:{value:evidence??null,operatorSettledAt:Date.now()};
+    store.db.prepare("UPDATE expenses SET status=?,amount_micros=?,evidence=? WHERE user_id=? AND reference=?").run(status,charge,JSON.stringify(recorded),userId,reference);
+  }).immediate();
 }
 
 export function settleComputeReservation(store:Store,userId:string,reference:string,input:{requestId?:string;billing?:unknown;usage?:unknown;callId?:string;outcome?:"completed"|"rejected"|"unknown"}) {
