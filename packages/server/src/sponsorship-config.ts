@@ -32,5 +32,8 @@ export function gasSponsorConfig() {
     catch { throw new ApiError("SPONSORSHIP_CONFIG_INVALID", "Configure the deployed Sepolia operator paymaster address.", 503); }
   }
   const rpcUrl = endpoint(process.env.SEPOLIA_RPC_URL ?? process.env.SEPOLIA_RPC ?? "https://ethereum-sepolia-rpc.publicnode.com", "Sepolia RPC")!;
-  return { provider, bundlerUrl, rpcUrl, paymaster, privateKey: privateKey as Hex | undefined, configured: Boolean(bundlerUrl && privateKey && paymaster) } as const;
+  const requireStake = process.env.ORCUS_GAS_SPONSOR_REQUIRE_STAKE ?? "true", minimumStakeWei = process.env.ORCUS_GAS_SPONSOR_MIN_STAKE_WEI || undefined, delay = process.env.ORCUS_GAS_SPONSOR_MIN_UNSTAKE_DELAY_SECONDS ?? "86400";
+  if (!["true", "false"].includes(requireStake) || minimumStakeWei !== undefined && (!/^[1-9]\d{0,33}$/.test(minimumStakeWei) || BigInt(minimumStakeWei) >= 1n << 112n) || !/^[1-9]\d{0,9}$/.test(delay) || Number(delay) > 0xffffffff) throw new ApiError("SPONSORSHIP_CONFIG_INVALID", "Configure a valid staking policy for the explicitly selected bundler.", 503);
+  const stakePolicy = { required: requireStake === "true", minimumStakeWei, minimumUnstakeDelaySeconds: Number(delay) };
+  return { provider, bundlerUrl, rpcUrl, paymaster, privateKey: privateKey as Hex | undefined, stakePolicy, configured: Boolean(bundlerUrl && privateKey && paymaster) } as const;
 }

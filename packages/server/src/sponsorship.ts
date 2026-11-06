@@ -32,7 +32,7 @@ function config() {
 }
 
 export function sponsorshipSummary() {
-  try { const cfg = config(); return { provider: cfg.provider, required: true, configured: cfg.configured, status: cfg.configured ? "configured" : "unconfigured", paymasterUrl: "/api/paymaster", maxOperationGasWei: cfg.perOperation, dailyUserGasWei: cfg.daily, chainId: 11155111, message: "Configuration is not proof of funded sponsorship. Operator approvals verify the deployed paymaster, signer and EntryPoint deposit. No provider switch or paid-gas fallback is automatic." }; }
+  try { const cfg = config(); return { provider: cfg.provider, required: true, configured: cfg.configured, status: cfg.configured ? "configured" : "unconfigured", paymasterUrl: "/api/paymaster", maxOperationGasWei: cfg.perOperation, dailyUserGasWei: cfg.daily, chainId: 11155111, ...(cfg.provider === "operator" ? { stakePolicy: cfg.stakePolicy } : {}), message: "Configuration is not proof of funded sponsorship or bundler admission. Operator approvals verify the deployed paymaster, signer, EntryPoint deposit and configured stake policy. The runtime signing wallet, gas deposit and locked stake are separate. No provider switch or paid-gas fallback is automatic." }; }
   catch { return { provider: process.env.ORCUS_GAS_SPONSOR_PROVIDER === "zerodev" ? "zerodev" : "operator", required: true, configured: false, status: "unconfigured", paymasterUrl: "/api/paymaster", maxOperationGasWei: "0", dailyUserGasWei: "0", chainId: 11155111, message: "Gas sponsorship configuration is invalid. No sponsored operation can be submitted." }; }
 }
 

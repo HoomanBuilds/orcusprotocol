@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeFunctionData, encodeFunctionResult, parseEther, recoverTypedDataAddress, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { entryPoint07Abi } from "viem/account-abstraction";
 import { decodeOperatorPaymasterData, operatorPaymasterAbi, operatorSponsorshipTypedData, type OperatorUserOperation } from "@orcus/wallets/operator-paymaster";
 import { entryPoint } from "@orcus/wallets/kernel";
 import { sponsorWithOperator } from "./operator-sponsor";
@@ -11,6 +12,7 @@ const paymaster = `0x${"6".repeat(40)}` as Hex;
 const operation = { sender: `0x${"1".repeat(40)}`, nonce: toHex(2n ** 248n), callData: "0x1234", maxFeePerGas: "0x2", maxPriorityFeePerGas: "0x1", signature: "0x1234" };
 const estimates = { callGasLimit: "0x186a0", verificationGasLimit: "0x30d40", preVerificationGas: "0xc350", paymasterVerificationGasLimit: "0x186a0", paymasterPostOpGasLimit: "0x0" };
 let readChain: string, bundlerChain: string, deposit: bigint, contractCap: bigint, code: string, configuredSigner: Hex, configuredEntryPoint: Hex;
+let staked: boolean, stake: bigint, unstakeDelaySec: number, withdrawTime: number, actualDeposit: bigint | undefined;
 
 beforeEach(() => {
   vi.stubEnv("ORCUS_GAS_SPONSOR_PROVIDER", "operator");
@@ -21,6 +23,8 @@ beforeEach(() => {
   vi.stubEnv("ZERODEV_RPC_URL", "https://rpc.zerodev.app/secondary-secret");
   vi.stubEnv("ZERODEV_PAYMASTER_RPC_URL", "https://rpc.zerodev.app/paymaster-secondary-secret");
   readChain = "0xaa36a7"; bundlerChain = "0xaa36a7"; deposit = parseEther("1"); contractCap = parseEther("0.003"); code = "0x60006000"; configuredSigner = signer.address; configuredEntryPoint = entryPoint.address;
+  staked = true; stake = parseEther("0.2"); unstakeDelaySec = 86400; withdrawTime = 0; actualDeposit = undefined;
+  vi.stubEnv("ORCUS_GAS_SPONSOR_REQUIRE_STAKE", "true"); vi.stubEnv("ORCUS_GAS_SPONSOR_MIN_STAKE_WEI", undefined); vi.stubEnv("ORCUS_GAS_SPONSOR_MIN_UNSTAKE_DELAY_SECONDS", "86400");
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
     const body = JSON.parse(init.body as string) as { method: string; params: unknown[] };
     let result: unknown;
@@ -29,6 +33,10 @@ beforeEach(() => {
     else if (body.method === "eth_getCode") result = code;
     else if (body.method === "eth_estimateUserOperationGas") result = estimates;
     else if (body.method === "eth_call") {
+      if ((body.params[0] as { to: string }).to.toLowerCase() === entryPoint.address.toLowerCase()) {
+        result = encodeFunctionResult({ abi: entryPoint07Abi, functionName: "getDepositInfo", result: { deposit: actualDeposit ?? deposit, staked, stake, unstakeDelaySec, withdrawTime } });
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }));
+      }
       const { functionName } = decodeFunctionData({ abi: operatorPaymasterAbi, data: (body.params[0] as { data: Hex }).data });
       if (functionName === "entryPoint") result = encodeFunctionResult({ abi: operatorPaymasterAbi, functionName, result: configuredEntryPoint });
       else if (functionName === "verifyingSigner") result = encodeFunctionResult({ abi: operatorPaymasterAbi, functionName, result: configuredSigner });
@@ -110,5 +118,27 @@ describe("operator-wallet gas sponsorship", () => {
     expect(() => gasSponsorConfig()).toThrow(/HTTPS bundler/);
     vi.stubEnv("ORCUS_GAS_SPONSOR_PROVIDER", "unknown");
     expect(() => gasSponsorConfig()).toThrow(/Select operator or zerodev/);
+  });
+  it("requires actual locked stake separately from the funded gas deposit", async () => {
+    staked = false;
+    await expect(sponsorWithOperator(operation, contractCap.toString(), true)).rejects.toMatchObject({ code: "SPONSORSHIP_STAKE_REQUIRED" });
+    staked = true; withdrawTime = 100;
+    await expect(sponsorWithOperator(operation, contractCap.toString(), true)).rejects.toMatchObject({ code: "SPONSORSHIP_STAKE_REQUIRED" });
+    withdrawTime = 0; unstakeDelaySec = 86399;
+    await expect(sponsorWithOperator(operation, contractCap.toString(), true)).rejects.toMatchObject({ code: "SPONSORSHIP_STAKE_REQUIRED" });
+    unstakeDelaySec = 86400; stake = 0n;
+    await expect(sponsorWithOperator(operation, contractCap.toString(), true)).rejects.toMatchObject({ code: "SPONSORSHIP_STAKE_REQUIRED" });
+  });
+  it("checks configured provider-specific stake amounts without inventing a universal minimum", async () => {
+    vi.stubEnv("ORCUS_GAS_SPONSOR_MIN_STAKE_WEI", (stake + 1n).toString());
+    await expect(sponsorWithOperator(operation, contractCap.toString(), true)).rejects.toMatchObject({ code: "SPONSORSHIP_STAKE_REQUIRED" });
+    vi.stubEnv("ORCUS_GAS_SPONSOR_MIN_STAKE_WEI", stake.toString());
+    expect((await sponsorWithOperator(operation, contractCap.toString(), true)).staking).toMatchObject({ staked: true, stakeWei: stake.toString(), configuredMinimumStakeWei: stake.toString(), admissionVerified: false });
+    vi.stubEnv("ORCUS_GAS_SPONSOR_REQUIRE_STAKE", "false"); staked = false;
+    expect((await sponsorWithOperator(operation, contractCap.toString(), false)).staking.required).toBe(false);
+  });
+  it("verifies the EntryPoint deposit rather than trusting a paymaster getter", async () => {
+    actualDeposit = 0n;
+    await expect(sponsorWithOperator(operation, contractCap.toString(), true)).rejects.toMatchObject({ code: "SPONSORSHIP_UNFUNDED" });
   });
 });

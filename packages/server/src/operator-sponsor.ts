@@ -3,6 +3,7 @@ import { entryPoint } from "@orcus/wallets/kernel";
 import { assertSponsoredOperation } from "@orcus/wallets/gas";
 import { decodeFunctionResult, encodeFunctionData, getAddress, toHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { entryPoint07Abi } from "viem/account-abstraction";
 import { z } from "zod";
 import { ApiError } from "./errors";
 import { gasSponsorConfig } from "./sponsorship-config";
@@ -46,6 +47,13 @@ export async function sponsorWithOperator(operation: Operation, capWei: string, 
   const [configuredEntryPoint, configuredSigner, contractCap, deposit] = await Promise.all([read("entryPoint"), read("verifyingSigner"), read("maxOperationCostWei"), read("getDeposit")]);
   if (getAddress(configuredEntryPoint as Address) !== getAddress(entryPoint.address) || getAddress(configuredSigner as Address) !== getAddress(signer.address)) throw new ApiError("SPONSORSHIP_PAYMASTER_MISMATCH", "The deployed paymaster EntryPoint or authorized operator signer does not match this server.", 503);
   if (typeof contractCap !== "bigint" || typeof deposit !== "bigint" || contractCap <= 0n || deposit <= 0n) throw new ApiError("SPONSORSHIP_UNFUNDED", "The operator paymaster needs a funded Sepolia EntryPoint deposit and a positive gas cap.", 503);
+  const rawDepositInfo = await rpc(cfg.rpcUrl, "eth_call", [{ to: entryPoint.address, data: encodeFunctionData({ abi: entryPoint07Abi, functionName: "getDepositInfo", args: [paymaster] }) }, "latest"]);
+  let depositInfo: ReturnType<typeof decodeDepositInfo>;
+  try { depositInfo = decodeDepositInfo(rawDepositInfo as Hex); }
+  catch { throw new ApiError("SPONSORSHIP_PAYMASTER_INVALID", "EntryPoint stake and deposit information could not be verified.", 503); }
+  if (depositInfo.deposit !== deposit) throw new ApiError("SPONSORSHIP_UNFUNDED", "The paymaster-reported deposit does not match its actual EntryPoint deposit.", 503);
+  const policy = cfg.stakePolicy;
+  if (policy.required && (!depositInfo.staked || depositInfo.stake === 0n || depositInfo.withdrawTime !== 0 || depositInfo.unstakeDelaySec < policy.minimumUnstakeDelaySeconds || policy.minimumStakeWei !== undefined && depositInfo.stake < BigInt(policy.minimumStakeWei))) throw new ApiError("SPONSORSHIP_STAKE_REQUIRED", "The operator paymaster needs a locked EntryPoint stake matching this bundler's configured amount and unstake-delay policy. Gas deposit alone is not sufficient.", 503);
   if (!operation.maxFeePerGas || !operation.maxPriorityFeePerGas || BigInt(operation.maxFeePerGas) <= 0n || BigInt(operation.maxPriorityFeePerGas) > BigInt(operation.maxFeePerGas)) throw new ApiError("SPONSORSHIP_REJECTED", "Provide a positive bounded fee quote before requesting sponsored gas.", 403);
   if (!operation.signature || operation.signature === "0x") throw new ApiError("SPONSORSHIP_REJECTED", "A smart-account signature stub is required for gas estimation.", 403);
   const validAfter = Math.max(0, Math.floor(Date.now() / 1000) - 5), validUntil = Math.floor(Date.now() / 1000) + 120;
@@ -78,5 +86,9 @@ export async function sponsorWithOperator(operation: Operation, capWei: string, 
     maxFeePerGas: BigInt(result.maxFeePerGas), maxPriorityFeePerGas: BigInt(result.maxPriorityFeePerGas),
   };
   result.paymasterData = encodeOperatorPaymasterData(finalAuthorization, consume ? await signer.signTypedData(operatorSponsorshipTypedData(typedOperation, finalAuthorization)) : dummySignature);
-  return { result, depositWei: deposit, paymaster, validUntil };
+  return { result, depositWei: deposit, paymaster, validUntil, staking: { required: policy.required, staked: depositInfo.staked, stakeWei: depositInfo.stake.toString(), unstakeDelaySeconds: depositInfo.unstakeDelaySec, configuredMinimumStakeWei: policy.minimumStakeWei, admissionVerified: false } };
+}
+
+function decodeDepositInfo(data: Hex) {
+  return decodeFunctionResult({ abi: entryPoint07Abi, functionName: "getDepositInfo", data });
 }
