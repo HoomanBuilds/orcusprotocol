@@ -46,6 +46,14 @@ The production Router is chain 16661. Galileo funding uses chain 16602 and the o
 
 PaymentVault uses `depositFor(address)` and `balanceOf(address)`. The distinct RouterPayment contract's `getUserBalance` getter must not be used against the vault. Sources: [0G deposits](https://docs.0g.ai/developer-hub/building-on-0g/compute-network/router/account/deposits), [official PC application](https://pc.0g.ai/), and its public network/ABI configuration. Read-only Galileo RPC confirmed the vault has deployed code and accepts `balanceOf` calls.
 
+## Native compute PaymentVault fork proof
+
+`node --import tsx scripts/verify-compute-funding-fork.ts` passed against an isolated Galileo fork at block `64138857`, using the actual deployed PaymentVault and the existing funding builder, submitter, receipt reconciler and persistent policy ledger. The source chain was read-only; only localhost Anvil received writes. Fresh generated wallets and synthetic local native balance were used, with no real private key read, public transaction or contract deployment.
+
+The verifier deposited 0.001 native 0G for the exact beneficiary. Actual local gas was 0.000064219000449533 0G, and the ledger settled 0.001064219000449533 once with no remaining reservation. The beneficiary's vault balance increased by exactly the deposit, an unrelated beneficiary stayed unchanged, and the owner wallet remained unfunded. The signed candidate hash was persisted before broadcast; SQLite was closed before settlement and reopened for real receipt recovery. The local-only hash was `0x76e710c73a9109439d03dd5c6f72ed036c36baba7f93542bd4eb7ca0fea3f069`.
+
+The management-read input was an explicitly labelled local test fixture, not a real Router response or a mocked Router service. Real management authentication and worker synchronization were not proved. The resulting credit status remained `awaiting-router-sync`, and another deposit was refused while that status was unresolved. This establishes actual deployed-vault execution and durable payment recovery, not spendable Router credits, production funding or service revenue paying inference.
+
 ## Private inference boundary
 
 Strict mode uses the official [0g-pc-e2ee verifier](https://github.com/0gfoundation/0g-pc-e2ee), inspected revision `c0e7d23f03adea19cbac36223bbeabe05cc8eaad`. The read-only verifier was built locally; it is not a runtime import from an ignored checkout.
