@@ -77,6 +77,7 @@ function AccountCard({
     (item) => item.accountId === account.id && item.status === "active",
   ) as Permission | undefined;
   const spot = account.venue === "uniswap";
+  const disabledPermissions = (w.agentData?.permissions ?? []).filter(item => item.accountId === account.id && item.status === "revoked" && item.expiresAt > Date.now()) as Permission[];
   const gas = tradingGasStatus(w.walletConfig, account.venue);
   const fundingRecoveryKey = `orcus:trading-deposit:${account.ownerAddress}:${account.id}`;
   const currentFundingKey = useRef(fundingRecoveryKey);
@@ -258,6 +259,20 @@ function AccountCard({
     }
   }
 
+  async function recoverDisabledGrant(previous: Permission) {
+    if (!previous.policy || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(`recover:${previous.id}`); setError(null);
+    try {
+      await revokeKernelPermission(previous.policy);
+      w.setNotice("Native removal of the previous signer was confirmed. Application status alone was not used as proof.");
+      await w.refresh();
+    } catch (cause) {
+      if (cause instanceof Error && "code" in cause && cause.code === "PENDING_APPROVAL_INVALIDATION_REQUIRED") setPendingPolicy(previous.policy);
+      setError(displayError(cause));
+    } finally { busyRef.current = false; setBusy(null); }
+  }
+
   return (
     <article className="settings-card account-card">
       <div className="card-heading">
@@ -368,7 +383,7 @@ function AccountCard({
               agent access
             </button>
           </div>
-          {spot && !gas.ready && <p className="warning-note">Native session revocation needs an executable sponsored operation. <button className="text-button" type="button" onClick={() => void w.control("pause")} disabled={w.agentData?.agent.paused}>Pause new agent actions now</button>; existing onchain authority remains until it is revoked.</p>}
+          {spot && !gas.ready && <p className="warning-note">Native session revocation needs an executable sponsored operation. <button className="text-button" type="button" onClick={() => void w.control("pause")} disabled={w.agentData?.agent.paused || w.controlling}>Pause new agent actions now</button>; existing onchain authority remains until it is revoked.</p>}
         </>
       ) : prepared ? (
         <div className="permission-review">
@@ -474,6 +489,16 @@ function AccountCard({
           </button>
         </div>
       )}
+      {!!disabledPermissions.length && <details className="technical-limits">
+        <summary>Review previously disabled or rotated signers</summary>
+        <p className="warning-note">Application disablement or key rotation does not prove native trading authority was removed. Check each previous signer in the venue or smart account, even after refreshing this page.</p>
+        {disabledPermissions.map(previous => <div className="evaluation" key={previous.id}>
+          <Address value={previous.agentAddress} />
+          <small>Application disabled / original expiry {new Date(previous.expiresAt).toLocaleString()}</small>
+          {spot && previous.policy && <button className="button secondary small" type="button" disabled={!!busy || !gas.ready} onClick={() => void recoverDisabledGrant(previous)}>{busy === `recover:${previous.id}` ? <Spinner /> : null}Review native removal in owner wallet</button>}
+          {!spot && <a className="text-link" href="https://app.hyperliquid-testnet.xyz/API" target="_blank" rel="noreferrer">Check this signer in native API wallet settings</a>}
+        </div>)}
+      </details>}
       <p className="permission-boundary">
         <ShieldCheck size={12} />
         {spot

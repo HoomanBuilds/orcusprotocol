@@ -29,7 +29,7 @@ export function Status({ value }: { value: string }) {
       ? "good"
       : /failed|rejected|revoked/.test(value)
         ? "bad"
-        : /pending|paused|unconfigured|unknown/.test(value)
+        : /pending|paused|unconfigured|unknown|expired|insufficient-budget/.test(value)
           ? "warn"
           : "neutral";
   return <Badge tone={tone}>{statusLabel(value)}</Badge>;

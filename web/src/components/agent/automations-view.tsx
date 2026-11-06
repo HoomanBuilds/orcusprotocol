@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { tradeRequestSchema } from "@orcus/core";
 import { Clock3, GitBranch, Plus, Power, ShieldCheck } from "lucide-react";
 import type { Workspace } from "@/lib/use-workspace";
 import { api, displayError } from "@/lib/api";
 import { time } from "@/lib/format";
+import { automationControl, automationFailure } from "@/lib/automation-ux";
 import {
   Badge,
   Empty,
@@ -31,6 +32,7 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
   const [notifications, setNotifications] = useState<Array<{ id: string; message: string; createdAt: number; readAt?: number }>>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
   const selectedAccount = w.session.accounts.find(account => account.id === (accountId || w.session.accounts[0]?.id));
 
   useEffect(() => {
@@ -43,6 +45,8 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
   }, [w.session.user?.id]);
 
   async function create() {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy("create");
     setError(null);
     try {
@@ -67,21 +71,26 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
     } catch (cause) {
       setError(displayError(cause));
     } finally {
+      busyRef.current = false;
       setBusy(null);
     }
   }
 
   async function readNotification(id: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(id);
     setError(null);
     try {
       await api(`/api/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ read: true }) });
       setNotifications(current => current.map(item => item.id === id ? { ...item, readAt: Date.now() } : item));
     } catch (cause) { setError(displayError(cause)); }
-    finally { setBusy(null); }
+    finally { busyRef.current = false; setBusy(null); }
   }
 
   async function toggle(id: string, status: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(id);
     setError(null);
     try {
@@ -95,6 +104,7 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
     } catch (cause) {
       setError(displayError(cause));
     } finally {
+      busyRef.current = false;
       setBusy(null);
     }
   }
@@ -113,7 +123,7 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
         <button
           className="button primary"
           type="button"
-          disabled={!w.session.user || !w.session.accounts.length}
+          disabled={!w.session.user || !w.session.accounts.length || !!busy}
           onClick={() => { setRequestKey(null); setCreating((value) => !value); }}
         >
           <Plus size={15} />
@@ -207,7 +217,7 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
               className="button primary"
               type="button"
               disabled={
-                busy === "create" || !name.trim() || !selectedAccount || (kind === "strategy" ? !instruction.trim() : kind === "dca" ? !amount.trim() || Number(amount) <= 0 : !symbol.trim() || !threshold.trim() || Number(threshold) <= 0)
+                !!busy || !name.trim() || !selectedAccount || (kind === "strategy" ? !instruction.trim() : kind === "dca" ? !amount.trim() || Number(amount) <= 0 : !symbol.trim() || !threshold.trim() || Number(threshold) <= 0)
               }
               onClick={() => void create()}
             >
@@ -221,7 +231,7 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
         <h2>Price alert notifications</h2>
         {notifications.slice(0, 20).map(item => <article className="automation-card" key={item.id}>
           <p>{item.message}</p><small>{time(item.createdAt)}</small>
-          {!item.readAt && <button className="button secondary small" type="button" disabled={busy === item.id} onClick={() => void readNotification(item.id)}>Mark read</button>}
+          {!item.readAt && <button className="button secondary small" type="button" disabled={!!busy} onClick={() => void readNotification(item.id)}>Mark read</button>}
         </article>)}
       </div>}
       {!w.automations.length ? (
@@ -255,26 +265,25 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
                   <h2>{job.name}</h2>
                   <span>
                     <Clock3 size={12} />
-                    Every {Math.round(job.intervalSeconds / 60)} min / next{" "}
-                    {time(job.nextRunAt)}
+                    Every {Math.round(job.intervalSeconds / 60)} min / {automationControl(job, !!w.agentData?.agent.paused).status === "active" ? `next ${time(job.nextRunAt)}` : "not scheduled"}
                   </span>
                 </div>
-                <Status value={job.status} />
+                <Status value={automationControl(job, !!w.agentData?.agent.paused).status} />
                 <button
                   className="icon-button"
                   type="button"
-                  aria-label={
-                    job.status === "active"
-                      ? "Pause automation"
-                      : "Resume automation"
-                  }
-                  disabled={busy === job.id}
+                  aria-label={automationControl(job, !!w.agentData?.agent.paused).label}
+                  title={automationControl(job, !!w.agentData?.agent.paused).detail}
+                  disabled={!!busy || automationControl(job, !!w.agentData?.agent.paused).disabled}
                   onClick={() => void toggle(job.id, job.status)}
                 >
                   {busy === job.id ? <Spinner /> : <Power size={15} />}
                 </button>
               </div>
               <p>{job.instruction}</p>
+              {job.expiresAt && <small>Expires {time(job.expiresAt)}</small>}
+              <p className="fine-print">{automationControl(job, !!w.agentData?.agent.paused).detail}</p>
+              <InlineError message={automationFailure(job)} />
               {job.lastEvaluation ? (
                 <div className="evaluation">
                   <span className="eyebrow">LATEST CRE EVALUATION</span>
