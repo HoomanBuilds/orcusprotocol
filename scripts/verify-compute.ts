@@ -19,6 +19,12 @@ async function request(path: string, body?: unknown, expectedError?: string) {
   const result = await response.json();
   if (expectedError) { assert.equal(result.error?.code, expectedError); assert.equal(response.ok, false); return result.error; }
   if (!response.ok) throw new Error(`${result.error?.code ?? response.status}: ${result.error?.message ?? "Application check failed"}`);
+  if (path === "agent/chat") {
+    const ledger = await request("budget");
+    assert.equal(ledger.reservedUsd, "0.000000", "Stop immediately: a model call still has unresolved billing");
+    assert.ok(ledger.expenses.every((expense: { status: string }) => expense.status === "settled"), "Stop immediately: not all model calls have verified settlement");
+    assert.ok(Number(ledger.spentUsd) <= 0.05, "The approved inference evaluation cap was exceeded");
+  }
   return result.data;
 }
 
