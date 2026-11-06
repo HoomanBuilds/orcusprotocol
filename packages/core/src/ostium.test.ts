@@ -25,6 +25,14 @@ describe("explicit Ostium request and authority contracts",()=>{
     expect(tradeRequestSchema.safeParse(edited).success).toBe(true);
     for(const change of[{orderId:undefined},{price:undefined},{takeProfit:undefined},{stopLoss:undefined}])expect(tradeRequestSchema.safeParse({...edited,...change}).success).toBe(false);
   });
+  it("allows zero only for exact native cancellation in explicit base units",()=>{
+    const cancel={...entry,type:"cancel",orderId:"pending-open:42",amount:"0",amountUnit:"base"};
+    expect(tradeRequestSchema.safeParse(cancel).success).toBe(true);
+    expect(tradeRequestSchema.safeParse({...cancel,amount:"0.000"}).success).toBe(true);
+    for(const change of[{orderId:undefined},{orderId:""},{amountUnit:undefined},{amountUnit:"collateral-usdc"},{type:"market"},{type:"limit",price:"4000"},{type:"edit-order",price:"4000",takeProfit:"0",stopLoss:"0"},{type:"close",positionId:"native-position"},{type:"reduce",positionId:"native-position"},{type:"add-collateral",positionId:"native-position",amountUnit:"collateral-usdc"},{type:"remove-collateral",positionId:"native-position",amountUnit:"collateral-usdc"}])expect(tradeRequestSchema.safeParse({...cancel,...change}).success).toBe(false);
+    for(const venue of["uniswap","hyperliquid"])expect(tradeRequestSchema.safeParse({accountId:"owned",venue,type:"cancel",orderId:"42",symbol:"ETH",side:"buy",amount:"0"}).success).toBe(false);
+    for(const amount of["-1","1e-6","","NaN"])expect(tradeRequestSchema.safeParse({...cancel,amount}).success).toBe(false);
+  });
   it.each(["stop-loss","take-profit"])("allows an explicit zero to clear a %s level without weakening other venues",type=>{
     const protection={...entry,type,positionId:"native-position",triggerPrice:"0"};
     expect(tradeRequestSchema.safeParse(protection).success).toBe(true);
