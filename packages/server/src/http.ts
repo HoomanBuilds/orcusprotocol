@@ -157,6 +157,10 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if (path === "accounts" && method === "GET") return json({ data: { accounts: platform.accounts(user) } });
     if (path === "accounts" && method === "POST") return json({ data: platform.createAccount(user, await readBody(request)) }, 201);
     if (path === "agent" && method === "GET") return json({ data: platform.agentState(user) });
+    if (path === "agent/requests" && method === "GET") return json({ data: platform.agentRequests(user) });
+    if (path === "agent/requests" && method === "POST") return json({ data: platform.enqueueChat(user, await readBody(request)) }, 202);
+    const agentRequestMatch=path.match(/^agent\/requests\/([^/]+)$/);
+    if(agentRequestMatch&&method==="GET")return json({data:platform.agentRequest(user,z.string().regex(/^[A-Za-z0-9][A-Za-z0-9:_-]{0,99}$/).parse(decodeURIComponent(agentRequestMatch[1])))});
     const runMatch=path.match(/^agent\/runs\/([^/]+)$/);
     if(runMatch&&method==="GET")return json({data:platform.runStatus(user,z.string().max(100).parse(runMatch[1]))});
     if (path === "agent/control" && method === "POST") {

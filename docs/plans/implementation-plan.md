@@ -7,7 +7,7 @@ Status: implementation and acceptance closeout. Serial post-reboot checks at `df
 
 Build a personal-agent trading platform. A user connects their wallet, authorizes their own agent, and can research, trade, automate and manage the same supported accounts through either the interface or conversation. The agent has its own operating wallet and separate, restricted trading credentials. The user's private key never leaves their wallet.
 
-The [product checklist](../specs/product-checklist.md) contains 67 implementation and acceptance items. Section 11 adds ten newly requested professional-workspace and session-recovery requirements to the earlier 57-item baseline. A check identifies implemented behavior with its stated evidence, not automatic external readiness. This revision replaces the former EF/Anon-RPC requirements with Chainlink CRE; all manual trading, agent, ownership, memory and budget capabilities remain. The passes below record execution order within the hackathon, not future product releases. Optional earned funding stays optional.
+The [product checklist](../specs/product-checklist.md) contains 75 implementation and acceptance items. Sections 11 and 12 add ten workspace/session-recovery requirements and eight venue-completeness requirements to the earlier 57-item baseline. A check identifies implemented behavior with its stated evidence, not automatic external readiness. This revision replaces the former EF/Anon-RPC requirements with Chainlink CRE; all manual trading, agent, ownership, memory and budget capabilities remain. The passes below record execution order within the hackathon, not future product releases. Optional earned funding stays optional.
 
 | Integration | Actual product responsibility | What we must demonstrate |
 | --- | --- | --- |
@@ -286,6 +286,19 @@ Requested follow-up scope: `C11.1`-`C11.10`. Update this checklist before implem
 - Keep one heavy verification lane under the existing 4 GiB aggregate memory cap. Use focused tests and typechecks, then one integrated browser review with desktop/mobile screenshots. No deployment, paid inference retry, public trade or permission grant is part of this follow-up.
 
 Exit: users navigate a coherent product, leave a request or submitted action, and return to accurate persisted progress or results. New checklist items carry precise implementation/verification scope; existing external gates stay visible.
+
+### P5c. Complete venue capabilities and expand to Ostium
+
+Requested follow-up scope: `C12.1`-`C12.8`. Target the full relevant trading surface of integrated venues, not an arbitrarily reduced demo. Inventory missing capabilities before implementation; documented API support is not product completion.
+
+- Verify current SDKs, testnet markets and deployed authorization behavior independently. Recommendations supplied later in the session include Ostium, GMX, Derive and CoW; evaluate their actual account, permission, funding and settlement models rather than treating them as interchangeable API URLs.
+- Ostium is the next implementation target because it can add non-crypto market exposure on Arbitrum Sepolia. Cover its supported order entry, position/order management, data/history, owner control and native delegated control through the existing execution/recovery boundaries. Do not claim actual stock or commodity ownership.
+- Treat SDK documentation and deployed code as separate evidence. In particular, the Ostium docs' delegate-rotation examples conflict with the initially inspected current testnet implementation's forbidden-selector checks. Verify the exact proxy/implementation and payout routing before deciding what a delegate can do. A signature-submission deadline is not necessarily a grant expiry.
+- Preserve all existing Uniswap/Hyperliquid agent capabilities. New venue-specific restrictions must be explicit and evidence-based, not a blanket downgrade of agent behavior. Do not silently grant broader native rights than the owner reviewed.
+- Keep manual owner signing interactive, exact token approvals bounded, testnet-only network validation explicit and position/order identifiers venue-specific. Use actual SDK builders, then independently validate their output instead of trusting arbitrary calldata.
+- Use worktree agents for implementation, review/merge logical commits and remove completed clean worktrees with recoverable branch/evidence retention. Keep tests focused and serial under the established memory cap. Do not run repeated full acceptance suites or public transactions merely to increase a completion count.
+
+Exit: real controls and persisted evidence cover the selected venue's supported trading workflow, and remaining SDK/testnet/deployment limitations are specific and visible in the capability matrix. No feature is checked off based on documentation alone.
 
 ### P6. Verify, package and rehearse
 

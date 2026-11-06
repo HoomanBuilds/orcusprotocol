@@ -1,4 +1,4 @@
-import type { ActionRecord, AgentPermission, AgentProfile, Automation, ChatMessage, PreparedAction, TradingAccount } from "@orcus/core";
+import type { ActionRecord, AgentPermission, AgentProfile, AgentRequest, Automation, ChatMessage, PreparedAction, TradingAccount } from "@orcus/core";
 import type { KernelGrantPolicy } from "@orcus/wallets/kernel";
 export type Document = Record<string, unknown>;
 export type StoredAgent = AgentProfile & { controlRevision: number; privateInferenceRequired: boolean; createdAt: number; updatedAt: number };
@@ -10,3 +10,13 @@ export type StoredAutomation = Automation & { kind?:"trade"|"alert";conditionAct
 export type StoredMessage = ChatMessage & { userId: string; updatedAt: number;automationProposal?:unknown;requestFingerprint?:string;accountId?:string };
 export interface StoredRecord { id: string; userId: string; createdAt: number; updatedAt: number; accountId?: string }
 export type StoredEvaluationRun = StoredRecord & { automationId:string;status:"running"|"completed"|"failed"|"interrupted";policyVersion?:number;controlRevision?:number;reason?:string;completedAt?:number };
+export type StoredAgentRequest = StoredRecord & {
+  requestId: string; runId: string; userMessageId: string; message: string; autonomous: boolean;
+  status: AgentRequest["status"]; requestFingerprint: string; expiresAt: number;
+  agentRevision: number; mode: AgentProfile["mode"]; privateInferenceRequired: boolean;
+  privateVerification: "independent-gateway" | "gateway-reported";
+  accountBindings: Array<{ id: string; controlRevision: number }>;
+  permissionBindings: Array<{ id: string; controlRevision: number; expiresAt: number }>;
+  startedAt?: number; heartbeatAt?: number; completedAt?: number; claimedBy?: string;
+  errorCode?: string; error?: string;
+};

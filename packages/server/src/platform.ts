@@ -10,13 +10,14 @@ import { callEngine } from "./engine";
 import { ApiError,errorMessage } from "./errors";
 import { createSigner,memoryKey,readSigner } from "./keystore";
 import { getStore,id,type Store } from "./store";
-import type { Document,StoredAccount,StoredAction,StoredAgent,StoredAutomation,StoredEvaluationRun,StoredMessage,StoredPermission } from "./types";
+import type { Document,StoredAccount,StoredAction,StoredAgent,StoredAgentRequest,StoredAutomation,StoredEvaluationRun,StoredMessage,StoredPermission } from "./types";
 import { AgentMemoryStore,rejectMemorySecrets } from "./memory";
 import { AgentRun,readAgentRunStatus } from "./agent-runtime";
 import { listStorageExpenses,recordStorageExpense } from "./storage-expenses";
 import { safeAgentToolSteps } from "./agent-evidence";
 import { selectStoragePayer,assertStoragePayerAllowance,publicStoragePayerMetadata } from "./storage-payer";
 import { createSessionSponsorship } from "./sponsorship";
+import { agentRequestSchema,agentRequestRecordId,agentRequestLease,agentRequestView,chatRequestFingerprint,chatRequestReference,listAgentRequests,queuedAgentRequests,readAgentRequest,recoverInterruptedAgentRequests,safeAgentRequestError,storedAgentRequest } from "./agent-requests";
 
 export const accountSchema=z.object({venue:z.enum(["uniswap","hyperliquid"]),address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
 export const automationSchema=z.object({kind:z.enum(["trade","alert"]).default("trade"),accountId:z.string(),name:z.string().min(1).max(80),instruction:z.string().min(1).max(2000).optional(),intervalSeconds:z.number().int().min(60).max(86400).default(300),request:tradeRequestSchema.optional(),condition:z.object({symbol:z.string().min(1).max(50),operator:z.enum(["above","below"]),price:z.string().max(80).regex(/^\d+(?:\.\d+)?$/).refine(value=>/[1-9]/.test(value),"Use a positive alert threshold")}).optional(),expiresAt:z.number().int().optional()}).strict().superRefine((value,ctx)=>{if(value.kind==="alert"&&(!value.condition||value.request))ctx.addIssue({code:"custom",message:"Price alerts require a condition and cannot contain a trade request."});if(value.kind==="trade"&&!value.request&&!value.instruction)ctx.addIssue({code:"custom",message:"Trading strategies require an instruction or an explicitly approved recurring request."});});
@@ -373,7 +374,8 @@ export class Platform {
     await Promise.all(actions.filter(action=>["submitting","submitted-unknown","pending","partially-filled"].includes(action.status)).slice(0,10).map(action=>this.reconcile(user,action)));
     return {actions:this.store.list<StoredAction>(user.id,"action",100)};
   }
-  async proposal(user:User,message:string,account:StoredAccount|undefined,reference:string,toolProfile:"interactive"|"strategy"="interactive"){
+  async proposal(user:User,message:string,account:StoredAccount|undefined,reference:string,toolProfile:"interactive"|"strategy"="interactive",assertCurrent?:()=>void){
+    assertCurrent?.();
     const recordId=`proposal:${user.id}:${reference}`;
     const cached=this.store.get<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"proposal",recordId)??this.store.get<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"proposal",reference);
     if(cached){
@@ -384,9 +386,12 @@ export class Platform {
     }
     const runtime=new AgentRun(this.store,user.id,reference,message,memoryId=>this.forgetMemory(user,memoryId));runtime.start();
     try{
-      const agent=this.agent(user),portfolio=await this.portfolio(user),history=this.store.list<StoredMessage>(user.id,"message",9).reverse();
-      if(history.at(-1)?.role==="user"&&history.at(-1)?.content===message)history.pop();
-      const result=await callEngine<AgentReply>("planWith0G",message,{...runtime.context(),toolProfile,evaluationId:reference,account,accounts:this.accounts(user),permissions:this.plannerPermissions(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired,privateVerification:agent.privateVerification??"independent-gateway"});
+      const agent=this.agent(user),portfolio=await this.portfolio(user);
+      const pendingPrompts=new Set(this.store.list<StoredAgentRequest>(user.id,"agent-request",100).filter(request=>request.status==="queued"||request.status==="running").map(request=>request.userMessageId));
+      pendingPrompts.add(`${reference}:user`);
+      const history=this.store.list<StoredMessage>(user.id,"message",20).filter(item=>!pendingPrompts.has(item.id)).slice(0,9).reverse();
+      const context=runtime.context();
+      const result=await callEngine<AgentReply>("planWith0G",message,{...context,modelBudget:{...context.modelBudget,beforeCall:async(input:{callId:string;maxTokens:number})=>{assertCurrent?.();await context.modelBudget.beforeCall(input);}},toolProfile,evaluationId:reference,account,accounts:this.accounts(user),permissions:this.plannerPermissions(user),portfolio,memory:{preferences:agent.preferences,notes:runtime.memory.context(message)},history:history.slice(-8).map(item=>({role:item.role,content:item.content.slice(0,2000)})),requirePrivate:agent.privateInferenceRequired,privateVerification:agent.privateVerification??"independent-gateway"});
       if(typeof result.message!=="string"||!result.message.trim())throw new ApiError("INVALID_AI_RESULT","The model did not return a valid response. No action was taken.",502);
       if(result.proposal){
         const selected=account??(this.accounts(user).length===1?this.accounts(user)[0]:undefined);
@@ -421,8 +426,89 @@ export class Platform {
     if(note?.source==="profile")this.control(user,{command:"update",preferences:""});
     return memory.forget(memoryId)||Boolean(note?.source==="profile");
   }
-  async chat(user:User,input:{message:string;accountId?:string;autonomous?:boolean;requestId?:string}){
+  agentRequests(user:User){return{requests:listAgentRequests(this.store,user.id)};}
+  agentRequest(user:User,requestId:string){return{request:readAgentRequest(this.store,user.id,requestId)};}
+  enqueueChat(user:User,input:unknown){
+    const data=agentRequestSchema.parse(input);
+    rejectMemorySecrets(data.message,{allowPublicHashes:true,code:"CREDENTIAL_INPUT_REJECTED"});
+    return this.store.db.transaction(()=>{
+      const fingerprint=chatRequestFingerprint(data),existing=storedAgentRequest(this.store,user.id,data.requestId);
+      if(existing){if(existing.requestFingerprint!==fingerprint)throw new ApiError("IDEMPOTENCY_CONFLICT","This request ID was already used for another instruction, account or execution mode.",409);return{request:agentRequestView(this.store,existing)};}
+      const agent=this.agent(user);if(data.accountId)this.account(user,data.accountId);
+      if(data.autonomous&&(agent.paused||agent.mode!=="autonomous"))throw new ApiError("AGENT_NOT_AUTHORIZED","Enable autonomous mode explicitly before requesting background execution.",403);
+      const ownerPending=this.store.db.prepare("SELECT COUNT(*) AS count FROM records WHERE user_id=? AND kind='agent-request' AND json_extract(body,'$.status') IN ('queued','running')").get(user.id)as{count:number};
+      const globalPending=this.store.db.prepare("SELECT COUNT(*) AS count FROM records WHERE kind='agent-request' AND json_extract(body,'$.status') IN ('queued','running')").get()as{count:number};
+      if(ownerPending.count>=5||globalPending.count>=100)throw new ApiError("AGENT_QUEUE_FULL","The agent queue is full. Wait for existing requests to finish instead of submitting duplicates.",429);
+      const reference=chatRequestReference(user.id,data.requestId),userMessageId=`${reference}:user`,prior=this.store.get<StoredMessage>(user.id,"message",userMessageId),answer=this.store.get<StoredMessage>(user.id,"message",`${reference}:assistant`);
+      if(prior&&prior.requestFingerprint!==fingerprint)throw new ApiError("IDEMPOTENCY_CONFLICT","This request ID already belongs to another or legacy chat instruction. Review its saved result instead of reusing the ID.",409);
+      const now=Date.now(),status=answer?"completed":prior?"interrupted":"queued";
+      if(!prior)this.store.put("message",{id:userMessageId,userId:user.id,role:"user",content:data.message,requestFingerprint:fingerprint,accountId:data.accountId,createdAt:now,updatedAt:now}satisfies StoredMessage);
+      const request:StoredAgentRequest={id:agentRequestRecordId(user.id,data.requestId),userId:user.id,...data,runId:reference,userMessageId,status,requestFingerprint:fingerprint,agentRevision:agent.controlRevision,mode:agent.mode,privateInferenceRequired:agent.privateInferenceRequired,privateVerification:agent.privateVerification??"independent-gateway",accountBindings:this.requestAccountBindings(user),permissionBindings:this.requestPermissionBindings(user),expiresAt:now+15*60_000,createdAt:now,updatedAt:now,...(status!=="queued"?{completedAt:now}:{}),...(status==="interrupted"?{errorCode:"AGENT_REQUEST_INTERRUPTED",error:"This instruction was already attempted. Review its saved result and billing; no inference or execution was repeated."}:{})};
+      this.store.put("agent-request",request);
+      return{request:agentRequestView(this.store,request)};
+    }).immediate();
+  }
+  private requestAccountBindings(user:User){return this.accounts(user).map(account=>({id:account.id,controlRevision:account.controlRevision})).sort((a,b)=>a.id.localeCompare(b.id));}
+  private requestPermissionBindings(user:User){return this.store.list<StoredPermission>(user.id,"permission").filter(permission=>permission.status==="active"&&permission.expiresAt>Date.now()).map(permission=>({id:permission.id,controlRevision:permission.controlRevision,expiresAt:permission.expiresAt})).sort((a,b)=>a.id.localeCompare(b.id));}
+  private assertAgentRequestBinding(user:User,request:StoredAgentRequest){
+    const agent=this.agent(user);
+    if(agent.controlRevision!==request.agentRevision||agent.mode!==request.mode||agent.privateInferenceRequired!==request.privateInferenceRequired||(agent.privateVerification??"independent-gateway")!==request.privateVerification||JSON.stringify(this.requestAccountBindings(user))!==JSON.stringify(request.accountBindings)||JSON.stringify(this.requestPermissionBindings(user))!==JSON.stringify(request.permissionBindings))throw new ApiError("AGENT_REQUEST_CHANGED","Queued request authority changed.",409);
+    if(request.accountId)this.account(user,request.accountId);
+  }
+  async tickAgentRequests(assertTick:()=>void){
+    assertTick();
+    const results:Document[]=[],recovered=recoverInterruptedAgentRequests(this.store);
+    if(recovered)results.push({kind:"agent-request",status:"interrupted",count:recovered});
+    for(const candidate of queuedAgentRequests(this.store)){
+      assertTick();
+      const thread=this.store.db.prepare("SELECT expires_at FROM leases WHERE scope=?").get(`agent-thread:${candidate.userId}`)as{expires_at:number}|undefined;
+      if(thread&&thread.expires_at>Date.now())continue;
+      const holder=id(),scope=agentRequestLease(candidate.id),leaseMs=180_000;
+      const claimed=this.store.db.transaction(()=>{
+        const current=this.store.get<StoredAgentRequest>(candidate.userId,"agent-request",candidate.id);
+        if(!current||current.status!=="queued"||!this.store.takeLease(scope,holder,leaseMs))return;
+        const now=Date.now();return this.store.update<StoredAgentRequest>(candidate.userId,"agent-request",candidate.id,{status:"running",claimedBy:holder,startedAt:now,heartbeatAt:now,error:undefined,errorCode:undefined});
+      }).immediate();
+      if(!claimed)continue;
+      let leaseLost=false;
+      const assertCurrent=()=>{
+        assertTick();const current=this.store.get<StoredAgentRequest>(claimed.userId,"agent-request",claimed.id);
+        if(leaseLost||!current||current.status!=="running"||current.claimedBy!==holder||!this.store.renewLease(scope,holder,leaseMs))throw new ApiError("AGENT_LEASE_LOST","The queued request no longer holds execution authority.",409);
+        const user=this.storedUser(claimed.userId);if(!user)throw new ApiError("AGENT_REQUEST_NOT_FOUND","The queued request owner is unavailable.",404);
+        this.assertAgentRequestBinding(user,claimed);
+      };
+      const timer=setInterval(()=>{
+        if(!this.store.renewLease(scope,holder,leaseMs)){leaseLost=true;return;}
+        const current=this.store.get<StoredAgentRequest>(claimed.userId,"agent-request",claimed.id);
+        if(current?.status==="running"&&current.claimedBy===holder)this.store.update<StoredAgentRequest>(claimed.userId,"agent-request",claimed.id,{heartbeatAt:Date.now()});
+      },30_000);timer.unref();
+      try{
+        if(claimed.expiresAt<=Date.now())throw new ApiError("AGENT_REQUEST_EXPIRED","The queued instruction expired.",409);
+        assertCurrent();const user=this.storedUser(claimed.userId)!;
+        await this.chat(user,{message:claimed.message,accountId:claimed.accountId,autonomous:claimed.autonomous,requestId:claimed.requestId},{requestId:claimed.requestId,assertCurrent});
+        assertCurrent();this.store.update<StoredAgentRequest>(user.id,"agent-request",claimed.id,{status:"completed",completedAt:Date.now()});
+        results.push({kind:"agent-request",requestId:claimed.requestId,status:"completed"});
+      }catch(error){
+        const latest=this.store.get<StoredAgentRequest>(claimed.userId,"agent-request",claimed.id);
+        if(latest?.status==="running"&&latest.claimedBy===holder){
+          const safe=safeAgentRequestError(error),expense=this.store.db.prepare("SELECT id,status FROM expenses WHERE user_id=? AND (reference=? OR reference LIKE ?) ORDER BY status='unknown' DESC,status='reserved' DESC LIMIT 1").get(claimed.userId,claimed.runId,`${claimed.runId}:model:%`)as{id:string;status:string}|undefined;
+          if(safe.errorCode==="AGENT_BUSY"&&!expense)this.store.update<StoredAgentRequest>(claimed.userId,"agent-request",claimed.id,{status:"queued",startedAt:undefined,heartbeatAt:undefined,claimedBy:undefined});
+          else{
+            const answer=this.store.get<StoredMessage>(claimed.userId,"message",`${claimed.runId}:assistant`),action=answer?.actionId?this.store.get<StoredAction>(claimed.userId,"action",answer.actionId):undefined;
+            const interrupted=expense?.status==="unknown"||expense?.status==="reserved"&&(readAgentRunStatus(this.store,claimed.userId,claimed.runId)?.modelCalls??0)>0||action&&["submitting","submitted-unknown","pending","partially-filled"].includes(action.status)||["AGENT_REQUEST_CHANGED","AGENT_LEASE_LOST","WORKER_LEASE_LOST","INFERENCE_OUTCOME_UNKNOWN","EVALUATION_PENDING","ACTION_RECONCILIATION_REQUIRED"].includes(safe.errorCode),status=interrupted?"interrupted":"failed";
+            this.store.update<StoredAgentRequest>(claimed.userId,"agent-request",claimed.id,{status,completedAt:Date.now(),...safe});
+            results.push({kind:"agent-request",requestId:claimed.requestId,status});
+          }
+        }
+      }finally{clearInterval(timer);this.store.releaseLease(scope,holder);}
+      break;
+    }
+    return results;
+  }
+  async chat(user:User,input:{message:string;accountId?:string;autonomous?:boolean;requestId?:string},background?:{requestId:string;assertCurrent:()=>void}){
     rejectMemorySecrets(input.message,{allowPublicHashes:true,code:"CREDENTIAL_INPUT_REJECTED"});
+    if(input.requestId&&storedAgentRequest(this.store,user.id,input.requestId)&&background?.requestId!==input.requestId)throw new ApiError("AGENT_REQUEST_EXISTS","This instruction is already persisted. Read its existing request instead of resubmitting it.",409);
+    background?.assertCurrent();
     const reference=input.requestId?createHash("sha256").update(`${user.id}|chat|${input.requestId}`).digest("hex"):id();
     const requestFingerprint=createHash("sha256").update(JSON.stringify({message:input.message,accountId:input.accountId??null,autonomous:input.autonomous??false})).digest("hex");
     const priorUserMessage=this.store.get<StoredMessage>(user.id,"message",`${reference}:user`);
@@ -435,12 +521,14 @@ export class Platform {
     }
     const agent=this.agent(user),account=input.accountId?this.account(user,input.accountId):undefined;
     if(!priorUserMessage)this.store.put("message",{id:`${reference}:user`,userId:user.id,role:"user",content:input.message,requestFingerprint,accountId:input.accountId,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
-    const result=await this.proposal(user,input.message,account,reference);
+    const result=await this.proposal(user,input.message,account,reference,"interactive",background?.assertCurrent);
     let message:StoredMessage=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,privacy:result.privacy,privacyEvidence:result.privacyEvidence,toolSteps:safeAgentToolSteps(result.toolTrace),createdAt:priorAssistant?.createdAt??Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
+    background?.assertCurrent();
     let action:StoredAction|undefined;
     if(result.proposal&&input.autonomous&&agent.mode==="autonomous"&&!agent.paused){
       const prepared=await this.prepare(user,result.proposal,`chat:${reference}`,"agent",{instruction:input.message,providerRequestId:result.requestId,messageId:message.id});
       message=this.store.update<StoredMessage>(user.id,"message",message.id,{actionId:prepared.action.id});
+      background?.assertCurrent();
       action=(await this.submit(user,{actionId:prepared.action.id})).action;
     }
     return {message,proposal:result.proposal,automationProposal:result.automationProposal,runId:reference,requestId:result.requestId,requestIds:result.requestIds,modelCalls:result.modelCalls,requiresClarification:result.requiresClarification,action};
@@ -607,6 +695,7 @@ export class Platform {
         clearInterval(timer);this.store.releaseLease(scope,holder);
       }
     }
+    results.push(...await this.tickAgentRequests(assertTick));
     return {processed:results.length,results,reconciled,observedAt:Date.now()};
     }finally{clearInterval(tickTimer);this.store.releaseLease(tickScope,tickHolder);}
   }
