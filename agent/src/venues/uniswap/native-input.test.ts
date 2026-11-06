@@ -23,6 +23,15 @@ beforeEach(()=>{
 });
 
 describe("atomic native ETH swap planning",()=>{
+  it.each(["BTC/USDC","ETH/USDC","USDC/WETH","WETH","USDC"])("rejects unsupported spot symbol %s without querying or quoting another asset",async symbol=>{
+    await expect(prepareUniswapAction({...request(),symbol,nativeInput:undefined},account)).rejects.toMatchObject({code:"UNSUPPORTED_MARKET"});
+    expect(rpc.getChainId).not.toHaveBeenCalled();expect(rpc.readContract).not.toHaveBeenCalled();expect(rpc.simulateContract).not.toHaveBeenCalled();
+  });
+  it.each(["buy","sell"]as const)("rejects an explicit token pair opposite to the reviewed %s direction",async side=>{
+    const cfg=engineConfig().uniswap;
+    await expect(prepareUniswapAction({...request(),side,nativeInput:undefined,tokenIn:side==="buy"?cfg.weth:cfg.usdc,tokenOut:side==="buy"?cfg.usdc:cfg.weth},account)).rejects.toMatchObject({code:"TOKEN_DIRECTION_MISMATCH"});
+    expect(rpc.getChainId).not.toHaveBeenCalled();expect(rpc.readContract).not.toHaveBeenCalled();expect(rpc.simulateContract).not.toHaveBeenCalled();
+  });
   it("prepends only the exact WETH deposit and preserves exact allowance and protected output",async()=>{
     const prepared=await prepareUniswapAction(request(),account),cfg=engineConfig().uniswap;
     expect(prepared.kind).toBe("user-operation");expect(prepared.transactions).toHaveLength(3);

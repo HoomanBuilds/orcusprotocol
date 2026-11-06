@@ -52,16 +52,16 @@ export async function getUniswapPortfolio(account: TradingAccount): Promise<Acco
 async function quoteTokens(action: TradeRequest) {
   const cfg = engineConfig().uniswap;
   const symbol = action.symbol.toUpperCase();
-  const baseToken = symbol.startsWith("USDC") ? cfg.usdc : cfg.weth;
-  const quoteToken = symbol.startsWith("USDC") ? cfg.weth : cfg.usdc;
-  const inputDefault = action.side === "buy" ? quoteToken : baseToken;
-  const outputDefault = action.side === "buy" ? baseToken : quoteToken;
+  if (symbol !== "WETH/USDC") throw new EngineError("UNSUPPORTED_MARKET", "This Sepolia spot integration supports only WETH/USDC. Native ETH input requires its explicit wrap option.");
+  const inputDefault = action.side === "buy" ? cfg.usdc : cfg.weth;
+  const outputDefault = action.side === "buy" ? cfg.weth : cfg.usdc;
   const tokenIn = getAddress(action.tokenIn ?? inputDefault);
   const tokenOut = getAddress(action.tokenOut ?? outputDefault);
   if(action.nativeInput&&(!isAddressEqual(tokenIn,cfg.weth)||!isAddressEqual(tokenOut,cfg.usdc)))throw new EngineError("NATIVE_INPUT_PAIR_UNSUPPORTED","Native ETH input must wrap the verified WETH token and swap into USDC.");
   if (isAddressEqual(tokenIn, tokenOut)) throw new EngineError("SAME_TOKEN", "Choose two different swap assets.");
   const supported = [cfg.weth, cfg.usdc].map(a => a.toLowerCase());
   if (![tokenIn, tokenOut].every(a => supported.includes(a.toLowerCase()))) throw new EngineError("UNSUPPORTED_TOKEN", "This build supports verified Sepolia WETH and USDC for swaps.");
+  if (!isAddressEqual(tokenIn, inputDefault) || !isAddressEqual(tokenOut, outputDefault)) throw new EngineError("TOKEN_DIRECTION_MISMATCH", "The explicit tokens contradict the reviewed WETH/USDC buy or sell direction.");
   const rpc = await verifiedClient();
   const [inputDecimals, outputDecimals] = await Promise.all([
     rpc.readContract({ address: tokenIn, abi: erc20Abi, functionName: "decimals" }),
