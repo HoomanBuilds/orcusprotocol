@@ -3400,7 +3400,7 @@ td > small.negative {
   .automation-approval-card { padding: 16px; }
   .automation-policy-summary > div { grid-template-columns: 76px minmax(0, 1fr); gap: 12px; }
   .agent-response { font-size: 13px; }
-  .agent-source-list a { min-height: 36px; }
+  .agent-source-list a { min-height: 44px; }
   .agent-model-selector { padding: 8px 14px; }
-  .agent-model-selector select { max-width: 210px; min-height: 40px; }
+  .agent-model-selector select { max-width: 210px; min-height: 44px; }
 }
