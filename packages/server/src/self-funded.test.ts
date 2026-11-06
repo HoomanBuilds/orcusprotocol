@@ -30,6 +30,24 @@ describe("self-funded execution configuration", () => {
     for (const field of ["paymaster", "paymasterData", "paymasterVerificationGasLimit", "paymasterPostOpGasLimit", "paymasterAndData"]) expect(() => assertNoPaymaster({ [field]: "0x" })).toThrow(expect.objectContaining({ code: "SPONSORSHIP_DISABLED" }));
     expect(() => assertNoPaymaster({ sender: "0x1111111111111111111111111111111111111111" })).not.toThrow();
   });
+  it("returns JSON403 for authenticated sponsored bundler input instead of rejecting the handler promise", async () => {
+    const store = new Store(":memory:"), origin = "http://localhost:3000";
+    const user = store.ensureUser("0x1111111111111111111111111111111111111111");
+    const challenge = store.createChallenge(user.address, origin), session = store.createSession(challenge.id, user.address);
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    vi.stubEnv("ORCUS_APP_URL", origin);
+    vi.stubEnv("BUNDLER_RPC_URL", "https://bundler.example/rpc");
+    try {
+      const response = await handleRequest(new Request(`${origin}/api/bundler`, {
+        method: "POST", headers: { Origin: origin, Cookie: `orcus_session=${session.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendUserOperation", params: [{ sender: accountAddress, paymaster: accountAddress }, "0x0000000071727De22E5E9d8BAf0edAc6f37da032"] }),
+      }), store);
+      expect(response.status).toBe(403);
+      expect(response.headers.get("Content-Type")).toBe("application/json");
+      expect(await response.json()).toMatchObject({ error: { code: "SPONSORSHIP_DISABLED" } });
+      expect(fetch).not.toHaveBeenCalled();
+    } finally { store.db.close(); }
+  });
   it("disables authenticated sponsor endpoints without making any external requests", async () => {
     const store = new Store(":memory:"), origin = "http://localhost:3000";
     const user = store.ensureUser("0x1111111111111111111111111111111111111111");

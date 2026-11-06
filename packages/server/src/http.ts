@@ -149,8 +149,8 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if (path === "auth/logout" && method === "POST") { const token = sessionToken(request); if (token) store.logout(token); return json({ data: { loggedOut: true } }, 200, { "Set-Cookie": cookie("", request, true) }); }
     if (path === "session" && method === "GET") { const user = store.session(sessionToken(request)); return json({ data: user ? platform.session(user) : { user: null, agent: null, accounts: [] } }); }
     const user = requireUser(request, store);
-    if (path === "rpc" && method === "POST") return proxyRpc(request, user, platform, false);
-    if (path === "bundler" && method === "POST") return proxyRpc(request, user, platform, true);
+    if (path === "rpc" && method === "POST") return await proxyRpc(request, user, platform, false);
+    if (path === "bundler" && method === "POST") return await proxyRpc(request, user, platform, true);
     if (path === "paymaster" || path.startsWith("gas-sponsorship")) throw new ApiError("SPONSORSHIP_DISABLED", "Gas sponsorship is disabled. Trading accounts pay their own network fees.", 410);
     if (path === "portfolio" && method === "GET") return json({ data: await platform.portfolio(user) });
     if (path === "activity" && method === "GET") return json({ data: await platform.activity(user) });
