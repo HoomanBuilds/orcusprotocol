@@ -31,6 +31,11 @@ describe("durable worker coordination",()=>{
       expect(store.list(user.id,"message")).toHaveLength(0);
       expect(store.db.prepare("SELECT COUNT(*) AS count FROM expenses").get()).toEqual({count:0});
       expect(engine).not.toHaveBeenCalled();
+      const account=platform.createAccount(user,{venue:"hyperliquid"});
+      expect(()=>platform.createAutomation(user,{kind:"alert",accountId:account.id,name:"Credential test",instruction:`Use sk-${"generated".repeat(4)}`,condition:{symbol:"ETH",operator:"above",price:"2000"}})).toThrow("credentials");
+      const alert=platform.createAutomation(user,{kind:"alert",accountId:account.id,name:"Safe alert",condition:{symbol:"ETH",operator:"above",price:"2000"}});
+      expect(()=>platform.updateAutomation(user,alert.id,{instruction:`api_key=mk-${"generated".repeat(4)}`})).toThrow("credentials");
+      expect(store.get<StoredAutomation>(user.id,"automation",alert.id)?.instruction).not.toContain("generated");
     }finally{engine.mockRestore();store.db.close();}
   });
   it("persists the active evaluation before calling CRE and serializes overlapping ticks",async()=>{

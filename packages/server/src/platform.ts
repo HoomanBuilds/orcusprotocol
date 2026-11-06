@@ -225,7 +225,7 @@ export class Platform {
           if(typeof wallets.submitKernelSessionAction!=="function")throw new ApiError("SESSION_UNCONFIGURED","Kernel delegated execution is not configured.",503);
           assertAuthority();
           result=await (wallets.submitKernelSessionAction as (...args:unknown[])=>Promise<typeof result>)(fresh,key,permission.authorization,(evidence:{userOperationHash:string})=>{action=this.store.update<StoredAction>(user.id,"action",action!.id,{status:"pending",userOperationHash:evidence.userOperationHash});},assertAuthority);
-        }else {assertAuthority();result=await callEngine("submitAgentAction",fresh,current,key);}
+        }else {assertAuthority();result=await callEngine("submitAgentAction",fresh,current,key,{assertAuthority});}
         action=this.store.update<StoredAction>(user.id,"action",action.id,{status:result.status??"pending",transactionHash:result.transactionHash??result.txHash??action.transactionHash,userOperationHash:result.userOperationHash??action.userOperationHash,orderId:result.orderId,evidence:result.evidence});
         return {action:await this.reconcile(user,action)};
       }catch(error){
@@ -322,7 +322,9 @@ export class Platform {
   notifications(user:User){const notifications=this.store.list<Document&{readAt?:number}>(user.id,"notification",100);return{notifications,unreadCount:notifications.filter(item=>!item.readAt).length};}
   readNotification(user:User,notificationId:string){return this.store.update<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"notification",notificationId,{readAt:Date.now()});}
   createAutomation(user:User,input:unknown,idempotencyKey?:string){
-    const data=automationSchema.parse(input),fingerprint=createHash("sha256").update(canonicalJson(data)).digest("hex"),automationId=idempotencyKey?createHash("sha256").update(`${user.id}|automation|${idempotencyKey}`).digest("hex"):id();
+    const data=automationSchema.parse(input);
+    if(data.instruction)rejectMemorySecrets(data.instruction,{allowPublicHashes:true,code:"CREDENTIAL_INPUT_REJECTED"});
+    const fingerprint=createHash("sha256").update(canonicalJson(data)).digest("hex"),automationId=idempotencyKey?createHash("sha256").update(`${user.id}|automation|${idempotencyKey}`).digest("hex"):id();
     return this.store.db.transaction(()=>{
     const existing=this.store.get<StoredAutomation>(user.id,"automation",automationId);
     if(existing){if(existing.inputFingerprint!==fingerprint)throw new ApiError("IDEMPOTENCY_CONFLICT","This acceptance ID was already used for a different automation.",409);return existing;}
@@ -338,6 +340,7 @@ export class Platform {
     }).immediate();
   }
   updateAutomation(user:User,automationId:string,input:{status?:"active"|"paused";instruction?:string;intervalSeconds?:number}){
+    if(input.instruction)rejectMemorySecrets(input.instruction,{allowPublicHashes:true,code:"CREDENTIAL_INPUT_REJECTED"});
     const automation=this.store.get<StoredAutomation>(user.id,"automation",automationId);if(!automation)throw new ApiError("NOT_FOUND","Automation not found.",404);
     if(input.status==="active"&&(this.agent(user).paused||automation.expiresAt<=Date.now()))throw new ApiError("AUTOMATION_UNAVAILABLE","Resume the agent and renew expired permissions before activating this strategy.",409);
     return this.store.update<StoredAutomation>(user.id,"automation",automationId,{...input,policyVersion:automation.policyVersion+1,nextRunAt:Date.now()});

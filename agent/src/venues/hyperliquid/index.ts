@@ -149,7 +149,7 @@ export async function submitHyperliquidAgentAction(prepared: PreparedAction, acc
     isTestnet: true,
     async request<T>(endpoint: "info" | "exchange", payload: unknown, signal?: AbortSignal): Promise<T> {
       await assertReady();
-      sendAttempted = true;
+      if (endpoint === "exchange") sendAttempted = true;
       return transport.request<T>(endpoint, payload, signal);
     },
   };

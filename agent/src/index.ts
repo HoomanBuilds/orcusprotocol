@@ -33,13 +33,13 @@ export function getCandles(input: { venue?: Venue; symbol: string; interval?: st
 export function getOrderBook(symbol: string) { return getHyperliquidBook(symbol); }
 export function prepareAction(action: TradeRequest, account: TradingAccount) { return action.venue === "uniswap" ? prepareUniswapAction(action, account) : prepareHyperliquidAction(action, account); }
 
-export async function submitAgentAction(prepared: PreparedAction, account: TradingAccount, privateKey: string, options?: { authorization?: unknown }) {
+export async function submitAgentAction(prepared: PreparedAction, account: TradingAccount, privateKey: string, options?: { authorization?: unknown; assertAuthority?: () => void | Promise<void> }) {
   if (account.status !== "authorized" || prepared.account.id !== account.id || prepared.controlRevision !== account.controlRevision || prepared.expiresAt <= Date.now()) throw new EngineError("AUTHORIZATION_REQUIRED", "Current authorization and a fresh action are required before agent signing.");
-  if (account.venue === "hyperliquid") return submitHyperliquidAgentAction(prepared, account, privateKey);
+  if (account.venue === "hyperliquid") return submitHyperliquidAgentAction(prepared, account, privateKey, options);
   if (!account.smartAccountAddress || !options?.authorization) throw new EngineError("SESSION_REQUIRED", "Agent spot execution requires an explicit bounded smart-account session grant.");
   const moduleName = "@orcus/wallets/server";
   const { submitKernelSessionAction } = await import(moduleName);
-  return submitKernelSessionAction(prepared, privateKey, options.authorization);
+  return submitKernelSessionAction(prepared, privateKey, options.authorization, undefined, options.assertAuthority);
 }
 
 export function reconcileAction(action: { transactionHash?: string; txHash?: string; userOperationHash?: string; orderId?: string; id?: string; prepared?: PreparedAction }, account: TradingAccount) {
