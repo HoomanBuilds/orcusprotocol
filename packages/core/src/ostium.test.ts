@@ -29,6 +29,7 @@ describe("explicit Ostium request and authority contracts",()=>{
     const protection={...entry,type,positionId:"native-position",triggerPrice:"0"};
     expect(tradeRequestSchema.safeParse(protection).success).toBe(true);
     expect(tradeRequestSchema.safeParse({...protection,positionId:undefined}).success).toBe(false);
+    expect(tradeRequestSchema.safeParse({...protection,...(type==="stop-loss"?{takeProfit:"2000"}:{stopLoss:"2000"})}).success).toBe(false);
     expect(tradeRequestSchema.safeParse({accountId:"owned",venue:"hyperliquid",type,symbol:"ETH",side:"sell",amount:"1",triggerPrice:"0"}).success).toBe(false);
   });
   it.each([2.5,21])("retains Hyperliquid's integer 20x bound for %s",leverage=>{

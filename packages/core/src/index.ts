@@ -51,6 +51,7 @@ export const tradeRequestSchema = z.object({
   if(value.type==="stop-loss"||value.type==="take-profit"){
     const level=value.type==="stop-loss"?value.stopLoss:value.takeProfit;
     if(level===undefined&&value.triggerPrice===undefined||level!==undefined&&value.triggerPrice!==undefined&&level!==value.triggerPrice)context.addIssue({code:"custom",message:"Provide one unambiguous protective level; zero explicitly clears it."});
+    if(value.type==="stop-loss"&&value.takeProfit!==undefined||value.type==="take-profit"&&value.stopLoss!==undefined)context.addIssue({code:"custom",message:"Change only the selected protective level in this action."});
   }
 });
 export type TradeRequest = z.infer<typeof tradeRequestSchema>;
@@ -201,7 +202,7 @@ export interface OstiumExecution {
   trader: string; recipient: string; chainId: 421614; pairId: number; symbol: string;
   positionId?: string; positionIndex?: number; orderIndex?: number; positionSize?: string; closePercentBps?: number;
   amountUnit: "base" | "collateral-usdc"; requiredAllowanceUsd: string; collateralUsd: string; notionalUsd: string;
-  leverage: number; builderFeeBps: 0; marketObservedAt: number; functionName: string; expectedData: `0x${string}`;
+  leverage: number; builderFeeBps: 0; marketObservedAt: number; minimumBlock: string; functionName: string; expectedData: `0x${string}`;
   delegate?: string; ownerOnly?: boolean; preview?: Record<string, unknown>;
 }
 
@@ -225,9 +226,22 @@ export interface ActionRecord {
   userOperationHash?: string;
   orderId?: string;
   providerRequestId?: string;
+  approvals?: ActionApprovalStep[];
   error?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ActionApprovalStep {
+  index: number; transactionHash?: string; amountUsd: string; token: string; spender: string;
+  status: "submitting" | "pending" | "confirmed" | "rejected" | "submitted-unknown"; updatedAt: number;
+}
+
+export interface OstiumAllowanceIntent {
+  id: string; accountId: string; trader: string; chainId: 421614; token: string; spender: string;
+  amountUsd: string; amountRaw: string; transaction: EvmTransaction; expiresAt: number; notBefore: number; minimumBlock?: string;
+  status: "prepared" | "submitting" | "pending" | "submitted-unknown" | "confirmed" | "rejected" | "cancelled";
+  transactionHash?: string; error?: string; createdAt: number; updatedAt: number;
 }
 
 export interface AgentProfile {

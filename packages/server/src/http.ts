@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { getAddress, verifyMessage, type Hex } from "viem";
 import { z } from "zod";
-import type { HealthStatus, Market, MarketCandle, User } from "@orcus/core";
+import { tradeActionSchema,venueSchema,type HealthStatus,type Market,type MarketCandle,type User } from "@orcus/core";
 import { callEngine } from "./engine";
 import { ApiError } from "./errors";
 import { Platform } from "./platform";
@@ -11,11 +11,12 @@ import { entryPoint } from "@orcus/wallets/kernel";
 import { gasSponsorConfig } from "./sponsorship-config";
 import { cancelServicePayment, createServicePayment, reconcileServicePayment, recordServicePaymentSubmission, servicePaymentSummary } from "./service-payments";
 import { reconcileComputeExpense } from "./budget";
+import { cancelOstiumAllowance,listOstiumAllowances,prepareOstiumAllowance,reconcileOstiumAllowance,submitOstiumAllowance } from "./ostium-allowances";
 
 const COOKIE = "orcus_session";
 const address = z.string().regex(/^0x[\da-fA-F]{40}$/);
 const decimal = z.string().max(80).regex(/^\d+(?:\.\d+)?$/);
-const actionTypes = z.enum(["swap", "market", "limit", "cancel", "reduce", "close", "stop-loss", "take-profit"]);
+const actionTypes = tradeActionSchema;
 
 export function json(data: unknown, status = 200, headers?: HeadersInit) {
   return new Response(JSON.stringify(data, (_, value) => typeof value === "bigint" ? value.toString() : value), {
@@ -114,16 +115,20 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
       return json({ data: { chainId: 11155111, rpcUrl: "/api/rpc", bundlerUrl: "/api/bundler", smartAccountsConfigured: gasSponsorship.configured, gasSponsorship, router, weth, usdc, quoter, factory, rpcUrlConfigured: Boolean(process.env.SEPOLIA_RPC_URL ?? process.env.SEPOLIA_RPC) } });
     }
     if (path === "markets" && method === "GET") {
-      const venue = z.enum(["uniswap", "hyperliquid"]).parse(url.searchParams.get("venue") ?? "hyperliquid");
+      const venue = venueSchema.parse(url.searchParams.get("venue") ?? "hyperliquid");
       return json({ data: { markets: await callEngine<Market[]>("getMarkets", venue) } });
     }
     if (path === "candles" && method === "GET") {
-      const venue = z.enum(["uniswap", "hyperliquid"]).parse(url.searchParams.get("venue") ?? "hyperliquid");
+      const venue = venueSchema.parse(url.searchParams.get("venue") ?? "hyperliquid");
       const symbol = z.string().min(1).max(50).parse(url.searchParams.get("symbol") ?? "BTC");
       const interval = z.enum(["1m", "5m", "15m", "1h", "4h", "1d"]).parse(url.searchParams.get("interval") ?? "1h");
       return json({ data: { candles: await callEngine<MarketCandle[]>("getCandles", { venue, symbol, interval }) } });
     }
-    if (path === "orderbook" && method === "GET") return json({ data: await callEngine("getOrderBook", z.string().min(1).max(50).parse(url.searchParams.get("symbol") ?? "BTC")) });
+    if (path === "orderbook" && method === "GET") {
+      const venue=venueSchema.parse(url.searchParams.get("venue")??"hyperliquid");
+      if(venue!=="hyperliquid")throw new ApiError("ORDER_BOOK_UNAVAILABLE","This venue does not expose a supported order book; no other venue's data is substituted.",503);
+      return json({ data: await callEngine("getOrderBook", z.string().min(1).max(50).parse(url.searchParams.get("symbol") ?? "BTC")) });
+    }
     const store = suppliedStore ?? getStore(), platform = new Platform(store);
     if (path === "internal/tick" && method === "POST") { internalAuth(request); return json({ data: await platform.tick() }); }
     if (["POST", "PATCH", "DELETE"].includes(method)) requestOrigin(request);
@@ -156,6 +161,19 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if (path === "activity" && method === "GET") return json({ data: await platform.activity(user) });
     if (path === "accounts" && method === "GET") return json({ data: { accounts: platform.accounts(user) } });
     if (path === "accounts" && method === "POST") return json({ data: platform.createAccount(user, await readBody(request)) }, 201);
+    const historyAccount=path.match(/^accounts\/([^/]+)\/history$/);
+    if(historyAccount&&method==="GET"){
+      const account=platform.account(user,z.string().min(1).max(100).parse(historyAccount[1]));
+      if(account.venue!=="ostium")throw new ApiError("HISTORY_UNAVAILABLE","This route supports native Ostium history only; shared app activity remains separate.",503);
+      return json({data:{accountId:account.id,venue:account.venue,history:await callEngine("getOstiumHistory",account)}});
+    }
+    if(path==="ostium/allowances"&&method==="GET")return json({data:listOstiumAllowances(store,user)});
+    if(path==="ostium/allowances/prepare"&&method==="POST")return json({data:await prepareOstiumAllowance(store,user,await readBody(request))},201);
+    if(["ostium/allowances/submit","ostium/allowances/reconcile","ostium/allowances/cancel"].includes(path)&&method==="POST"){
+      const input=z.object({intentId:z.string().min(1).max(150),transactionHash:z.string().regex(/^0x[\da-fA-F]{64}$/).optional(),ownerRejected:z.literal(true).optional()}).strict().parse(await readBody(request));
+      if(input.ownerRejected&&!path.endsWith("/cancel")||input.transactionHash&&path.endsWith("/cancel"))throw new ApiError("INVALID_ALLOWANCE_TRANSITION","Wallet rejection belongs to cancellation, and signed hashes must be reconciled.",400);
+      return json({data:path.endsWith("/submit")?submitOstiumAllowance(store,user,input.intentId,input.transactionHash):path.endsWith("/reconcile")?await reconcileOstiumAllowance(store,user,input.intentId,input.transactionHash):cancelOstiumAllowance(store,user,input.intentId,input.ownerRejected)});
+    }
     if (path === "agent" && method === "GET") return json({ data: platform.agentState(user) });
     if (path === "agent/requests" && method === "GET") return json({ data: platform.agentRequests(user) });
     if (path === "agent/requests" && method === "POST") return json({ data: platform.enqueueChat(user, await readBody(request)) }, 202);
@@ -173,12 +191,12 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     }
     if (path === "actions/prepare" && method === "POST") return json({ data: await platform.prepare(user, await readBody(request), request.headers.get("idempotency-key") ?? undefined,request.headers.get("x-orcus-initiator")==="agent"?"agent":"manual",{messageId:z.string().min(1).max(200).optional().parse(request.headers.get("x-orcus-message-id")??undefined)}) });
     if (path === "actions/submit" && method === "POST") {
-      const input = z.object({ actionId: z.string().min(1).max(100), transactionHash: z.string().optional(), txHash: z.string().optional(), userOperationHash: z.string().optional(), orderId: z.string().max(100).optional(), response: z.unknown().optional(), result: z.unknown().optional() }).strict().parse(await readBody(request));
+      const input = z.object({ actionId: z.string().min(1).max(100), transactionHash: z.string().optional(), txHash: z.string().optional(), userOperationHash: z.string().optional(), orderId: z.string().max(100).optional(),approvalIndex:z.number().int().min(0).max(4).optional(), response: z.unknown().optional(), result: z.unknown().optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.submit(user, input) });
     }
     if (path === "permissions" && method === "GET") return json({ data: { permissions: platform.agentState(user).permissions } });
     if (path === "permissions" && method === "POST") {
-      const input = z.object({ accountId: z.string().min(1).max(100), action: z.enum(["prepare", "activate", "revoke", "rotate"]), permissionId:z.string().min(1).max(100).optional(),expiresAt: z.number().int().optional(), maxTradeUsd: decimal.optional(), allowNativeInput:z.boolean().optional(),allowedSymbols: z.array(z.string().max(50)).max(30).optional(), allowedActions: z.array(actionTypes).max(10).optional(), authorization: z.unknown().optional() }).strict().parse(await readBody(request));
+      const input = z.object({ accountId: z.string().min(1).max(100), action: z.enum(["prepare", "activate", "revoke", "rotate"]), permissionId:z.string().min(1).max(100).optional(),expiresAt: z.number().int().optional(), maxTradeUsd: decimal.optional(),maxCollateralUsd:decimal.optional(),maxLeverage:z.number().finite().min(1).max(1000).optional(), allowNativeInput:z.boolean().optional(),allowedSymbols: z.array(z.string().max(50)).max(30).optional(), allowedActions: z.array(actionTypes).max(12).optional(), authorization: z.unknown().optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.permission(user, input) });
     }
     if (path === "automations" && method === "GET") return json({ data: platform.automations(user) });
