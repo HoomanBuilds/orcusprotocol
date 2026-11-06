@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeFunctionData,erc20Abi,parseUnits } from "viem";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
-import { tradeRequestSchema,type OstiumExecution,type PreparedAction } from "@orcus/core";
+import { tradeRequestSchema,type OstiumAllowanceIntent,type OstiumExecution,type PreparedAction } from "@orcus/core";
 import * as boundary from "./engine";
 import { handleRequest } from "./http";
 import { cancelOstiumAllowance,listOstiumAllowances,prepareOstiumAllowance,reconcileOstiumAllowance,submitOstiumAllowance } from "./ostium-allowances";
@@ -54,7 +54,7 @@ describe("Ostium native authority and deterministic application policy",()=>{
     expect(()=>ostiumAcknowledgement(h.account,h.account.agentAddress!,h.ack(foreign))).toThrow(/Explicitly acknowledge/);
     await expect(h.platform.permission(h.user,{accountId:h.account.id,action:"activate",permissionId:grant.permission!.id,authorization:h.ack()})).rejects.toMatchObject({code:"AGENT_NOT_APPROVED"});
     h.setDelegate(h.account.agentAddress!);
-    expect((await h.platform.permission(h.user,{accountId:h.account.id,action:"activate",permissionId:grant.permission!.id,authorization:h.ack()})).account.status).toBe("authorized");
+    expect((await h.platform.permission(h.user,{accountId:h.account.id,action:"activate",permissionId:grant.permission!.id,authorization:h.ack()})).account!.status).toBe("authorized");
     h.setDelegate(foreign);
     await expect(h.platform.permission(h.user,{accountId:h.account.id,action:"activate",permissionId:grant.permission!.id,authorization:h.ack()})).rejects.toMatchObject({code:"AGENT_NOT_APPROVED"});
   });
@@ -66,13 +66,13 @@ describe("Ostium native authority and deterministic application policy",()=>{
     expect(unrelated).toMatchObject({requiresOwnerRevocation:false});expect(unrelated.ostium).toBeUndefined();
     h.setDelegate(zero);await h.activate();h.engine.mockRejectedValue(new Error("Unavailable fixture RPC"));
     const disabled=await h.platform.permission(h.user,{accountId:h.account.id,action:"revoke"});
-    expect(disabled.account.status).toBe("revoked");expect(disabled.requiresOwnerRevocation).toBe(true);expect(h.platform.agentState(h.user).permissions.every(item=>item.status==="revoked")).toBe(true);
+    expect(disabled.account!.status).toBe("revoked");expect(disabled.requiresOwnerRevocation).toBe(true);expect(h.platform.agentState(h.user).permissions.every(item=>item.status==="revoked")).toBe(true);
   });
   it("returns an owner-only native revoke plan for a managed signer after rotation",async()=>{
     const h=harness();await h.activate();
     const disabled=await h.platform.permission(h.user,{accountId:h.account.id,action:"rotate"});
     expect(disabled.requiresOwnerRevocation).toBe(true);expect(disabled.ostium).toMatchObject({delegate:null});
-    expect(disabled.account.agentAddress).not.toBe(h.account.agentAddress);
+    expect(disabled.account!.agentAddress).not.toBe(h.account.agentAddress);
   });
   it("fails closed on stale native observations and wrong network or trader",async()=>{
     const h=harness(),valid={trader:owner,delegate:h.account.agentAddress,chainId:421614,contractAddress:contract,implementation,observedAt:Date.now()};
@@ -143,7 +143,7 @@ describe("Ostium owner approval and transaction recovery",()=>{
     submitOstiumAllowance(h.store,h.user,first.intent.id);
     expect(()=>submitOstiumAllowance(h.store,h.user,first.intent.id)).toThrow(expect.objectContaining({code:"ALLOWANCE_PENDING"}));
     expect(()=>cancelOstiumAllowance(h.store,h.user,first.intent.id)).toThrow();
-    h.store.update(h.user.id,"ostium-allowance",first.intent.id,{expiresAt:Date.now()-1});
+    h.store.update<OstiumAllowanceIntent&{userId:string}>(h.user.id,"ostium-allowance",first.intent.id,{expiresAt:Date.now()-1});
     submitOstiumAllowance(h.store,h.user,first.intent.id,approvalHash);
     h.store.db.close();const restarted=new Store(h.path);stores.push(restarted);
     expect((await reconcileOstiumAllowance(restarted,h.user,first.intent.id)).intent.status).toBe("confirmed");
@@ -163,12 +163,12 @@ describe("Ostium owner approval and transaction recovery",()=>{
   });
   it("rejects expired unsigned starts, wrong native approval plans and replayed approval hashes",async()=>{
     const h=harness(),first=await prepareOstiumAllowance(h.store,h.user,{accountId:h.account.id,amountUsd:"10",requestId:"expiry"});
-    h.store.update(h.user.id,"ostium-allowance",first.intent.id,{expiresAt:Date.now()-1});
+    h.store.update<OstiumAllowanceIntent&{userId:string}>(h.user.id,"ostium-allowance",first.intent.id,{expiresAt:Date.now()-1});
     expect(()=>submitOstiumAllowance(h.store,h.user,first.intent.id)).toThrow(expect.objectContaining({code:"ALLOWANCE_EXPIRED"}));
     await reconcileOstiumAllowance(h.store,h.user,first.intent.id,approvalHash);
     const second=await prepareOstiumAllowance(h.store,h.user,{accountId:h.account.id,amountUsd:"10",requestId:"replay"});
     await expect(reconcileOstiumAllowance(h.store,h.user,second.intent.id,approvalHash)).rejects.toMatchObject({code:"ALLOWANCE_PROOF_REPLAY"});
-    h.store.update(h.user.id,"ostium-allowance",second.intent.id,{status:"rejected"});
+    h.store.update<OstiumAllowanceIntent&{userId:string}>(h.user.id,"ostium-allowance",second.intent.id,{status:"rejected"});
     h.engine.mockResolvedValue({trader:owner,chainId:421614,token,spender:contract,amountUsd:"10",amountRaw:"10000000",transaction:{to:token,data:"0x12345678",value:"0",chainId:421614},expiresAt:Date.now()+60_000});
     await expect(prepareOstiumAllowance(h.store,h.user,{accountId:h.account.id,amountUsd:"10",requestId:"wrong-plan"})).rejects.toMatchObject({code:"ALLOWANCE_PLAN_INVALID"});
   });
