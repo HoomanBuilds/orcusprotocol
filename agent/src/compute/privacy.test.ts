@@ -176,11 +176,21 @@ describe("private routing", () => {
       });
       return req;
     });
-    const response = await session.request({ apiKey: "unit-test-key", body: { model, messages: [], verify_tee: false }, timeoutMs: 1000 });
+    const response = await session.request({ apiKey: "unit-test-key", body: { model, messages: [], verify_tee: false }, timeoutMs: 1000, priceCeilings: { prompt: "0.00000008", completion: "0.00000048" } });
     expect(options.headers["X-0G-Provider-Trust-Mode"]).toBe("private");
+    expect(options.headers["X-0G-Provider-Max-Price-Usd-Prompt"]).toBe("0.00000008");
+    expect(options.headers["X-0G-Provider-Max-Price-Usd-Completion"]).toBe("0.00000048");
+    expect(options.headers.Authorization).toBe("Bearer unit-test-key");
     expect(options.agent).toBe(false);
     expect(JSON.parse(req.end.mock.calls[0]![0])).toMatchObject({ verify_tee: true, stream: false });
     expect(session.evidence(response.headers, await response.json()).status).toBe("gateway-reported-private");
     expect(() => session.request({ apiKey: "unit-test-key", body: { model: "different-model" }, timeoutMs: 1000 })).toThrow();
+  });
+
+  it.each(["-1", "NaN", "Infinity", "1e-8", "0.1\r\nAuthorization: other", "", "00.1"]) ("rejects malformed price ceilings without a network call", async value => {
+    catalog();
+    const session = await createPrivateInferenceSession({ url, model, verification: "gateway-reported" });
+    expect(() => session.request({ apiKey: "unit-test-key", body: { model }, timeoutMs: 1000, priceCeilings: { prompt: value, completion: "0" } })).toThrow(/price ceilings/);
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 });

@@ -129,16 +129,24 @@ export async function createPrivateInferenceSession(options: PrivateInferenceOpt
     verification,
     attestation,
     evidence: (headers: Headers, body: unknown) => privateResponseEvidence(headers, body, attestation),
-    request(input: { apiKey: string; body: Record<string, unknown>; timeoutMs: number }): Promise<Response> {
+    request(input: { apiKey: string; body: Record<string, unknown>; timeoutMs: number; priceCeilings?: { prompt: string; completion: string } }): Promise<Response> {
       if (input.body.model !== options.model || input.body.stream === true) denied("Private inference requires the checked model and a non-streaming response.");
       if (attestation && attestation.expiresAt <= Date.now()) denied("Gateway verification expired. Re-verify before sending private information.");
       if (!input.apiKey || input.apiKey.length > 4096 || /[\r\n]/.test(input.apiKey) || !Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > 120_000) denied("Private inference credentials or timeout are invalid.");
+      const priceHeaders: Record<string, string> = {};
+      if (input.priceCeilings) {
+        for (const field of ["prompt", "completion"] as const) {
+          const value = input.priceCeilings[field];
+          if (typeof value !== "string" || value.length > 64 || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) denied("Private inference price ceilings must be non-negative decimal USD strings.");
+          priceHeaders[`X-0G-Provider-Max-Price-Usd-${field === "prompt" ? "Prompt" : "Completion"}`] = value;
+        }
+      }
       const payload = JSON.stringify({ ...input.body, stream: false, verify_tee: true });
       if (Buffer.byteLength(payload) > responseLimit) denied("The private inference request exceeds the size limit.");
       return new Promise<Response>((resolve, reject) => {
         const req = request(url, {
           method: "POST", agent: false, rejectUnauthorized: true, signal: AbortSignal.timeout(input.timeoutMs),
-          headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload), Authorization: `Bearer ${input.apiKey}`, "X-0G-Provider-Trust-Mode": "private" },
+          headers: { ...priceHeaders, "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload), Authorization: `Bearer ${input.apiKey}`, "X-0G-Provider-Trust-Mode": "private" },
           checkServerIdentity(host, certificate) {
             const ordinaryError = checkServerIdentity(host, certificate);
             if (ordinaryError) return ordinaryError;
