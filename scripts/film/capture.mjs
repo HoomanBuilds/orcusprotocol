@@ -9,6 +9,7 @@ import { Wallet, getBytes, toUtf8String } from "ethers";
 import { allowedCaptureRequest, captureOrigin, concatFrames, recordedResearch } from "./capture-safety.mjs";
 
 const args = process.argv.slice(2);
+const overviewOnly = args.includes("--overview-only");
 const option = name => { const index = args.indexOf(name); return index < 0 ? undefined : args[index + 1]; };
 const origin = captureOrigin(option("--origin") ?? "http://localhost:3134");
 const out = option("--out"), source = option("--research-db");
@@ -39,6 +40,7 @@ async function run(command, args, cwd) {
   });
 }
 try {
+  await (async () => {
   const activePort = join(profile, "DevToolsActivePort");
   for (let i = 0; !existsSync(activePort) && i < 100; i++) await delay(100);
   assert.ok(existsSync(activePort), "Chromium did not start.");
@@ -114,6 +116,7 @@ try {
   const nav = async name => { const path = name === "Overview" ? "/" : `/${name.toLowerCase()}`; await click(`.primary-nav a[href='${path}']`); await until(`location.pathname===${JSON.stringify(path)}`, name); await delay(700); };
   const api = async (path, body) => evaluate(`fetch(${JSON.stringify(path)},{method:${body ? "'POST'" : "'GET'"},headers:{'Content-Type':'application/json'},${body ? `body:${JSON.stringify(JSON.stringify(body))},` : ""}credentials:'same-origin'}).then(async r=>({status:r.status,body:await r.json()}))`);
   const shot = async (id, seconds, label, actions) => {
+    if (overviewOnly) { await actions(); return; }
     if (stopping) throw new Error("Capture stopped between shots; completed clips are preserved.");
     await overlay(label); await delay(350);
     const path = join(directory, id); mkdirSync(path);
@@ -143,13 +146,20 @@ try {
   await rpc("Page.navigate", { url: new URL("/landing", origin).href });
   await until("document.readyState==='complete'&&!!document.querySelector('video')", "Landing hero");
   await evaluate("document.fonts.ready"); await delay(1800);
-  await shot("01-landing", 10, "Testnet product walkthrough | No trades submitted", async () => { await move({ x: 950, y: 670 }); await delay(4500); });
+  if (!overviewOnly) await shot("01-landing", 10, "Testnet product walkthrough | No trades submitted", async () => { await move({ x: 950, y: 670 }); await delay(4500); });
   await rpc("Page.navigate", { url: origin.href });
   await until("!!document.querySelector('.connect-button')&&Object.keys(document.querySelector('.connect-button')).some(k=>k.startsWith('__reactProps'))", "Application hydration");
   await shot("02-onboarding", 18, "Fresh unfunded testnet wallet | Local sign-in only", async () => {
     await click(".connect-button"); await until("!!document.querySelector('.wallet-button')", "Signed session");
     await nav("Settings"); await click(".account-add-buttons button", "Hyperliquid"); await until("!!document.querySelector('.account-card')", "Hyperliquid account"); await delay(1800); await nav("Overview"); await delay(1800);
+    await until("!!document.getElementById('overview-accounts')", "Connected account overview");
+    const overview = await rpc("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    writeFileSync(join(directory, "overview-connected-top.png"), Buffer.from(overview.data, "base64"));
+    await scroll(null, 370); await delay(1800);
+    const accounts = await rpc("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    writeFileSync(join(directory, "overview-connected-accounts.png"), Buffer.from(accounts.data, "base64"));
   });
+  if (overviewOnly) { console.log(JSON.stringify({ overview: directory, publicTradingWrites: 0 })); return; }
   const session = (await api("/api/session")).body.data;
   assert.equal(session.user.address.toLowerCase(), owner.address.toLowerCase());
   const account = session.accounts.find(account => account.venue === "hyperliquid"); assert.ok(account);
@@ -161,7 +171,7 @@ try {
     await click(".market-select"); await type("input[aria-label='Search markets']", "BTC"); await click(".market-options-list button"); await until("document.querySelector('.market-select strong')?.textContent==='BTC'", "BTC market"); await delay(2200);
   });
   await shot("04-uniswap", 14, "Uniswap Sepolia | Swap inputs only | No quote or swap submitted", async () => {
-    await select("select[aria-label='Trading venue']", "uniswap"); await until("document.body.innerText.includes('Swap tokens')", "Uniswap swap controls"); await delay(2500); await click(".side-toggle button", "Sell"); await type("input[aria-label='Order amount']", "0.01"); await delay(2500);
+    await select("select[aria-label='Trading venue']", "uniswap"); await until("document.body.innerText.includes('Swap tokens')&&document.querySelector('.market-select strong')?.textContent==='WETH/USDC'", "Loaded WETH/USDC swap controls"); await delay(1500); await click(".side-toggle button", "Sell"); await type("input[aria-label='Order amount']", "0.01"); await delay(2500);
   });
   await evaluate(`(()=>{const original=window.fetch.bind(window);window.__filmOriginalFetch=original;window.__filmResearchPlayback=true;window.fetch=async(input,options={})=>{const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;const response=await original(input,options);if(window.__filmResearchPlayback&&path==='/api/agent'&&(!options.method||options.method==='GET')){const body=await response.json();body.data.messages=${JSON.stringify(research[0].messages)};return new Response(JSON.stringify(body),{status:response.status,headers:{'Content-Type':'application/json'}})}return response}})()`);
   await nav("Agent"); await click("button[aria-label='Refresh accounts']"); await until("document.body.innerText.includes('Based on the Hyperliquid testnet observation')", "Recorded research restored");
@@ -200,6 +210,7 @@ try {
   assert.equal(manifest.safety.rejectedWalletMethods.length, 0, "Unexpected signing attempt occurred.");
   writeFileSync(join(directory, "manifest.json"), JSON.stringify(manifest, null, 2));
   console.log(JSON.stringify({ manifest: join(directory, "manifest.json"), shots: manifest.shots.length, duration: manifest.shots.reduce((sum, shot) => sum + shot.duration, 0) }));
+  })();
 } finally {
   recording = undefined;
   await rpc?.("Browser.close").catch(() => {}); socket?.close(); browser.kill("SIGTERM");
