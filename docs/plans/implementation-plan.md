@@ -1,7 +1,7 @@
 # Hackathon Implementation Plan
 
 Date: 2026-11-06
-Status: local implementation and acceptance closeout. Real 0G agent calls, gateway-reported sealed inference, memory writes/recovery and provider-reported billing now pass through authenticated HTTP. Actual Uniswap/Kernel fork operations prove shared owner/agent control and native permission rejection. Capped compute-funding policies, APIs, UI and durable recovery are implemented. The supplied production Router key is not a verified Galileo funding account. CRE authentication will be supplied later; no live simulation or hosted deployment is claimed. See the checklist and dated verification record for remaining external gates.
+Status: local implementation and acceptance closeout. Real 0G tool loops, gateway-reported sealed inference, memory writes/recovery and provider-reported billing pass through authenticated HTTP. An authorized, platform-paid encrypted storage round trip passes on Galileo with zero native 0G in the synthetic user's accounts. Actual Uniswap/Kernel fork operations prove shared owner/agent control and native permission rejection. Capped compute-funding policies, APIs, UI and durable recovery are implemented. The supplied production Router key is not a verified Galileo funding account. CRE authentication will be supplied later; no live simulation or hosted deployment is claimed. See the checklist and dated verification record for remaining external gates.
 
 ## 1. Product and fixed scope
 
@@ -102,6 +102,12 @@ ERC-4337 handles account abstraction; it does not itself specify session-key spe
 5. Preserve order precision, client order IDs, signer-specific nonces, cancellation, partial-fill handling and order reconciliation. Acknowledged is not filled.
 6. Refresh account state before reducing or closing. Use supported reduce-only semantics and handle the case where the position was already changed by the owner or another client.
 7. Expose expiry and owner revocation. App-level budgets and asset allowlists must be labeled app-enforced unless the venue actually enforces them. Protecting the agent key remains essential.
+
+### Backend expense payer
+
+Ordinary users do not need native 0G for inference or platform-sponsored storage. The backend uses its credited Router key for inference and a separate capped operator signer for Galileo storage gas and storage value. User-specific memory keys and trading credentials remain isolated. Operator storage shares a payer-wide nonce lock and daily native cap; the operator key never reaches the model or browser. Agent-paid storage remains an optional advanced mode, not a default customer requirement.
+
+The current budget tracks authorized spending, not a completed service-payment checkout. Collection of user fees remains separate work. Trading principal and collateral stay separate from service costs. Uniswap execution still requires Sepolia ETH until a paymaster is configured; backend 0G sponsorship does not imply gasless trading.
 
 ### Ownership and takeover rules
 

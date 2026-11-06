@@ -1,10 +1,10 @@
 # Local verification, 2026-11-06
 
-This is execution evidence, not deployment configuration. No public-chain writes, token launches, funded public trades or protocol deployments were performed. Local fork hashes are not public explorer receipts.
+This is execution evidence, not deployment configuration. Initial trading verification used local forks only. A later, separately authorized Galileo storage test submitted the single public transaction recorded below. No token launch, funded public trade or public contract deployment was performed. Local Uniswap fork hashes are not public explorer receipts.
 
 ## Automated verification
 
-All 273 tests passed: 26 frontend, 156 engine, 9 core, 51 server and 31 wallet tests. All application workspaces typechecked. The Next.js production build and official CRE WASM build passed. Verification scripts also passed a standalone strict TypeScript check. Output tracing included no inspiration checkout, environment file or Git metadata; the configured API key was absent from tracked files and compiled server bundles.
+The latest suite passed 340 tests: 26 frontend, 160 engine, 9 core, 114 server and 31 wallet tests. All application workspaces typechecked. The Next.js production build and official CRE WASM build passed. Verification scripts also passed a standalone strict TypeScript check. Earlier output-trace checks included no inspiration checkout, environment file or Git metadata; the configured credentials remain excluded from Git.
 
 These results do not imply live CRE authentication, public execution or production-security certification.
 
@@ -56,12 +56,45 @@ Independent verification could establish hardware/certificate components but cou
 
 The official Storage SDK version 1.2.13 transaction flow was inspected. Storage fees are transaction value, in addition to network gas. Backups now enforce separate owner-visible native caps, persist the signed candidate hash before broadcast and permit only one Flow submission. Receipt reconciliation binds network, sender, target, calldata hash, value and fee caps. Native expense records remain separate from the inference USD ledger.
 
-Unknown uploads block duplicate paid backups. The owner can check the persisted receipt without re-uploading, re-signing or supplying transaction metadata. A confirmed payment does not prove file availability; finality and retrievability checks precede a successful backup status. Storage signing, cap, uncertainty and ledger tests use explicit fixtures; no funded storage round trip is claimed.
+Unknown uploads block duplicate paid backups. The owner can check the persisted receipt without re-uploading, re-signing or supplying transaction metadata. A confirmed payment does not prove file availability; finality and retrievability checks precede a successful backup status. Signing, cap, uncertainty and ledger edge cases use explicit fixtures. The successful funded round trip below uses the actual network.
+
+## Expanded live compute verification
+
+`npm run verify:compute -- --allow-paid-inference --gateway-reported-private --extended`, against the local app, passed:
+
+| Case | Real scoped tool | Router request IDs |
+| --- | --- | --- |
+| Save preference | remember_preference | `907d524e-ce62-46ec-8d6a-432843645dd3`, `3ee54342-b711-48ef-8262-f5c3b310ba67` |
+| Recall preference | search_memory | `e457e9ea-3baa-491e-8bea-e784aeafc0ab`, `4eaf5e82-d6bc-413d-8917-61446a7aa0c0` |
+| Real ETH market read | read_markets | `a659b2c9-5ab1-4ae9-9839-bd67cf88c66f`, `90f23769-ce0c-49b5-89d0-d530f972f88b` |
+| Real candle RSI/SMA analysis | analyze_market | `be25e654-ca76-43f1-a554-c882d22daeb6`, `cf846d35-206a-46fb-8198-f68afa7edb0d` |
+| Typed limit-order draft | propose_action | `12122dd7-bd6a-4bc8-a444-5ebb569b361b`, `90bcadc8-4aea-489d-aa4f-ebd028d8bf2d` |
+| Typed price-alert draft | propose_automation | `76b1c70b-afe9-46ed-bc47-c74e1ae07560`, `ebd31295-2524-48b5-a689-1b4e206d03a5` |
+
+All 12 calls used gateway-reported sealed inference. Provider-reported total was 0.001472 USD equivalent, with zero outstanding reservation. Replaying the same request added no charge. Conflicting request reuse, credential-bearing input and exhausted allowance stopped without extra inference. Drafts did not submit an order or activate a job. Public API evidence contains only compact tool names, outcomes, timestamps and request IDs, not raw prompts/results or keys.
+
+## Funded platform-paid storage proof
+
+The user approved one round trip with maximum 0.013 testnet 0G, comprising gas up to 0.003 and storage value up to 0.01, bound to the payer and Flow below. Exactly one storage transaction was submitted. Source wallet credentials were copied only into ignored, owner-only local configuration, never prompts or Git.
+
+- Network: Galileo 16602.
+- Platform payer: `0x17A076d6cCaf37Bc9386EAB653A5EfAd8B07430C`.
+- Flow: `0x22E03a6A89B950F1c82ec5e74F8eCa321a105296`.
+- [Confirmed public transaction](https://chainscan-galileo.0g.ai/tx/0xb8bef9e80581dd5f51781029b1235df55af1ab30bd7fe74336a983ed557b6992), block 64112417.
+- Encrypted root: `0xccadc15c24bac5697de39cf1dac150fced8025fb6d8c4bcf04e873c87817783c`.
+- Gas paid: 0.001259568002204244 testnet 0G.
+- Storage fee: 0.000000061467289924 testnet 0G.
+- Total: 0.001259629469494168 testnet 0G.
+
+Upload finality and node availability were checked, followed by a proof-verified download and authenticated decryption. The database was closed and reopened before restoring the actual backup. A second, fresh Node process restored the same remote backup with both the operator signing credential and inference credential explicitly removed from its environment; no extra transaction was submitted. Read-only chain checks confirmed both the synthetic user's owner wallet and its agent operating wallet had exactly zero 0G. Only the platform payer spent native gas and storage value.
+
+The operator path has a global payer nonce lock, per-backup ceilings and a shared UTC-day cap across all users. It rejects unresolved prior transactions and requests above operator limits. Additional public storage payments remain disabled in the ordinary local app after this one approved test; the verifier enabled storage only within its own process. Read-only quotes remain available with `npm run verify:storage`.
 
 ## Remaining external acceptance
 
 - CRE CLI authentication will be supplied later. Workflow compilation is not a successful CLI simulation, and no hosted DON execution is claimed.
 - Funded Hyperliquid authorization/trading and external Sepolia bundler execution require owner actions and accounts.
-- Actual0G Storage upload/download and native replenishment require funded operating wallets and a matching verified provider account. Compute inference credits do not pay Galileo storage gas.
+- Encrypted storage upload/download/restore is now live-verified with a funded platform payer. Actual compute replenishment still needs a matching verified Router account and management-read access. Compute credits and native storage funds are separate.
+- User-facing payment collection and Uniswap paymaster sponsorship remain unimplemented; an allowance is not paid service credit and backend sponsorship does not make all trades gasless.
 - Optional earned funding remains off. Sponsor credits, owner deposits and theoretical trading profit are not proof of service revenue funding inference.
 - Public repository publication, feedback-form submission, hosted deployment and demo recording were not performed.

@@ -10,18 +10,18 @@ Sponsor targets: **0G + Uniswap + Chainlink CRE**. Hyperliquid is an additional 
 
 This is the product acceptance checklist in build order. Unchecked means not yet verified end to end against this checklist, not necessarily missing from the existing code.
 
-Current verification, 2026-11-06: real 0G inference, sealed gateway-reported inference, saved preferences, process-restart memory recovery and actual Router billing settlement pass through the authenticated application. Real Uniswap swaps and owner/agent handoff pass against existing contracts on an isolated Sepolia fork. Native policies reject changed recipients, arbitrary token transfers and expired grants. There were no public-chain writes or protocol deployments.
+Current verification, 2026-11-06: real 0G inference, sealed gateway-reported inference, memory write/recall, live market/candle tools, typed order/alert drafts, duplicate billing prevention and budget stops pass through the authenticated application. A separately authorized encrypted storage upload/download/restore passed on Galileo with platform-paid fees and zero 0G in both the test user's wallet and its agent operating wallet. Real Uniswap owner/agent swaps and native permission rejection pass on an isolated Sepolia fork. One public Galileo storage transaction was submitted; there were no public contract deployments or funded public trades.
 
 Compute replenishment is implemented with owner policy, exact beneficiary/network binding, caps, idempotency, receipt recovery and Router-credit synchronization checks. It remains disabled for the supplied production Router key: Galileo deposits cannot replenish that account, and an inference key does not verify its funding beneficiary. Optional earned-funding mode is not enabled or represented as complete.
 
-Checked items have direct local evidence or the stated isolated-fork proof. Unchecked items can have complete software but still lack their required funded/provider/CLI or submission acceptance. Fixture-backed tests are not presented as funded external execution. All 273 tests, application typechecks, production build and CRE WASM build pass. Public deployments are intentionally outside this completion pass. See the [dated verification record](../research/verification-2026-11-06.md).
+Checked items have direct local evidence or the stated isolated-fork proof. Unchecked items can have complete software but still lack their required funded/provider/CLI or submission acceptance. Fixture-backed tests are not presented as funded external execution. All 340 tests and application typechecks pass; production and CRE WASM builds have passed. Public deployments are intentionally outside this completion pass. See the [dated verification record](../research/verification-2026-11-06.md).
 
 | Area | Implementation and verification | Remaining external acceptance |
 | --- | --- | --- |
-| Personal agent and memory | Real signed HTTP session, LangGraph tool loop, saved preference, separate credentials and reopened database | Funded encrypted 0G Storage upload/download |
+| Personal agent and memory | Real signed HTTP tool loops and actual encrypted 0G upload/download/restore after reopening the database; platform payer spent 0.001259629469494168 testnet 0G | Independent strict attestation remains separate; normal end users do not need native 0G for this sponsored path |
 | Shared trading | Shared adapters, permissions, reviewed proposals, takeover and durable action audit; real owner/session swaps on local fork | External bundler account and funded Hyperliquid owner approval/trades |
 | Private inference | Explicit gateway-reported sealed mode passes; strict hardware/code verifier and certificate pinning fail closed | Hash-matching raw app-compose manifest is unavailable from the live gateway's public attestation service |
-| Operating budget | Actual native 0G billing plus USD-equivalent ledger; owner-capped Galileo deposits and unknown-outcome recovery implemented | Management-read credential, matching testnet Router account, operating funds and actual deposit/credit-sync proof |
+| Operating budget | Actual Router billing plus USD-equivalent ledger; platform-paid storage with global payer locking and daily/per-backup caps; capped compute deposits and receipt recovery implemented | Management-read credential, matching testnet Router account and actual compute deposit/credit-sync proof; real service-payment checkout is not implemented |
 | CRE | Real SDK workflow, WASM build, authenticated handoff, durable runner, allow/reject consumption and restart fixtures | CLI authentication is unavailable; owner will provide it later. No successful live simulation is claimed |
 | Sponsor submission | Setup, source/license notices, integration references and feedback file are present | Public repo, feedback form, judge-accessible deployment and recorded demo require owner/publication actions |
 
@@ -86,7 +86,7 @@ Checked items have direct local evidence or the stated isolated-fork proof. Unch
 
 ## 8. Agent operating budget
 
-- [ ] `C8.1` Let users explicitly fund a capped operating budget and inspect spending separately from trading performance.
+- [ ] `C8.1` Let users explicitly fund a capped service/compute budget and inspect spending separately from trading performance. The platform may pay backend native gas; ordinary users must not need 0G merely to use inference or sponsored storage. Cost allowances exist; actual user-payment collection remains unfinished.
 - [ ] `C8.2` Track compute balance, expenditure, replenishment status and low-budget warnings. An onchain wallet balance is not automatically a spendable compute balance.
 - [ ] `C8.3` Implement an authorized replenishment path into the actual 0G compute account, with spend caps and payment evidence. Never silently spend trading principal.
 - [x] `C8.4` Degrade safely or pause when the operating budget runs low. Do not promise that an agent runs forever without funding.

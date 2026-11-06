@@ -44,7 +44,7 @@ Set `ORCUS_MASTER_KEY` before starting in production. Development creates an own
 | 0G inference | Exact chat-completions URL, API key and model from your credited account; authorize an operating expense cap in settings. Router balance additionally needs a management key scoped to `account:read` |
 | Uniswap | Public Sepolia RPC, server-side `ZERODEV_RPC_URL`, owner-created smart account, explicitly transferred test tokens and gas; delegation requires a bounded owner-signed session grant |
 | Hyperliquid | Owner wallet and funded Hyperliquid testnet account; approve the separate agent address only if autonomous trading is wanted |
-| 0G memory | Enable storage and explicitly fund the separate operating address with Galileo test tokens using the owner-signed funding control before requesting an encrypted upload |
+| 0G memory | Configure a funded operator Galileo signer and enable storage. The platform pays native gas/storage under per-backup and shared daily caps; users do not need 0G. Advanced agent-paid mode remains optional |
 | Chainlink CRE | Official CLI, its required build toolchain, authenticated CLI access and the workflow directory; see the workflow's own setup instructions |
 
 Wallet connection is not trading authorization. Users retain their owner wallet; the application never asks for its seed phrase or private key. Agent and owner actions target the same supported account state, including existing Hyperliquid positions. Operating funds and trading capital are separate.
@@ -64,6 +64,10 @@ An operating-wallet transfer is not a compute deposit. Capped replenishment has 
 Inference records the actual Router request, native billing currency and USD-equivalent expense separately. Uncertain costs retain their reservation. Price filters bound provider selection; token accounting still depends on provider/template behavior. Optional earned funding is not enabled or claimed: owner deposits and sponsor credits are not revenue.
 
 Encrypted backups have explicit per-request native gas and storage-fee caps. The operating signer allows one bounded Galileo Flow transaction, persists its hash before broadcast and records receipt-confirmed costs separately from the USD inference allowance. An unknown write blocks another backup until receipt reconciliation. A paid transaction alone is not labelled a successful backup: finalized object availability must also be confirmed.
+
+Operator-paid storage uses `ZEROG_STORAGE_PAYER=operator` and a server-only sponsor signer. A payer-wide nonce lock and UTC-day native cap cover all users; one user cannot bypass a pending transfer by starting another account. Requests cannot raise the operator's fee ceilings. Users keep separate trading and agent operating accounts but do not have to fund those accounts with 0G for inference or sponsored storage. Native costs are metered here, not converted into a fabricated USD charge.
+
+Service-payment collection is not yet a checkout: the current budget is an authorized cost allowance, not proof the user paid. Trading principal, collateral and venue/network fees remain separate. Uniswap smart accounts still need Sepolia ETH for execution until a paymaster is configured; backend 0G sponsorship does not make every trade gasless.
 
 Private inference is an explicit owner setting. Independent mode runs the official `pcverify` verifier, checks measured code and hardware, and pins the gateway certificate. Missing evidence stops the request. A separate opt-in gateway-reported mode routes only to the sealed private tier and records its evidence without labelling it independently attested. Neither mode hides public trades.
 
@@ -86,6 +90,16 @@ The fork verifier needs Anvil and public Sepolia RPC access. It performs real lo
 ```sh
 npm run verify:compute -- --allow-paid-inference --gateway-reported-private
 ```
+
+Add `--extended` to verify real market reads, candle analysis, typed order/alert drafts, memory recall, duplicate-request billing and budget-stop behavior. It never activates a strategy or executes a trade.
+
+Storage verification defaults to a read-only fee quote:
+
+```sh
+npm run verify:storage
+```
+
+A funded upload/download additionally requires `--allow-testnet-storage-fees`, `--expected-payer=<approved address>` and `--expected-flow=<approved Flow address>`. Obtain operator approval before using those flags. The verifier caps gas at 0.003 0G and storage fees at 0.01 0G, uses platform sponsorship for an unfunded synthetic user, reopens the database and restores the actual encrypted backup. It does not deploy a contract. Storage remains disabled by default; the funded test enables it only inside its own process.
 
 Use `ORCUS_VERIFY_APP_URL=http://localhost:3100` when the app runs on another port. This creates an unfunded synthetic owner, verifies inference, saved preferences, request IDs and settled billing, and never submits trades. The generated test owner has no retained signing key; its test records remain in local application data.
 
