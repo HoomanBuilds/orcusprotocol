@@ -174,20 +174,15 @@ describe("durable worker coordination",()=>{
     }finally{engine.mockRestore();store.db.close();}
   });
 
-  it("uses the restricted strategy profile and refuses cached interactive proposals",async()=>{
+  it("refuses unreviewed free-text strategies and cached interactive proposals",async()=>{
     const{store,user,platform,account}=setup(),engine=vi.spyOn(engineBoundary,"callEngine");
     try{
       const now=Date.now();
       store.put("permission",{id:"grant",userId:user.id,accountId:account.id,agentAddress:account.agentAddress!,allowedSymbols:["ETH"],allowedActions:["market"],maxTradeUsd:"100",expiresAt:now+60_000,status:"active",enforcement:"application",controlRevision:0,createdAt:now,updatedAt:now}satisfies StoredPermission);
       setBudget(store,user.id,"1","0.1",false);
-      platform.createAutomation(user,{accountId:account.id,name:"Bounded plan",instruction:"Review ETH conditions"});
-      engine.mockImplementation(async(name,...args)=>{
-        if(name==="getPortfolio")return{balances:[],positions:[],orders:[],observedAt:Date.now()};
-        if(name==="planWith0G"){expect(args[1]).toMatchObject({toolProfile:"strategy"});return{message:"No action needed",costUsd:"0"};}
-        throw new Error("No CRE call is needed when the planner proposes no trade");
-      });
+      expect(()=>platform.createAutomation(user,{accountId:account.id,name:"Bounded plan",instruction:"Review ETH conditions"})).toThrow("typed trade");
       await platform.tick();
-      expect(engine).toHaveBeenCalledWith("planWith0G",expect.any(String),expect.objectContaining({toolProfile:"strategy"}));
+      expect(engine).not.toHaveBeenCalled();
       store.put("proposal",{id:"interactive-cache",userId:user.id,result:{message:"Interactive"},createdAt:now,updatedAt:now});
       await expect(platform.proposal(user,"Unattended",account,"interactive-cache","strategy")).rejects.toMatchObject({code:"TOOL_PROFILE_MISMATCH"});
     }finally{engine.mockRestore();store.db.close();}

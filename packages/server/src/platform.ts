@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { formatUnits, getAddress, parseUnits } from "viem";
 import type { KernelGrantPolicy } from "@orcus/wallets/kernel";
-import { tradeRequestSchema,venueSchema,OSTIUM_DELEGATION_NOTICE,type PreparedAction,type TradeRequest,type User,type Portfolio,type Market,type HealthStatus } from "@orcus/core";
+import { automationInputSchema,automationUpdateSchema,automationMarketMatches,tradeRequestSchema,venueSchema,OSTIUM_DELEGATION_NOTICE,type AutomationInput,type AutomationUpdate,type PreparedAction,type TradeRequest,type User,type Portfolio,type Market,type HealthStatus } from "@orcus/core";
 import { z } from "zod";
 import { getBudget,setBudget } from "./budget";
 import { assertComputeFundingAuthority,cancelComputeFunding,configureComputeFunding,getComputeFundingPolicy,prepareComputeFunding,recordComputeFundingSubmission,settleComputeFunding } from "./compute-funding";
@@ -22,7 +22,7 @@ import { assertOstiumAutomation,ostiumAcknowledgement,ostiumAgentActions,ostiumA
 import { recordOstiumActionApproval,recordUnknownOstiumApproval,rejectOstiumActionApproval,startOstiumActionApproval } from "./ostium-allowances";
 
 export const accountSchema=z.object({venue:venueSchema,address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
-export const automationSchema=z.object({kind:z.enum(["trade","alert"]).default("trade"),accountId:z.string(),name:z.string().min(1).max(80),instruction:z.string().min(1).max(2000).optional(),intervalSeconds:z.number().int().min(60).max(86400).default(300),request:tradeRequestSchema.optional(),condition:z.object({symbol:z.string().min(1).max(50),operator:z.enum(["above","below"]),price:z.string().max(80).regex(/^\d+(?:\.\d+)?$/).refine(value=>/[1-9]/.test(value),"Use a positive alert threshold")}).optional(),expiresAt:z.number().int().optional()}).strict().superRefine((value,ctx)=>{if(value.kind==="alert"&&(!value.condition||value.request))ctx.addIssue({code:"custom",message:"Price alerts require a condition and cannot contain a trade request."});if(value.kind==="trade"&&!value.request&&!value.instruction)ctx.addIssue({code:"custom",message:"Trading strategies require an instruction or an explicitly approved recurring request."});});
+export const automationSchema=automationInputSchema;
 const terminalStates=new Set(["confirmed","rejected","cancelled"]);
 const evaluationSchema=z.object({id:z.string(),automationId:z.string(),accountId:z.string(),chainId:z.number().int(),decision:z.enum(["allow","reject","no-action"]),reason:z.string(),source:z.literal("local-simulation"),observedAt:z.number().int(),expiresAt:z.number().int(),controlRevision:z.number().int(),policyVersion:z.number().int(),requestId:z.string().optional()}).passthrough();
 type AgentReply={message:string;proposal?:TradeRequest;automationProposal?:unknown;requestId?:string;requestIds?:string[];modelCalls?:number;usage?:unknown;costUsd?:string;requiresClarification?:boolean;privacy?:StoredMessage["privacy"];privacyEvidence?:unknown;toolTrace?:unknown};
@@ -398,7 +398,7 @@ export class Platform {
         assertLease();const latest=this.account(user,current.id),latestAgent=this.agent(user),latestPermission=this.store.get<StoredPermission>(user.id,"permission",permission.id);
         if(latest.controlRevision!==action!.controlRevision||latest.status!=="authorized"||latestAgent.paused||latestAgent.controlRevision!==action!.agentRevision||latestPermission?.status!=="active"||latestPermission.expiresAt<=Date.now())throw new ApiError("CONTROL_CHANGED","Authority changed during preparation. No new action was signed.",409);
         if(rebuilt&&latest.venue==="ostium")validateOstiumExecution(rebuilt,latest,latestPermission);
-        if(action!.automationId){const strategy=this.store.get<StoredAutomation>(user.id,"automation",action!.automationId);if(!strategy||strategy.status!=="active"||strategy.policyVersion!==action!.automationPolicyVersion||!action!.evaluationExpiresAt||action!.evaluationExpiresAt<=Date.now())throw new ApiError("STRATEGY_CHANGED","The workflow decision expired or its strategy changed before signing.",409);}
+        if(action!.automationId){const strategy=this.store.get<StoredAutomation>(user.id,"automation",action!.automationId);if(!strategy||strategy.status!=="active"||strategy.policySchemaVersion!==1||strategy.policyVersion!==action!.automationPolicyVersion||!action!.automationExecutionOrdinal||action!.automationExecutionOrdinal!==(strategy.executionCount??0)||action!.automationExecutionOrdinal>(strategy.maxExecutions??0)||!action!.evaluationExpiresAt||action!.evaluationExpiresAt<=Date.now())throw new ApiError("STRATEGY_CHANGED","The workflow decision expired, its reserved attempt is invalid or its strategy changed before signing.",409);}
       };
       assertAuthority();
       action=this.store.update<StoredAction>(user.id,"action",action.id,{status:"submitting",prepared:fresh});
@@ -608,7 +608,30 @@ export class Platform {
     }
     return {message,proposal:result.proposal,automationProposal:result.automationProposal,runId:reference,requestId:result.requestId,requestIds:result.requestIds,modelCalls:result.modelCalls,requiresClarification:result.requiresClarification,action};
   }
-  automations(user:User){return {automations:this.store.list<StoredAutomation>(user.id,"automation")};}
+  automations(user:User){
+    for(const automation of this.store.list<StoredAutomation>(user.id,"automation"))this.reviewLegacyAutomation(automation);
+    return {automations:this.store.list<StoredAutomation>(user.id,"automation")};
+  }
+  private reviewLegacyAutomation(automation:StoredAutomation){
+    if(automation.policySchemaVersion===1)return automation;
+    const error="Review the trade, trigger and finite execution limit before activating this older automation.";
+    if(automation.status==="paused"&&automation.error===error)return automation;
+    return this.store.update<StoredAutomation>(automation.userId,"automation",automation.id,{status:"paused",error});
+  }
+  private validateAutomationAccount(user:User,data:AutomationInput){
+    const account=this.account(user,data.accountId),agent=this.agent(user);
+    assertOstiumAutomation(account,data.request,data.condition);
+    if(account.venue!=="ostium"&&data.condition&&!/^\d+(?:\.\d{1,8})?$/.test(data.condition.price))throw new ApiError("INVALID_PRICE_PRECISION","This price source supports at most eight decimal places.");
+    if(agent.paused)throw new ApiError("AGENT_PAUSED","Resume the agent before enabling an automation.",409);
+    const permission=this.store.list<StoredPermission>(user.id,"permission").find(item=>item.accountId===account.id&&item.status==="active"&&item.expiresAt>Date.now()&&item.controlRevision===account.controlRevision);
+    if(data.kind==="trade"&&!permission)throw new ApiError("AGENT_NOT_AUTHORIZED","Authorize agent access before enabling an unattended trading strategy.",403);
+    const maximumExpiry=data.kind==="alert"?Date.now()+30*86_400_000:permission!.expiresAt;
+    const expiresAt=data.expiresAt??maximumExpiry;
+    if(expiresAt<=Date.now()||expiresAt>maximumExpiry)throw new ApiError("INVALID_EXPIRY",data.kind==="alert"?"Alerts must expire within 30 days.":"Strategy expiry must be within its agent permission lifetime.");
+    if(data.request&&(data.request.accountId!==account.id||data.request.venue!==account.venue))throw new ApiError("ACCOUNT_MISMATCH","Strategy action belongs to a different account.");
+    if(data.request&&data.condition&&!automationMarketMatches(account.venue,data.request.symbol,data.condition.symbol))throw new ApiError("CONDITION_MARKET_MISMATCH","The condition must name the same market as the reviewed trade.");
+    return{account,expiresAt};
+  }
   notifications(user:User){const notifications=this.store.list<Document&{readAt?:number}>(user.id,"notification",100);return{notifications,unreadCount:notifications.filter(item=>!item.readAt).length};}
   readNotification(user:User,notificationId:string){return this.store.update<Document&{id:string;userId:string;createdAt:number;updatedAt:number}>(user.id,"notification",notificationId,{readAt:Date.now()});}
   createAutomation(user:User,input:unknown,idempotencyKey?:string){
@@ -618,24 +641,29 @@ export class Platform {
     return this.store.db.transaction(()=>{
     const existing=this.store.get<StoredAutomation>(user.id,"automation",automationId);
     if(existing){if(existing.inputFingerprint!==fingerprint)throw new ApiError("IDEMPOTENCY_CONFLICT","This acceptance ID was already used for a different automation.",409);return existing;}
-    const account=this.account(user,data.accountId),agent=this.agent(user);
-    assertOstiumAutomation(account,data.request,data.condition);
-    if(agent.paused)throw new ApiError("AGENT_PAUSED","Resume the agent before enabling an automation.",409);
-    const permission=this.store.list<StoredPermission>(user.id,"permission").find(item=>item.accountId===account.id&&item.status==="active"&&item.expiresAt>Date.now());
-    if(data.kind==="trade"&&!permission)throw new ApiError("AGENT_NOT_AUTHORIZED","Authorize agent access before enabling an unattended trading strategy.",403);
-    const maximumExpiry=data.kind==="alert"?Date.now()+30*86_400_000:permission!.expiresAt;
-    const expiresAt=data.expiresAt??maximumExpiry;
-    if(expiresAt<=Date.now()||expiresAt>maximumExpiry)throw new ApiError("INVALID_EXPIRY",data.kind==="alert"?"Alerts must expire within 30 days.":"Strategy expiry must be within its agent permission lifetime.");
-    if(data.request&&(data.request.accountId!==account.id||data.request.venue!==account.venue))throw new ApiError("ACCOUNT_MISMATCH","Strategy action belongs to a different account.");
-    return this.store.put("automation",{id:automationId,userId:user.id,accountId:account.id,kind:data.kind,name:data.name,instruction:data.instruction??(data.kind==="alert"?"Monitor the approved price condition":"Repeat the explicitly approved trade request"),request:data.request?{...data.request,mode:"agent"}:undefined,condition:data.condition,intervalSeconds:data.intervalSeconds,status:"active",nextRunAt:Date.now(),policyVersion:1,controlRevision:account.controlRevision,inputFingerprint:fingerprint,expiresAt,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAutomation);
+    const sourceMessageId=idempotencyKey?.startsWith("chat-automation:")?idempotencyKey.slice("chat-automation:".length):undefined;
+    const source=sourceMessageId?this.store.get<StoredMessage>(user.id,"message",sourceMessageId):undefined;
+    if(sourceMessageId&&(!source||source.role!=="assistant"||!source.automationProposal||canonicalJson(automationSchema.parse(source.automationProposal))!==canonicalJson(data)))throw new ApiError("PROPOSAL_MISMATCH","Review the original assistant automation proposal before activating it.",409);
+    const{account,expiresAt}=this.validateAutomationAccount(user,data);
+    return this.store.put("automation",{id:automationId,userId:user.id,accountId:account.id,kind:data.kind,name:data.name,instruction:data.instruction??(data.kind==="alert"?"Monitor the reviewed price condition":"Execute only the reviewed trade and trigger"),request:data.request?{...data.request,mode:"agent"}:undefined,condition:data.condition,executionMode:data.executionMode,maxExecutions:data.maxExecutions,executionCount:0,policySchemaVersion:1,intervalSeconds:data.intervalSeconds,status:"active",nextRunAt:Date.now(),policyVersion:1,controlRevision:account.controlRevision,inputFingerprint:fingerprint,sourceMessageId,providerRequestId:source?.requestId,expiresAt,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredAutomation);
     }).immediate();
   }
-  updateAutomation(user:User,automationId:string,input:{status?:"active"|"paused";instruction?:string;intervalSeconds?:number}){
+  updateAutomation(user:User,automationId:string,value:AutomationUpdate){
+    const input=automationUpdateSchema.parse(value);
     if(input.instruction)rejectMemorySecrets(input.instruction,{allowPublicHashes:true,code:"CREDENTIAL_INPUT_REJECTED"});
-    const automation=this.store.get<StoredAutomation>(user.id,"automation",automationId);if(!automation)throw new ApiError("NOT_FOUND","Automation not found.",404);
-    if(input.status==="active")assertOstiumAutomation(this.account(user,automation.accountId),automation.request,automation.condition);
-    if(input.status==="active"&&(this.agent(user).paused||automation.expiresAt<=Date.now()))throw new ApiError("AUTOMATION_UNAVAILABLE","Resume the agent and renew expired permissions before activating this strategy.",409);
-    return this.store.update<StoredAutomation>(user.id,"automation",automationId,{...input,policyVersion:automation.policyVersion+1,nextRunAt:Date.now()});
+    return this.store.db.transaction(()=>{
+      const automation=this.store.get<StoredAutomation>(user.id,"automation",automationId);if(!automation)throw new ApiError("NOT_FOUND","Automation not found.",404);
+      const changesPolicy=["request","condition","executionMode","maxExecutions","intervalSeconds","expiresAt"].some(key=>key in input);
+      if(input.instruction&&!changesPolicy)throw new ApiError("STRUCTURED_REVIEW_REQUIRED","Instructions are descriptive. Review the trade, condition or schedule to change execution.",409);
+      if(!changesPolicy&&input.status==="paused")return this.store.update<StoredAutomation>(user.id,"automation",automationId,{status:"paused",policyVersion:automation.policyVersion+1});
+      if(automation.runningEvaluationId)throw new ApiError("AUTOMATION_BUSY","Wait for the current evaluation to finish before changing or resuming this automation.",409);
+      if(automation.policySchemaVersion!==1&&(!input.executionMode||input.maxExecutions===undefined))throw new ApiError("STRUCTURED_REVIEW_REQUIRED","Review an explicit execution mode and limit before resuming this older automation.",409);
+      if(automation.status==="completed"||(automation.executionCount??0)>=(automation.maxExecutions??Infinity))throw new ApiError("AUTOMATION_EXHAUSTED","This automation used its execution limit. Create a newly reviewed automation instead.",409);
+      const data=automationSchema.parse({kind:automation.kind??"trade",accountId:automation.accountId,name:input.name??automation.name,instruction:input.instruction??automation.instruction,request:input.request??automation.request,condition:input.condition===null?undefined:input.condition??automation.condition,executionMode:input.executionMode??automation.executionMode,maxExecutions:input.maxExecutions??automation.maxExecutions,intervalSeconds:input.intervalSeconds??automation.intervalSeconds,expiresAt:input.expiresAt??automation.expiresAt});
+      if((automation.executionCount??0)>=data.maxExecutions)throw new ApiError("AUTOMATION_EXHAUSTED","The execution limit must exceed the attempts already consumed.",409);
+      const{account,expiresAt}=this.validateAutomationAccount(user,data);
+      return this.store.update<StoredAutomation>(user.id,"automation",automationId,{...data,request:data.request?{...data.request,mode:"agent"}:undefined,instruction:data.instruction??automation.instruction,status:input.status??automation.status,policySchemaVersion:1,executionCount:automation.executionCount??0,policyVersion:automation.policyVersion+1,controlRevision:account.controlRevision,expiresAt,nextRunAt:Date.now(),conditionActive:changesPolicy?undefined:automation.conditionActive,lastOutcome:changesPolicy?undefined:automation.lastOutcome,lastEvaluation:changesPolicy?undefined:automation.lastEvaluation,sourceMessageId:changesPolicy?undefined:automation.sourceMessageId,providerRequestId:changesPolicy?undefined:automation.providerRequestId,error:undefined});
+    }).immediate();
   }
   async reconcileStorage(user:User,expenseId:string){
     const expense=listStorageExpenses(this.store,user.id).find(item=>item.id===expenseId);
@@ -712,6 +740,9 @@ export class Platform {
       try{
         const current=this.store.get<StoredAutomation>(user.id,"automation",automation.id)!;
         if(current.status!=="active"||current.nextRunAt>Date.now())continue;
+        if(current.policySchemaVersion!==1){this.reviewLegacyAutomation(current);continue;}
+        if((current.executionCount??0)>=(current.maxExecutions??0)){this.store.update<StoredAutomation>(user.id,"automation",current.id,{status:"completed"});continue;}
+        automationSchema.parse({kind:current.kind??"trade",accountId:current.accountId,name:current.name,instruction:current.instruction,request:current.request,condition:current.condition,executionMode:current.executionMode,maxExecutions:current.maxExecutions,intervalSeconds:current.intervalSeconds,expiresAt:current.expiresAt});
         const agent=this.agent(user);
         if(agent.paused||current.expiresAt<=Date.now()){this.store.update<StoredAutomation>(user.id,"automation",current.id,{status:current.expiresAt<=Date.now()?"expired":"paused"});continue;}
         if(this.store.get(user.id,"evaluation",evaluationId)){this.store.update<StoredAutomation>(user.id,"automation",current.id,{status:"failed",error:"This evaluation was already consumed. Review its existing action before resuming."});continue;}
@@ -731,7 +762,7 @@ export class Platform {
           if(!latest||latest.runningEvaluationId!==evaluationId||latest.policyVersion!==current.policyVersion||latest.status!=="active"||latest.expiresAt<=Date.now()||latest.controlRevision!==current.controlRevision||latestAccount.controlRevision!==account.controlRevision||latestAgent.paused||latestAgent.controlRevision!==agent.controlRevision)throw new ApiError("STRATEGY_CHANGED","Strategy or account authority changed while its workflow was running.",409);
           return latest;
         };
-        const planned=alert?{proposal:undefined,requestId:undefined}:current.request?{proposal:current.request,requestId:undefined}:await this.proposal(user,current.instruction,account,evaluationId,"strategy");
+        const planned={proposal:alert?undefined:current.request,requestId:current.providerRequestId};
         assertCurrent();
         const proposal=planned.proposal;
         assertOstiumAutomation(account,proposal,current.condition);
@@ -747,26 +778,42 @@ export class Platform {
         this.store.put("evaluation",{...evaluation,id:evaluationId,userId:user.id,createdAt:Date.now(),updatedAt:Date.now()});
         evaluationAccepted=true;
         this.store.update<StoredAutomation>(user.id,"automation",current.id,{lastEvaluation:evaluation as unknown as StoredAutomation["lastEvaluation"]});
+        const matches=evaluation.decision==="allow",crossing=current.executionMode==="on-crossing";
+        const triggered=matches&&(!crossing||latest.conditionActive===false);
+        const waitingReason=crossing&&latest.conditionActive===undefined?"Initial observation saved. Waiting for a new false-to-true threshold crossing.":crossing&&matches&&!triggered?"Condition is still met. Waiting for it to clear and cross again.":evaluation.reason;
+        this.store.update<StoredAutomation>(user.id,"automation",current.id,{lastOutcome:{status:evaluation.decision==="reject"?"rejected":crossing&&latest.conditionActive===undefined?"armed":"waiting",reason:waitingReason,observedAt:evaluation.observedAt}});
+        if(evaluation.decision!=="reject"&&current.condition)this.store.update<StoredAutomation>(user.id,"automation",current.id,{conditionActive:matches});
         if(alert){
-          if(evaluation.decision==="allow"&&!latest.conditionActive){
+          if(triggered&&(crossing||!latest.conditionActive)){
             const notificationId=createHash("sha256").update(`${user.id}|alert|${current.id}|${evaluationId}`).digest("hex");
-            this.store.put("notification",{id:notificationId,userId:user.id,automationId:current.id,evaluationId,kind:"price-alert",symbol:current.condition?.symbol,message:`${current.name}: ${evaluation.reason}`.slice(0,500),observedAt:evaluation.observedAt,createdAt:Date.now(),updatedAt:Date.now()});
+            this.store.db.transaction(()=>{
+              this.store.put("notification",{id:notificationId,userId:user.id,automationId:current.id,evaluationId,kind:"price-alert",symbol:current.condition?.symbol,message:`${current.name}: ${evaluation.reason}`.slice(0,500),observedAt:evaluation.observedAt,createdAt:Date.now(),updatedAt:Date.now()});
+              const executionCount=(latest.executionCount??0)+1;
+              this.store.update<StoredAutomation>(user.id,"automation",current.id,{executionCount,status:executionCount>=current.maxExecutions!?"completed":"active",lastOutcome:{status:"notified",reason:"The price condition triggered an owner notification. No trade was submitted.",observedAt:evaluation.observedAt}});
+            }).immediate();
           }
-          if(evaluation.decision!=="reject")this.store.update<StoredAutomation>(user.id,"automation",current.id,{conditionActive:evaluation.decision==="allow"});
-          results.push({automationId:current.id,evaluationId,decision:evaluation.decision,kind:"alert"});
-        }else if(evaluation.decision==="allow"){
+          results.push({automationId:current.id,evaluationId,decision:matches&&!triggered?"no-action":evaluation.decision,kind:"alert",...(matches&&!triggered?{reason:"Waiting for the next observed threshold crossing."}:{})});
+        }else if(triggered){
           if(!proposal)throw new ApiError("MISSING_PROPOSAL","Workflow allowed no executable proposal.",502);
           const prepared=await this.prepare(user,{...proposal,mode:"agent"},`evaluation:${evaluationId}`,"automation",{instruction:current.instruction,providerRequestId:planned.requestId,evaluationId});
-          this.store.update<StoredAction>(user.id,"action",prepared.action.id,{automationId:current.id,automationPolicyVersion:current.policyVersion,evaluationExpiresAt:evaluation.expiresAt});
+          this.store.db.transaction(()=>{
+            const live=assertCurrent(),executionCount=(live.executionCount??0)+1;
+            if(executionCount>current.maxExecutions!)throw new ApiError("AUTOMATION_EXHAUSTED","This automation has no execution attempts remaining.",409);
+            this.store.update<StoredAutomation>(user.id,"automation",current.id,{executionCount});
+            this.store.update<StoredAction>(user.id,"action",prepared.action.id,{automationId:current.id,automationPolicyVersion:current.policyVersion,automationExecutionOrdinal:executionCount,evaluationExpiresAt:evaluation.expiresAt});
+          }).immediate();
           const submitted=await this.submit(user,{actionId:prepared.action.id});
+          const afterSubmit=this.store.get<StoredAutomation>(user.id,"automation",current.id)!;
+          this.store.update<StoredAutomation>(user.id,"automation",current.id,{lastOutcome:{status:submitted.action.status==="rejected"?"rejected":"submitted",reason:submitted.action.status==="rejected"?"The venue rejected the submitted action. Review its activity record.":"The reviewed trade was submitted. Its activity record tracks settlement separately.",observedAt:Date.now(),actionId:submitted.action.id}});
+          if((afterSubmit.executionCount??0)>=current.maxExecutions!&&afterSubmit.policyVersion===current.policyVersion&&afterSubmit.status==="active")this.store.update<StoredAutomation>(user.id,"automation",current.id,{status:"completed"});
           results.push({automationId:current.id,evaluationId,decision:evaluation.decision,actionId:submitted.action.id,status:submitted.action.status});
-        }else results.push({automationId:current.id,evaluationId,decision:evaluation.decision});
+        }else results.push({automationId:current.id,evaluationId,decision:matches?"no-action":evaluation.decision,...(matches?{reason:"Waiting for the next observed threshold crossing."}:{})});
       }catch(error){
         const latest=this.store.get<StoredAutomation>(user.id,"automation",automation.id);
         if(!latest||marked&&latest.runningEvaluationId!==evaluationId)continue;
         const retryCount=(latest.retryCount??0)+1,busy=!evaluationAccepted&&error instanceof ApiError&&["AGENT_BUSY","ACCOUNT_BUSY","ACCOUNT_RECONCILING"].includes(error.code)&&retryCount<=5;
         if(busy){this.store.update<StoredAutomation>(user.id,"automation",automation.id,{retryCount,nextRunAt:Date.now()+Math.min(300_000,15_000*2**(retryCount-1)),error:errorMessage(error)});results.push({automationId:automation.id,status:"waiting",error:errorMessage(error)});}
-        else{const status=latest.status!=="active"?latest.status:error instanceof ApiError&&error.code==="INSUFFICIENT_BUDGET"?"insufficient-budget":"failed";this.store.update<StoredAutomation>(user.id,"automation",automation.id,{status,retryCount,error:errorMessage(error)});results.push({automationId:automation.id,error:errorMessage(error),status});}
+        else{const status=latest.status!=="active"?latest.status:error instanceof ApiError&&error.code==="INSUFFICIENT_BUDGET"?"insufficient-budget":"failed";this.store.update<StoredAutomation>(user.id,"automation",automation.id,{status,retryCount,error:errorMessage(error),lastOutcome:{status:"failed",reason:errorMessage(error),observedAt:Date.now()}});results.push({automationId:automation.id,error:errorMessage(error),status});}
       }
       finally{
         const latest=this.store.get<StoredAutomation>(user.id,"automation",automation.id);

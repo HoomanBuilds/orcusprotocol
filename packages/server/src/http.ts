@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { getAddress, verifyMessage, type Hex } from "viem";
 import { z } from "zod";
-import { tradeActionSchema,venueSchema,type HealthStatus,type Market,type MarketCandle,type User } from "@orcus/core";
+import { automationUpdateSchema,tradeActionSchema,venueSchema,type HealthStatus,type Market,type MarketCandle,type User } from "@orcus/core";
 import { callEngine } from "./engine";
 import { ApiError } from "./errors";
 import { Platform } from "./platform";
@@ -206,7 +206,7 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if (path === "automations" && method === "POST") return json({ data: platform.createAutomation(user, await readBody(request),z.string().min(1).max(200).optional().parse(request.headers.get("idempotency-key")??undefined)) }, 201);
     const automationMatch = path.match(/^automations\/([^/]+)$/);
     if (automationMatch && method === "PATCH") {
-      const input = z.object({ status: z.enum(["active", "paused"]).optional(), instruction: z.string().min(1).max(2000).optional(), intervalSeconds: z.number().int().min(60).max(86400).optional() }).strict().parse(await readBody(request));
+      const input = automationUpdateSchema.parse(await readBody(request));
       return json({ data: platform.updateAutomation(user, automationMatch[1], input) });
     }
     if (path === "budget" && method === "GET") return json({ data: await platform.budget(user) });
