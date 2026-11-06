@@ -13,6 +13,7 @@ import { getStore,id,type Store } from "./store";
 import type { Document,StoredAccount,StoredAction,StoredAgent,StoredAutomation,StoredEvaluationRun,StoredMessage,StoredPermission } from "./types";
 import { AgentMemoryStore,rejectMemorySecrets } from "./memory";
 import { AgentRun,type AgentRunStatus } from "./agent-runtime";
+import { listStorageExpenses,recordStorageExpense } from "./storage-expenses";
 
 export const accountSchema=z.object({venue:z.enum(["uniswap","hyperliquid"]),address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
 export const automationSchema=z.object({kind:z.enum(["trade","alert"]).default("trade"),accountId:z.string(),name:z.string().min(1).max(80),instruction:z.string().min(1).max(2000).optional(),intervalSeconds:z.number().int().min(60).max(86400).default(300),request:tradeRequestSchema.optional(),condition:z.object({symbol:z.string().min(1).max(50),operator:z.enum(["above","below"]),price:z.string().max(80).regex(/^\d+(?:\.\d+)?$/).refine(value=>/[1-9]/.test(value),"Use a positive alert threshold")}).optional(),expiresAt:z.number().int().optional()}).strict().superRefine((value,ctx)=>{if(value.kind==="alert"&&(!value.condition||value.request))ctx.addIssue({code:"custom",message:"Price alerts require a condition and cannot contain a trade request."});if(value.kind==="trade"&&!value.request&&!value.instruction)ctx.addIssue({code:"custom",message:"Trading strategies require an instruction or an explicitly approved recurring request."});});
@@ -85,7 +86,7 @@ export class Platform {
     })();
   }
   async budget(user:User){
-    const local={...getBudget(this.store,user.id),operatingAddress:this.agent(user).operatingAddress};
+    const local={...getBudget(this.store,user.id),operatingAddress:this.agent(user).operatingAddress,nativeExpenses:listStorageExpenses(this.store,user.id)};
     try{
       const provider=await callEngine<{status:"verified"|"unavailable"|"unconfigured";balance?:string;message:string;unit?:string;address?:string;[key:string]:unknown}>("getComputeBalance");
       return {...local,computeBalanceStatus:provider.status,providerBalance:provider,computeBalanceScope:"configured-provider-account",warning:`${local.warning} ${provider.message}`};
@@ -459,7 +460,13 @@ export class Platform {
     if(input.status==="active"&&(this.agent(user).paused||automation.expiresAt<=Date.now()))throw new ApiError("AUTOMATION_UNAVAILABLE","Resume the agent and renew expired permissions before activating this strategy.",409);
     return this.store.update<StoredAutomation>(user.id,"automation",automationId,{...input,policyVersion:automation.policyVersion+1,nextRunAt:Date.now()});
   }
-  async memory(user:User,action:"backup"|"restore"){
+  async reconcileStorage(user:User,expenseId:string){
+    const expense=listStorageExpenses(this.store,user.id).find(item=>item.id===expenseId);
+    if(!expense)throw new ApiError("NOT_FOUND","This storage expense does not exist for your account.",404);
+    if(expense.status!=="submitted-unknown")return expense;
+    return recordStorageExpense(this.store,user.id,await callEngine("reconcileStorageExpense",expense));
+  }
+  async memory(user:User,action:"backup"|"restore",limits:{maxGas0G?:string;maxStorageFee0G?:string}={}){
     const key=memoryKey(this.store,user.id);
     try{
       if(action==="backup"){
@@ -467,9 +474,13 @@ export class Platform {
         const content={version:2,agent:{preferences:this.agent(user).preferences},messages:this.store.list<StoredMessage>(user.id,"message",16).map(({role,content,createdAt})=>({role,content:content.slice(0,4000),createdAt})),longTerm,capturedAt:Date.now()};
         while(Buffer.byteLength(JSON.stringify(content))>750_000&&content.longTerm.notes.length)content.longTerm.notes.pop();
         if(Buffer.byteLength(JSON.stringify(content))>750_000)throw new ApiError("MEMORY_TOO_LARGE","Compact the active checkpoint before backing up this memory.",413);
-        const result=await this.withAccountLease(`operating:${user.id}`,async assertLease=>{assertLease();return callEngine<Document>("uploadMemory",content,key,readSigner(this.store,user.id,"operating"));});
+        const result=await this.withAccountLease(`operating:${user.id}`,async assertLease=>{
+          assertLease();
+          if(listStorageExpenses(this.store,user.id).some(expense=>expense.status==="submitted-unknown"))throw new ApiError("STORAGE_OUTCOME_UNKNOWN","Reconcile the previous storage expense before paying for another backup.",409);
+          return callEngine<Document>("uploadMemory",content,key,readSigner(this.store,user.id,"operating"),{maxGas0G:limits.maxGas0G??"0.003",maxStorageFee0G:limits.maxStorageFee0G??"0.01",assertAuthority:assertLease,onSubmissionIntent:(expense:unknown)=>{recordStorageExpense(this.store,user.id,expense);},onExpense:(expense:unknown)=>{recordStorageExpense(this.store,user.id,expense);}});
+        });
         const rootHash=result.rootHash??result.root;
-        if(typeof rootHash!=="string")throw new ApiError("STORAGE_UNCONFIRMED","Storage did not confirm an uploaded root. No backup was marked successful.",502);
+        if(result.status!=="confirmed"||typeof rootHash!=="string"||!/^0x[\da-fA-F]{64}$/.test(rootHash))throw new ApiError("STORAGE_UNCONFIRMED","Storage did not confirm an uploaded root. No backup was marked successful.",502);
         return this.store.put("memory",{id:id(),userId:user.id,rootHash,status:"confirmed",evidence:result,noteCount:longTerm.notes.length,messageCount:content.messages.length,createdAt:Date.now(),updatedAt:Date.now()});
       }
       const backup=this.store.list<Document&{rootHash:string}>(user.id,"memory")[0];if(!backup)throw new ApiError("MEMORY_NOT_FOUND","Create a confirmed encrypted backup first.",404);

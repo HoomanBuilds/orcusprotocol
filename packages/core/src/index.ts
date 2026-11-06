@@ -262,6 +262,7 @@ export interface OperatingBudget {
   };
   computeBalanceScope?: "configured-provider-account";
   expenses?: Array<{ id: string; reference: string; status: string; amountUsd: string; created_at: number; evidence?: unknown }>;
+  nativeExpenses?: Array<{ id: string; kind: "storage"; currency: "0g"; chainId: 16602; status: "confirmed" | "reverted" | "submitted-unknown" | "not-submitted"; transactionHash: string; gasPaidWei?: string; storageFeeWei?: string; totalSpentWei?: string }>;
 }
 
 export interface CapabilityStatus {

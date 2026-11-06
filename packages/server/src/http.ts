@@ -185,7 +185,15 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if(path==="memory/notes"&&method==="POST")return json({data:platform.remember(user,await readBody(request))},201);
     const memoryMatch=path.match(/^memory\/notes\/([^/]+)$/);
     if(memoryMatch&&method==="DELETE")return json({data:{forgotten:platform.forgetMemory(user,z.string().max(100).parse(memoryMatch[1]))}});
-    if (path === "memory" && method === "POST") { const input = z.object({ action: z.enum(["backup", "restore"]) }).strict().parse(await readBody(request)); return json({ data: await platform.memory(user, input.action) }); }
+    if(path==="memory/reconcile"&&method==="POST"){
+      const input=z.object({expenseId:z.string().min(1).max(100)}).strict().parse(await readBody(request));
+      return json({data:await platform.reconcileStorage(user,input.expenseId)});
+    }
+    if (path === "memory" && method === "POST") {
+      const cap=z.string().regex(/^(?:0|[1-9]\d{0,7})(?:\.\d{1,18})?$/).refine(value=>/[1-9]/.test(value),"Use a positive native 0G expense cap");
+      const input=z.object({action:z.enum(["backup","restore"]),maxGas0G:cap.optional(),maxStorageFee0G:cap.optional()}).strict().parse(await readBody(request));
+      return json({data:await platform.memory(user,input.action,{maxGas0G:input.maxGas0G,maxStorageFee0G:input.maxStorageFee0G})});
+    }
     return json({ error: { code: "NOT_FOUND", message: "This API route does not exist." } }, 404);
   } catch (error) {
     if (error instanceof z.ZodError) return json({ error: { code: "INVALID_INPUT", message: error.issues[0]?.message ?? "Invalid request." } }, 400);

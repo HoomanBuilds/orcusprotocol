@@ -5,7 +5,7 @@ import { getHyperliquidBook, getHyperliquidCandles, getHyperliquidMarkets, getHy
 import { getUniswapMarkets, getUniswapPortfolio, prepareUniswapAction, reconcileUniswapAction } from "./venues/uniswap";
 
 export { planWith0G, getComputeBalance } from "./compute";
-export { uploadMemory, downloadMemory, encryptMemory, decryptMemory } from "./storage";
+export { uploadMemory, downloadMemory, encryptMemory, decryptMemory, reconcileStorageExpense } from "./storage";
 export { evaluateStrategy, parseCreOutput } from "./automation/cre";
 export { engineConfig } from "./config";
 export { EngineError } from "./errors";

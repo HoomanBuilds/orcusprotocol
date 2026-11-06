@@ -7,6 +7,7 @@ import { getBudget, reserveBudget, setBudget, settleReservation } from "./budget
 import { handleRequest, readBody } from "./http";
 import { Store } from "./store";
 import { Platform } from "./platform";
+import { listStorageExpenses,recordStorageExpense } from "./storage-expenses";
 import * as engineBoundary from "./engine";
 import type { StoredAction,StoredAutomation } from "./types";
 import { tradeRequestSchema,type PreparedAction } from "@orcus/core";
@@ -58,6 +59,23 @@ describe("owner authentication", () => {
 });
 
 describe("durable limits", () => {
+  it("blocks duplicate unknown storage payments and reconciles only user-bound receipt metadata", async () => {
+    const store = new Store(":memory:"), engine = vi.spyOn(engineBoundary, "callEngine");
+    try {
+      const user = store.ensureUser("0x1111111111111111111111111111111111111111"), other = store.ensureUser("0x2222222222222222222222222222222222222222"), platform = new Platform(store);
+      const agent = platform.agent(user);
+      const expense = recordStorageExpense(store, user.id, { kind: "storage", currency: "0g", unit: "neuron", chainId: 16602, status: "submitted-unknown", transactionHash: `0x${"1".repeat(64)}`, rootHash: `0x${"2".repeat(64)}`, payerAddress: agent.operatingAddress, to: `0x${"4".repeat(40)}`, calldataHash: `0x${"5".repeat(64)}`, storageValueWei: "100", maxGasWei: "100000", maxStorageFeeWei: "1000", observedAt: Date.now() });
+      await expect(platform.memory(user, "backup")).rejects.toMatchObject({ code: "STORAGE_OUTCOME_UNKNOWN" });
+      await expect(platform.reconcileStorage(other, expense.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(engine).not.toHaveBeenCalled();
+      engine.mockResolvedValueOnce({ ...expense, status: "confirmed", gasPaidWei: "40000", storageFeeWei: "100", totalSpentWei: "40100", blockNumber: "1" });
+      await expect(platform.reconcileStorage(user, expense.id)).resolves.toMatchObject({ status: "confirmed", totalSpentWei: "40100" });
+      expect(engine).toHaveBeenCalledWith("reconcileStorageExpense", expense);
+      await platform.reconcileStorage(user, expense.id);
+      expect(engine).toHaveBeenCalledTimes(1);
+      expect(listStorageExpenses(store, other.id)).toEqual([]);
+    } finally { engine.mockRestore(); store.db.close(); }
+  });
   it("idempotently accepts an automation once and rejects changed settings",()=>{
     const store=new Store(":memory:");
     try{

@@ -24,7 +24,7 @@ import {
   fundTradingAccount,
   fundOperatingWallet,
 } from "@/lib/wallets";
-import { usd } from "@/lib/format";
+import { tokenUnits, usd } from "@/lib/format";
 import { MemoryControls } from "./memory-controls";
 import { ComputeFundingPanel } from "./compute-funding-panel";
 import {
@@ -449,6 +449,8 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
   const [privateOnly, setPrivateOnly] = useState(false);
   const [privateVerification, setPrivateVerification] = useState<"independent-gateway" | "gateway-reported">("independent-gateway");
   const [memoryStatus, setMemoryStatus] = useState<string | null>(null);
+  const [storageGasCap, setStorageGasCap] = useState("0.003");
+  const [storageFeeCap, setStorageFeeCap] = useState("0.01");
   const [mode, setMode] = useState<"approval-required" | "autonomous">(
     "approval-required",
   );
@@ -562,7 +564,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
     try {
       const result = await post<{ rootHash?: string; restoredCount?: number }>(
         "/api/memory",
-        { action },
+        { action, ...(action === "backup" ? { maxGas0G: storageGasCap, maxStorageFee0G: storageFeeCap } : {}) },
       );
       setMemoryStatus(
         action === "backup"
@@ -575,6 +577,16 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
     } finally {
       setBusy(null);
     }
+  }
+
+  async function reconcileStorage(expenseId: string) {
+    setBusy(expenseId);
+    setError(null);
+    try {
+      await post("/api/memory/reconcile", { expenseId });
+      await w.refresh();
+    } catch (cause) { setError(displayError(cause)); }
+    finally { setBusy(null); }
   }
 
   return (
@@ -827,9 +839,13 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
           </div>
           <p className="fine-print">
             Back up encrypted preferences and conversation context with the
-            authorized Galileo operating wallet. Storage needs testnet gas. A
+            authorized Galileo operating wallet. Each backup can spend up to the gas and storage-fee caps below. These native 0G costs are separate from the USD inference allowance. A
             failed upload is never shown as a persisted backup.
           </p>
+          <div className="form-grid">
+            <Field label="Maximum transaction gas per backup (0G)"><input inputMode="decimal" value={storageGasCap} maxLength={27} disabled={!!busy} onChange={event => setStorageGasCap(event.target.value)} /></Field>
+            <Field label="Maximum storage fee per backup (0G)"><input inputMode="decimal" value={storageFeeCap} maxLength={27} disabled={!!busy} onChange={event => setStorageFeeCap(event.target.value)} /></Field>
+          </div>
           <div className="memory-actions">
             <button
               className="button secondary small"
@@ -855,6 +871,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
               {memoryStatus}
             </p>
           )}
+          {!!w.budget?.nativeExpenses?.length && <details className="technical-limits"><summary>Native storage expense receipts</summary>{w.budget.nativeExpenses.map(expense => <div className="evaluation" key={expense.id} style={{ fontVariantNumeric: "tabular-nums" }}><Status value={expense.status} /><small>Total: {tokenUnits(expense.totalSpentWei, 18, "0G")}; gas: {tokenUnits(expense.gasPaidWei, 18, "0G")}; storage: {tokenUnits(expense.storageFeeWei, 18, "0G")}</small><a className="text-link" href={`https://chainscan-galileo.0g.ai/tx/${expense.transactionHash}`} target="_blank" rel="noreferrer">Inspect expense<ExternalLink size={12} /></a>{expense.status === "submitted-unknown" && <button className="button secondary small" type="button" disabled={!!busy} onClick={() => void reconcileStorage(expense.id)}>Check receipt without uploading again</button>}</div>)}</details>}
           <MemoryControls key={w.session.user.id} userId={w.session.user.id} />
         </section>
       )}
