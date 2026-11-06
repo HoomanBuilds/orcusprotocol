@@ -2,7 +2,7 @@
 
 ## Scope
 
-Host the testnet hackathon app on one Ubuntu 24.04 x86_64 EC2 instance. Run the existing Node 22 web app and background worker as the same unprivileged user with systemd. Optionally put Caddy in front for a user-supplied HTTPS domain.
+Host the testnet hackathon app on one Ubuntu 24.04 x86_64 or ARM64 EC2 instance. Run the existing Node 22 web app and background worker as the same unprivileged user with systemd. Use the existing Caddy proxy for `https://orcusprotocol.xyz`, preserving its other sites.
 
 This is a single-machine demo, not a high-availability production platform. No Docker, Terraform, ECS, RDS, KMS, backup system or monitoring stack is required.
 
@@ -14,6 +14,8 @@ This is a single-machine demo, not a high-availability production platform. No D
 - `orcus-web.service`: Next.js on `127.0.0.1:3000`.
 - `orcus-worker.service`: loopback calls into the same app, using the same `.env` and internal token.
 - Optional Caddy: public ports 80/443 with a domain pointed at the instance.
+
+The selected shared host is ARM64. Install dependencies on that architecture rather than copying a laptop's native modules. Keep `/opt/orcus` separate from any older checkout under `/home/ubuntu/orcus`. Web and worker service defaults cap combined memory at 3 GiB and combined CPU at one core; build serially in a separately bounded systemd unit with the app stopped.
 
 `npm run demo:setup` owns first-run secret generation and validation. `ORCUS_APP_URL` is the public HTTPS origin; `ORCUS_INTERNAL_APP_URL` is `http://127.0.0.1:3000`. Provider credentials and limited testnet payer configuration remain operator-supplied, not generated funding or granted authorization.
 

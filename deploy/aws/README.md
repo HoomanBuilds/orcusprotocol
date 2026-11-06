@@ -4,11 +4,11 @@ Run the web app and worker directly on Ubuntu with systemd. No Docker or managed
 
 ## 1. Choose the host
 
-Use a user-approved Ubuntu 24.04 x86_64 EC2 instance with SSH access and enough memory to build Next.js and compile the CRE workflow. A 2-vCPU, 4-GiB machine is a starting point for this demo, not a load-tested sizing guarantee. Choose the region, instance and disk in your AWS account and check their current cost before launching. Use a Canonical Ubuntu image, not an arbitrary image with Ubuntu in its name. See [Ubuntu's EC2 guidance](https://documentation.ubuntu.com/aws/aws-how-to/instances/launch-ubuntu-ec2-instance/).
+Use a user-approved Ubuntu 24.04 x86_64 or ARM64 EC2 instance with SSH access and enough memory to build Next.js and compile the CRE workflow. A dedicated 2-vCPU, 4-GiB machine is a starting point for this demo, not a load-tested sizing guarantee. On a shared machine, measure available RAM, free disk and existing CPU use before installing. Use a Canonical Ubuntu image, not an arbitrary image with Ubuntu in its name. See [Ubuntu's EC2 guidance](https://documentation.ubuntu.com/aws/aws-how-to/instances/launch-ubuntu-ec2-instance/).
 
 Allow inbound SSH on TCP 22 only from your own IP, and TCP 80/443 for the public site. Do not expose 3000 or the data directory. Leave outbound HTTPS available for RPC, providers, package downloads and CRE. These follow the [AWS security group examples](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/security-group-rules-reference.html). If a host firewall is enabled, it needs matching rules.
 
-Supply your own repository URL, approved revision and public HTTPS origin. The examples below use `demo.example.com` only as a placeholder. For Caddy, point the domain's A record at the instance's public IPv4 address; add AAAA only if IPv6 also reaches this host. A changing instance address requires updating DNS.
+Supply your own repository URL and approved revision. The selected origin is `https://orcusprotocol.xyz`. Reuse the instance's existing Elastic IP when present; replacing an in-use address can break its other sites. Point the domain's A record at that address, and add AAAA only if IPv6 also reaches this host. Do not change unrelated DNS records.
 
 ## 2. Install the host tools
 
@@ -19,19 +19,25 @@ sudo apt-get update
 sudo apt-get install -y ca-certificates curl git gnupg unzip xz-utils build-essential python3
 ```
 
-Install Node 22 system-wide, version 22.16.0 or newer. Skip the following block if the host already has a compatible system-wide Node 22 and npm. This example uses the official 22.23.4 Linux x64 archive and published checksums, verified on November 6, 2026. For later updates, choose a supported 22.x release from [Node's official downloads](https://nodejs.org/en/download) and follow its linked signed-checksum verification instructions.
+Install Node 22 system-wide, version 22.16.0 or newer. Skip the following block if the host already has a compatible system-wide Node 22 and npm; do not replace a working runtime used by other apps. This example selects the official 22.23.4 Linux archive for the host architecture and verifies its published checksum. For later updates, choose a supported 22.x release from [Node's official downloads](https://nodejs.org/en/download) and follow its linked signed-checksum verification instructions.
 
 ```sh
 node_download_dir="$(mktemp -d)"
 cd "$node_download_dir"
-curl -fsSLO https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz
+case "$(uname -m)" in
+  x86_64) orcus_node_arch=x64 ;;
+  aarch64|arm64) orcus_node_arch=arm64 ;;
+  *) printf '%s\n' 'Unsupported Node architecture'; exit 1 ;;
+esac
+orcus_node_archive="node-v22.23.4-linux-$orcus_node_arch"
+curl -fsSLO "https://nodejs.org/dist/v22.23.4/$orcus_node_archive.tar.xz"
 curl -fsSLO https://nodejs.org/dist/v22.23.4/SHASUMS256.txt
 sha256sum --check --ignore-missing SHASUMS256.txt
 sudo install -d -m 0755 /usr/local/lib/nodejs
-sudo tar -xJf node-v22.23.4-linux-x64.tar.xz -C /usr/local/lib/nodejs
-sudo ln -s /usr/local/lib/nodejs/node-v22.23.4-linux-x64/bin/node /usr/local/bin/node
-sudo ln -s /usr/local/lib/nodejs/node-v22.23.4-linux-x64/bin/npm /usr/local/bin/npm
-sudo ln -s /usr/local/lib/nodejs/node-v22.23.4-linux-x64/bin/npx /usr/local/bin/npx
+sudo tar -xJf "$orcus_node_archive.tar.xz" -C /usr/local/lib/nodejs
+sudo ln -s "/usr/local/lib/nodejs/$orcus_node_archive/bin/node" /usr/local/bin/node
+sudo ln -s "/usr/local/lib/nodejs/$orcus_node_archive/bin/npm" /usr/local/bin/npm
+sudo ln -s "/usr/local/lib/nodejs/$orcus_node_archive/bin/npx" /usr/local/bin/npx
 node --version
 npm --version
 ```
@@ -59,9 +65,13 @@ For an existing checkout, inspect `git status --short` and its ownership first. 
 
 Use `git clone` for source delivery. Do not upload an entire local working directory, `.env`, wallet files or ignored assets. Configure credentials privately on the host instead.
 
+An older `/home/ubuntu/orcus` is not the new deployment target. Leave it untouched. Run `npm ci` on the target architecture: copying x86_64 `node_modules` or `.next` output to ARM64 can ship incompatible `better-sqlite3`, SWC or image-processing binaries.
+
 ## 4. Install and configure as the app user
 
 Enter the service user's shell. Install the same Bun and CRE CLI versions already verified for this repository, not an untested latest version. Their official installers are documented by [Bun](https://bun.sh/docs/installation) and [Chainlink](https://docs.chain.link/cre/getting-started/cli-installation/macos-linux); the CRE installer verifies its release binary. Go is not needed for this TypeScript workflow.
+
+Both installers support Linux ARM64. CRE v1.39.0 publishes `cre_linux_arm64.tar.gz` for Ubuntu 24.04 and an `ldd2-35` variant for older glibc; its installer selects the appropriate build. Confirm `node -p process.arch`, `bun --version` and `cre version` on the host before compiling. Published ARM binaries are compatibility evidence, not proof that this app's native modules or authenticated simulation work there.
 
 ```sh
 sudo -iu orcus
@@ -80,7 +90,7 @@ bunx cre-setup
 npm run typecheck
 npm run build
 cd /opt/orcus
-npm run demo:setup -- --app-url https://demo.example.com --data-dir /var/lib/orcus/data
+npm run demo:setup -- --app-url https://orcusprotocol.xyz --data-dir /var/lib/orcus/data
 exit
 ```
 
@@ -113,9 +123,22 @@ cd /opt/orcus
 npm run demo:setup -- --check
 npm run doctor
 node --import tsx deploy/aws/check-cre.mjs
-npm run build
 exit
 ```
+
+Build once from the SSH administrator account with web and worker stopped. Keep dependency installation, workflow compilation and this build serial. The bounded unit below reserves room for the other hosted apps and is removed after completion:
+
+```sh
+sudo systemd-run --unit=orcus-build --wait --collect --pipe \
+  -p User=orcus -p WorkingDirectory=/opt/orcus \
+  -p MemoryHigh=2560M -p MemoryMax=3072M -p MemorySwapMax=256M \
+  -p CPUQuota=100% -p Nice=10 \
+  /usr/bin/env PATH=/var/lib/orcus/.bun/bin:/var/lib/orcus/.cre/bin:/usr/local/bin:/usr/bin:/bin \
+  NODE_OPTIONS=--max-old-space-size=2304 NEXT_TELEMETRY_DISABLED=1 \
+  npm run build -- --webpack
+```
+
+Do not copy the laptop's build as a shortcut. A failed or memory-killed build is not deployable; inspect it before changing limits or starting services.
 
 The wrapper opaquely parses the root `.env` with Node, then forwards only the existing CRE child-environment allowlist. Explicit empty `--env` and `--public-env` files prevent the CLI from implicitly loading another dotenv. Do not source `.env` in Bash or pass the app's whole dotenv to the CLI. Authentication details and raw failure output are withheld; success prints one validated actual `ORCUS_CRE_LOCAL_RESULT` line. The fixed simulation is `cre workflow simulate strategy --target local-simulation --non-interactive --trigger-index 0`, run from `workflows/cre` with those private file flags.
 
@@ -139,6 +162,8 @@ curl --fail --silent --show-error --output /dev/null http://127.0.0.1:3000/
 
 The helper replaces only `/etc/systemd/system/orcus-web.service` and `orcus-worker.service`, then reloads systemd. It does not install dependencies, read `.env`, copy source, start services or change app data. Both units use the same checkout and user. The existing npm scripts load `.env` themselves, so no secret appears in a service command. systemd handles process startup and failure restarts as documented in [systemd.service](https://freedesktop.org/software/systemd/man/latest/systemd.service.html).
 
+Shared-host defaults cap the web service and its child processes at 2560 MiB, with a 1536 MiB Node heap; the worker is capped at 512 MiB with a 256 MiB heap. CPU quotas are 80% and 20% of one core respectively. Combined memory is bounded at 3 GiB, not all host RAM. CRE simulation executes inside the web service's limits. These are starting limits for light demo traffic, not a throughput guarantee. Check `MemoryPeak`, `NRestarts` and logs during a smoke test; avoid raising limits without rechecking the other apps. Use systemd drop-ins for host-specific overrides rather than editing shared app code.
+
 ## 6. Optional Caddy HTTPS
 
 If you already have an HTTPS reverse proxy, point it at `127.0.0.1:3000` instead. Otherwise, install Caddy using its [official Ubuntu package instructions](https://caddyserver.com/docs/install#debian-ubuntu-raspbian). The package starts a `caddy` service. DNS and inbound ports 80/443 must work before it can issue a publicly trusted certificate, as described in [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https).
@@ -150,10 +175,10 @@ sudo install -m 0644 /opt/orcus/deploy/aws/Caddyfile.example /etc/caddy/Caddyfil
 sudoedit /etc/caddy/Caddyfile
 sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 sudo systemctl reload caddy
-curl --fail --silent --show-error --output /dev/null https://demo.example.com/
+curl --fail --silent --show-error --output /dev/null https://orcusprotocol.xyz/
 ```
 
-Replace `demo.example.com` with the exact hostname from `ORCUS_APP_URL` before validating. If the host already has a Caddyfile, add this site to it manually; do not replace its other sites. Never publish plain HTTP at an arbitrary IP and expect the HTTPS sign-in origin to match. Without a public domain/proxy, keep the site private and use an SSH tunnel for local checks, with `ORCUS_APP_URL` explicitly set to that localhost origin.
+The example hostname must match `ORCUS_APP_URL`. If the host already has a Caddyfile, add only the Orcus site block to it; do not run the replacement `install` command above or replace its other sites. Validate the candidate before reloading Caddy, then verify existing sites too. Never publish plain HTTP at an arbitrary IP and expect the HTTPS sign-in origin to match. Without working DNS, keep the site private until the intended domain resolves correctly.
 
 ## Verify and update
 
