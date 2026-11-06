@@ -9,6 +9,9 @@ const config: NextConfig = {
     "@orcus/wallets",
   ],
   serverExternalPackages: ["better-sqlite3"],
+  outputFileTracingExcludes: {
+    "/*": ["../inspiration/**/*", "../.git/**/*"],
+  },
   poweredByHeader: false,
 };
 
