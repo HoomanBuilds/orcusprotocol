@@ -14,6 +14,7 @@
     "worker": "node --env-file-if-exists=.env --import tsx agent/src/worker.ts",
     "build": "node scripts/web.mjs build",
     "doctor": "node --env-file-if-exists=.env --import tsx scripts/doctor.ts",
+    "demo:setup": "node --import tsx scripts/demo-setup.ts",
     "verify:compute": "node --import tsx scripts/verify-compute.ts",
     "verify:storage": "node --env-file-if-exists=.env --import tsx scripts/verify-storage.ts",
     "verify:uniswap-fork": "node --env-file-if-exists=.env --import tsx scripts/verify-uniswap-fork.ts",
