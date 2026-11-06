@@ -144,12 +144,18 @@ The testnet checkout has fixed pricing: one Sepolia test USDC grants one USD-equ
 
 Recovery still verifies the exact owner, token, treasury, amount, zero native value, post-creation block and canonical confirmed Transfer event. Global transaction/log uniqueness prevents double credit. A pre-intent transaction cannot qualify. This is test-token accounting, not live revenue or a token refund.
 
+`scripts/verify-service-payment-fork.ts` passed with an actual transfer on the existing [Circle Sepolia USDC contract](https://developers.circle.com/stablecoins/usdc-contract-addresses). It minted local test balances using fork-only impersonation, transferred one test USDC to an ephemeral treasury, required two confirmations and credited once. The proof refused unpaid inference, retained an unknown compute reservation, reopened SQLite, settled an explicit provider-billing fixture and rejected transfer-event replay. Final test-credit accounting: paid 1.000000, spent 0.020000, reserved 0, released 0.080000 and remaining 0.980000 USD equivalent. Public writes and protocol deployments were both zero. The expense fixture does not prove a paid external inference or real revenue.
+
+The owner wallet helper checks its token balance, simulates the transfer, verifies a 20%-buffered EIP-1559 fee envelope and available Sepolia ETH before the wallet popup; checkout caps that envelope at 0.003 ETH. Tests cover exact fee fields, missing gas/tokens, rejection, known-hash recovery and uncertain submission. Owner-scoped UI request generations reject late responses after a switch or unmount, and the checkout remounts by normalized owner address.
+
+Operator gas authorization additionally checks the actual EntryPoint deposit and locked-stake policy before signing. [ERC-7562](https://eips.ethereum.org/EIPS/eip-7562) separates these balances and leaves the minimum stake amount adjustable per chain. The configured operator stake amount is not guessed; external provider admission remains unproven until its own acceptance succeeds.
+
 ## Remaining external acceptance
 
-- CRE CLI authentication will be supplied later. Workflow compilation is not a successful CLI simulation, and no hosted DON execution is claimed.
+- CRE CLI login is now reported configured locally. A successful current workflow simulation still needs its own execution evidence; compilation or login alone is not a successful workflow or hosted DON execution.
 - The capped native Hyperliquid owner/agent handoff is live testnet-verified. Complete browser-extension acceptance, additional account modes and external Sepolia bundler execution remain separate.
 - Encrypted storage upload/download/restore is now live-verified with a funded platform payer. Actual compute replenishment still needs a matching verified Router account and management-read access. Compute credits and native storage funds are separate.
-- User-facing payment collection remains unimplemented; an allowance is not paid service credit. Capped Uniswap sponsorship uses the platform's operator path by default, but its paymaster deployment, EntryPoint ETH deposit, generic bundler configuration and live external acceptance are not configured or proven. ZeroDev remains an explicit secondary, not an automatic fallback.
+- Testnet-only service checkout and receipt-backed credit accounting are implemented and fork-verified; real-money collection remains disabled. Capped Uniswap sponsorship uses the platform's operator path by default, but its paymaster deployment, EntryPoint ETH deposit and stake, generic bundler configuration and live external acceptance are not configured or proven. ZeroDev remains an explicit secondary, not an automatic fallback.
 - Dependency-audit findings remain unresolved. The hackathon implementation is not certified production-safe by these functional checks.
 - Optional earned funding remains off. Sponsor credits, owner deposits and theoretical trading profit are not proof of service revenue funding inference.
 - Public repository publication, feedback-form submission, hosted deployment and demo recording were not performed.
