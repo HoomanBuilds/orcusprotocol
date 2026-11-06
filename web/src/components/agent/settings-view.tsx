@@ -30,6 +30,7 @@ import { fundingRecovery, tradingGasStatus, withFundingRecoveryIntent } from "@/
 import { MemoryControls } from "./memory-controls";
 import { ComputeFundingPanel } from "./compute-funding-panel";
 import { ServicePaymentPanel } from "./service-payment-panel";
+import { ExpenseBillingCheck } from "./expense-billing-check";
 import {
   Address,
   Badge,
@@ -838,7 +839,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
               </details>}
               {w.budget?.providerBalance?.accountAddress && <p className="fine-print">Configured provider account: <Address value={w.budget.providerBalance.accountAddress} />. This is not a separate per-user credit pool.</p>}
               <p className="fine-print">Pending expense reservations: {usd(w.budget?.reservedUsd)}. Requests with unknown billing retain their reservation instead of reporting an invented cost.</p>
-              {!!w.budget?.expenses?.length && <details className="technical-limits"><summary>Operating expense evidence</summary>{w.budget.expenses.slice(0, 20).map(expense => <div className="evaluation" key={expense.id}><small>{expense.status} / {usd(expense.amountUsd)}</small><code>{expense.reference}</code></div>)}</details>}
+              {!!w.budget?.expenses?.length && <details className="technical-limits"><summary>Operating expense evidence</summary>{w.budget.expenses.slice(0, 20).map(expense => <div className="evaluation" key={expense.id}><small>{expense.status} / {usd(expense.amountUsd)}</small><code>{expense.reference}</code>{w.session.user && <ExpenseBillingCheck key={`${w.session.user.address.toLowerCase()}:${expense.id}`} owner={w.session.user.address} expenseId={expense.id} status={expense.status} onRefresh={w.refresh} />}</div>)}</details>}
               <p className="warning-note">
                 {w.budget?.warning ??
                   "Live credit balance and replenishment require a verified provider funding path. Owner deposits are not earned revenue."}
