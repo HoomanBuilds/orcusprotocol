@@ -85,6 +85,8 @@ export async function getHyperliquidPortfolio(account: TradingAccount): Promise<
 
 export async function prepareHyperliquidAction(input: TradeRequest, account: TradingAccount): Promise<PreparedAction> {
   const action = tradeRequestSchema.parse(input);
+  if (action.venue !== "hyperliquid") throw new EngineError("VENUE_MISMATCH", "This adapter only prepares Hyperliquid actions.");
+  if (!["market", "limit", "cancel", "close", "reduce", "stop-loss", "take-profit"].includes(action.type)) throw new EngineError("UNSUPPORTED_ACTION", "This action is not supported by the Hyperliquid adapter.");
   assertAccount(account);
   if (action.accountId !== account.id) throw new EngineError("ACCOUNT_MISMATCH", "The action does not belong to this trading account.");
   const [meta, contexts] = await metadata();
@@ -100,7 +102,6 @@ export async function prepareHyperliquidAction(input: TradeRequest, account: Tra
     if (!portfolio.orders.some(order => order.id === action.orderId && order.symbol === symbol)) throw new EngineError("ORDER_NOT_OPEN", "The order is not open in this trading account.");
     return { ...base, hyperliquid: { method: "cancel", params: { cancels: [{ a: assetIndex, o: Number(action.orderId) }] } } };
   }
-  if (action.type === "swap") throw new EngineError("UNSUPPORTED_ACTION", "Use Uniswap for spot swaps in this build.");
   let amount = action.amount;
   let side = action.side;
   let reduceOnly = action.reduceOnly;
