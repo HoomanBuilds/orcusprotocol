@@ -19,12 +19,80 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 
 export const post = <T>(path: string, body: unknown) => api<T>(path, { method: "POST", body: JSON.stringify(body) });
 
+const safeErrors: Record<string, string> = {
+  OWNER_REJECTED: "Cancelled in your wallet. Nothing new was submitted.",
+  OWNER_CHANGED: "Your owner wallet changed. Reconnect the account owner before signing.",
+  ACCOUNT_CHANGED: "Your session or trading account changed. Refresh before signing.",
+  ACCOUNT_MISMATCH: "This action does not match your trading account. Refresh and choose the correct account.",
+  ACCOUNT_RECONCILING: "This account has an unresolved submission. Check activity before preparing another action.",
+  ACTION_RECONCILIATION_REQUIRED: "Check the existing action in activity before submitting another.",
+  ACCOUNT_BUSY: "Another action is in progress for this account. Wait for its result.",
+  OWNER_TYPE_UNSUPPORTED: "This setup currently needs an EOA owner wallet. Contract-wallet owners are not supported yet.",
+  NETWORK_CHANGED: "Switch your wallet to the requested testnet, then review the action again.",
+  WRONG_NETWORK: "Use the supported venue testnet. Cross-chain trading is not configured.",
+  QUOTE_EXPIRED: "This quote expired. Prepare a fresh quote before signing.",
+  STALE_ACTION: "This action is stale. Refresh the account and prepare a fresh quote.",
+  INVALID_AMOUNT: "Enter a positive amount with the supported token precision.",
+  INVALID_PRECISION: "The amount has too many decimal places for this asset.",
+  PRICE_REQUIRED: "Enter a positive limit price before reviewing this order.",
+  TRIGGER_REQUIRED: "Enter a positive trigger price before reviewing this order.",
+  INSUFFICIENT_FUNDS: "The account paying this transfer lacks the amount or network fee. Check its balance before retrying.",
+  INSUFFICIENT_BALANCE: "Fund the selected trading account with the input asset before trading.",
+  INSUFFICIENT_TOKEN_BALANCE: "Fund the selected trading account with the input asset before trading.",
+  PREFLIGHT_FAILED: "Preflight could not verify the action. Refresh balances, quote, and gas sponsorship before retrying.",
+  VENUE_PREFLIGHT_FAILED: "The venue could not validate this order. Refresh its balances and market data before retrying.",
+  SIGNING_FAILED: "Your wallet could not sign this action. Nothing new was submitted.",
+  SUBMISSION_UNKNOWN: "Submission is uncertain. Check the same action in activity; do not submit a replacement.",
+  SWAP_REVERTED: "The swap reverted onchain. Review its receipt in activity before preparing another.",
+  VENUE_REJECTED: "The venue rejected this order. Review balances, order size, and open orders before trying again.",
+  PENDING_APPROVAL_INVALIDATION_REQUIRED: "An older signed session approval is still usable. Pause the agent, then invalidate that approval before granting new access.",
+  BUNDLER_UNCONFIGURED: "The testnet bundler is not configured. You can inspect accounts, but smart-account execution is unavailable.",
+  PAYMASTER_UNCONFIGURED: "Gas sponsorship is not configured. This action is disabled; owner-paid gas will not be used instead.",
+  SPONSORSHIP_UNCONFIGURED: "Gas sponsorship is not configured. This action is disabled; owner-paid gas will not be used instead.",
+  SPONSORSHIP_REJECTED: "Gas sponsorship was declined. No owner-paid fallback was attempted. Review the sponsor limits before retrying.",
+  SPONSORSHIP_REQUIRED: "This action requires gas sponsorship. Refresh sponsor readiness before signing.",
+  AUTH_REQUIRED: "Your session expired. Sign in with your owner wallet again.",
+  AGENT_NOT_APPROVED: "Approve a scoped agent permission for this trading account first.",
+  AGENT_NOT_AUTHORIZED: "The agent has no valid permission for this action. Review its account grant.",
+  INSUFFICIENT_BUDGET: "The agent expense allowance is exhausted. Review its separate operating budget.",
+  BUDGET_RESERVED: "This cap cannot be below recorded or reserved expenses. Reconcile pending requests first.",
+  OPERATING_BALANCE_LOW: "The separate operating wallet needs testnet 0G. Trading principal will not be used.",
+  COMPUTE_ACCOUNT_UNVERIFIED: "A fresh native Galileo Router balance for the exact beneficiary is required. Inference-only keys, USD billing, and mainnet accounts cannot fund this path.",
+  COMPUTE_VAULT_UNVERIFIED: "The PaymentVault balance could not be verified. Refresh before preparing a compute deposit.",
+  COMPUTE_FUNDING_CAP: "The native compute-funding cap cannot cover this deposit and its fee. Review the remaining cap.",
+  COMPUTE_FUNDING_DISABLED: "Compute replenishment is disabled or expired. Authorize an exact capped policy to enable it.",
+  FUNDING_SUBMISSION_UNCERTAIN: "Reconcile this same funding transaction before releasing its reservation or sending another deposit.",
+  PRIVATE_INFERENCE_UNVERIFIED: "Private inference evidence could not be verified. No public-inference fallback is allowed under this policy.",
+  INFERENCE_OUTCOME_UNKNOWN: "The inference result is uncertain. Reconcile its usage before repeating a potentially billable request.",
+  MEMORY_SECRET_REJECTED: "Do not save credentials or private keys in agent memory.",
+  CREDENTIAL_INPUT_REJECTED: "Remove credentials or private keys from the message before continuing.",
+  RPC_UNAVAILABLE: "The network service is unavailable. Refresh before trying again.",
+};
+
 export function displayError(error: unknown): string {
-  if (error && typeof error === "object" && "code" in error && error.code === 4001) return "Cancelled in your wallet.";
-  const message = error instanceof Error ? error.message : "Something went wrong. Please retry.";
-  if (/user rejected|user denied/i.test(message)) return "Cancelled in your wallet.";
-  if (/insufficient funds/i.test(message)) return "Not enough funds to cover this action and its network fee.";
-  if (/fetch|network|ECONNREFUSED/i.test(message)) return "Connection unavailable. Check the service and try again.";
-  if (/execution reverted|0x[0-9a-f]{30}/i.test(message)) return "The transaction could not be completed. Refresh your quote and try again.";
-  return message.slice(0, 240);
+  const nodes: Array<{ code?: unknown; message?: string; phase?: unknown; status?: unknown }> = [];
+  const seen = new Set<unknown>();
+  try {
+    let current = error;
+    while (current && typeof current === "object" && nodes.length < 6 && !seen.has(current)) {
+      seen.add(current);
+      const value = current as { code?: unknown; message?: unknown; cause?: unknown; phase?: unknown; status?: unknown };
+      nodes.push({ code: value.code, message: typeof value.message === "string" ? value.message.slice(0, 2000) : undefined, phase: value.phase, status: value.status });
+      current = value.cause;
+    }
+  } catch { return "The action could not be completed. Refresh and try again."; }
+  if (nodes.some(node => node.code === 4001 || node.code === "ACTION_REJECTED" || node.code === "OWNER_REJECTED" || /user rejected|user denied/i.test(node.message ?? ""))) return "Cancelled in your wallet. Nothing new was submitted.";
+  if (nodes.some(node => node.phase === "submitted-unknown" || node.code === "SUBMISSION_UNKNOWN")) return safeErrors.SUBMISSION_UNKNOWN!;
+  for (const node of nodes) if (typeof node.code === "string" && Object.hasOwn(safeErrors, node.code)) return safeErrors[node.code]!;
+  if (nodes.some(node => node.status === 401 || node.code === 4100)) return safeErrors.AUTH_REQUIRED!;
+  if (nodes.some(node => node.code === -32002)) return "A wallet request is already open. Confirm or dismiss it in your wallet.";
+  if (nodes.some(node => node.code === 4902 || node.code === 4901)) return safeErrors.NETWORK_CHANGED!;
+  const messages = nodes.map(node => node.message ?? "").join(" ");
+  if (/quote.*expired|expired.*quote/i.test(messages)) return safeErrors.QUOTE_EXPIRED!;
+  if (/wallet.*changed|reconnect.*owner/i.test(messages)) return safeErrors.OWNER_CHANGED!;
+  if (/install.*wallet|wallet extension/i.test(messages)) return "Install or open a browser wallet, then connect your owner account.";
+  if (/insufficient funds|insufficient balance/i.test(messages)) return safeErrors.INSUFFICIENT_FUNDS!;
+  if (/execution reverted/i.test(messages)) return "The transaction reverted. Check its receipt in activity before preparing another.";
+  if (/fetch|network|ECONNREFUSED|timed? ?out|timeout/i.test(messages)) return "Connection unavailable. Check activity for any pending submission before retrying.";
+  return "The action could not be completed. Refresh and try again.";
 }
