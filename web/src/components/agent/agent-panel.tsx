@@ -14,7 +14,8 @@ import {
 } from "lucide-react";
 import type { Workspace } from "@/lib/use-workspace";
 import { displayError, post } from "@/lib/api";
-import { number, usd } from "@/lib/format";
+import { usd } from "@/lib/format";
+import { actionReviewLabel } from "@/lib/trade-ux";
 import { useAgentRequests } from "@/lib/use-agent-requests";
 import { AgentRequestProgress } from "./agent-request-progress";
 import { AgentResponse, AgentToolActivity } from "./agent-response";
@@ -154,9 +155,7 @@ export function AgentPanel({
                   <span>{message.proposedAction.type}</span>
                 </div>
                 <strong>
-                  {message.proposedAction.side.toUpperCase()}{" "}
-                  {number(message.proposedAction.amount, 6)}{" "}
-                  {message.proposedAction.symbol}
+                  {actionReviewLabel(message.proposedAction)} / {message.proposedAction.type} / {message.proposedAction.symbol}
                 </strong>
                 <button
                   className="button secondary small full"
