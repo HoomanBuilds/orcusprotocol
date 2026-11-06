@@ -38,6 +38,7 @@ const safeErrors: Record<string, string> = {
   TRIGGER_REQUIRED: "Enter a positive trigger price before reviewing this order.",
   INSUFFICIENT_FUNDS: "The account paying this transfer lacks the amount or network fee. Check its balance before retrying.",
   INSUFFICIENT_GAS: "Your owner wallet needs Sepolia ETH for the deposit network fee. Trading gas sponsorship does not cover external-wallet deposits.",
+  FUNDING_RECOVERY_UNAVAILABLE: "Browser recovery storage is unavailable, so no deposit was started. Enable storage for this site before trying again.",
   INSUFFICIENT_BALANCE: "Fund the selected trading account with the input asset before trading.",
   INSUFFICIENT_TOKEN_BALANCE: "Fund the selected trading account with the input asset before trading.",
   INSUFFICIENT_NATIVE_BALANCE: "Your trading account needs native Sepolia ETH for this exact swap input. This is separate from sponsored gas.",

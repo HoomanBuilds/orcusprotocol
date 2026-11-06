@@ -33,6 +33,17 @@ export function fundingRecovery(value: unknown): { status: "confirmed" | "unknow
   return { status: input.status as "confirmed" | "unknown" | "reverted", ...(transactionHash ? { transactionHash } : {}) };
 }
 
+export function withFundingRecoveryIntent<T>(storage: Pick<Storage, "getItem" | "setItem">, key: string, send: () => Promise<T>): Promise<T> {
+  try {
+    const intent = JSON.stringify({ status: "unknown" });
+    storage.setItem(key, intent);
+    if (storage.getItem(key) !== intent) throw new Error("Recovery record was not saved.");
+  } catch {
+    throw Object.assign(new Error("Funding recovery storage is unavailable."), { code: "FUNDING_RECOVERY_UNAVAILABLE", phase: "not-submitted" });
+  }
+  return send();
+}
+
 export function hasAtomicNativeInput(prepared: PreparedAction): boolean {
   if (!prepared.request.nativeInput) return false;
   try {

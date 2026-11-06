@@ -26,7 +26,7 @@ import {
   fundOperatingWallet,
 } from "@/lib/wallets";
 import { tokenUnits, usd } from "@/lib/format";
-import { fundingRecovery, tradingGasStatus } from "@/lib/trade-ux";
+import { fundingRecovery, tradingGasStatus, withFundingRecoveryIntent } from "@/lib/trade-ux";
 import { MemoryControls } from "./memory-controls";
 import { ComputeFundingPanel } from "./compute-funding-panel";
 import {
@@ -66,10 +66,10 @@ function AccountCard({
   const [prepared, setPrepared] = useState<PreparedPermission | null>(null);
   const [fundingAsset, setFundingAsset] = useState<"ETH" | "USDC" | "WETH">("ETH");
   const [fundingAmount, setFundingAmount] = useState("");
-  const [fundingHash, setFundingHash] = useState<string | null>(null);
-  const [fundingState, setFundingState] = useState<"confirmed" | "unknown" | "reverted" | null>(null);
+  const [storedFundingHash, setFundingHash] = useState<string | null>(null);
+  const [storedFundingState, setFundingState] = useState<"confirmed" | "unknown" | "reverted" | null>(null);
   const [fundingChecked, setFundingChecked] = useState(false);
-  const [fundingLoaded, setFundingLoaded] = useState(false);
+  const [loadedFundingKey, setLoadedFundingKey] = useState<string | null>(null);
   const [pendingPolicy, setPendingPolicy] = useState<KernelGrantPolicy | null>(null);
   const [confirmInvalidation, setConfirmInvalidation] = useState(false);
   const permission = w.agentData?.permissions.find(
@@ -78,12 +78,18 @@ function AccountCard({
   const spot = account.venue === "uniswap";
   const gas = tradingGasStatus(w.walletConfig, account.venue);
   const fundingRecoveryKey = `orcus:trading-deposit:${account.ownerAddress}:${account.id}`;
+  const currentFundingKey = useRef(fundingRecoveryKey);
+  currentFundingKey.current = fundingRecoveryKey;
+  const fundingLoaded = loadedFundingKey === fundingRecoveryKey;
+  const fundingHash = fundingLoaded ? storedFundingHash : null;
+  const fundingState = fundingLoaded ? storedFundingState : null;
   useEffect(() => {
+    setLoadedFundingKey(null); setFundingHash(null); setFundingState(null); setFundingChecked(false);
     try {
       const saved = fundingRecovery(JSON.parse(sessionStorage.getItem(fundingRecoveryKey) ?? "null"));
       if (saved) { setFundingHash(saved.transactionHash ?? null); setFundingState(saved.status); }
     } catch {}
-    setFundingLoaded(true);
+    setLoadedFundingKey(fundingRecoveryKey);
   }, [fundingRecoveryKey]);
   function saveFundingRecovery(status: "confirmed" | "unknown" | "reverted", transactionHash?: string) {
     try { sessionStorage.setItem(fundingRecoveryKey, JSON.stringify({ status, ...(transactionHash ? { transactionHash } : {}) })); } catch {}
@@ -127,24 +133,28 @@ function AccountCard({
     setFundingHash(null);
     setFundingState(null); setFundingChecked(false);
     try {
-      const result = await fundTradingAccount({ account, asset: fundingAsset, amount: fundingAmount });
+      setFundingState("unknown");
+      const recoveryStorage = { getItem: (key: string) => sessionStorage.getItem(key), setItem: (key: string, value: string) => sessionStorage.setItem(key, value) };
+      const result = await withFundingRecoveryIntent(recoveryStorage, fundingRecoveryKey, () => fundTradingAccount({ account, asset: fundingAsset, amount: fundingAmount }));
+      saveFundingRecovery("confirmed", result.transactionHash);
+      if (currentFundingKey.current !== fundingRecoveryKey) return;
       setFundingHash(result.transactionHash);
       setFundingState("confirmed");
-      saveFundingRecovery("confirmed", result.transactionHash);
       setFundingAmount("");
       w.setNotice(`Testnet ${result.asset} funding confirmed. This funds your trading account, not the agent operating budget.`);
       await w.refresh();
     } catch (cause) {
+      const phase = cause && typeof cause === "object" && "phase" in cause ? cause.phase : undefined;
+      const transactionHash = cause && typeof cause === "object" && "evidence" in cause && cause.evidence && typeof cause.evidence === "object" && "transactionHash" in cause.evidence && typeof cause.evidence.transactionHash === "string" ? cause.evidence.transactionHash : undefined;
+      if (phase === "not-submitted") {
+        try { sessionStorage.removeItem(fundingRecoveryKey); } catch {}
+      } else saveFundingRecovery(phase === "reverted" && transactionHash ? "reverted" : "unknown", transactionHash);
+      if (currentFundingKey.current !== fundingRecoveryKey) return;
       if (cause && typeof cause === "object" && "evidence" in cause) {
         const evidence = cause.evidence as { transactionHash?: string } | undefined;
         if (evidence?.transactionHash) setFundingHash(evidence.transactionHash);
       }
-      const phase = cause && typeof cause === "object" && "phase" in cause ? cause.phase : undefined;
-      setFundingState(phase === "reverted" ? "reverted" : phase === "submitted-unknown" ? "unknown" : null);
-      if (phase === "reverted" || phase === "submitted-unknown") {
-        const transactionHash = cause && typeof cause === "object" && "evidence" in cause && cause.evidence && typeof cause.evidence === "object" && "transactionHash" in cause.evidence && typeof cause.evidence.transactionHash === "string" ? cause.evidence.transactionHash : undefined;
-        saveFundingRecovery(phase === "reverted" ? "reverted" : "unknown", transactionHash);
-      }
+      setFundingState(phase === "not-submitted" ? null : phase === "reverted" && transactionHash ? "reverted" : "unknown");
       setError(displayError(cause));
     } finally { busyRef.current = false; setBusy(null); }
   }

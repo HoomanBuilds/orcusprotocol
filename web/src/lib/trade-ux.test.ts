@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PreparedAction } from "@orcus/core";
-import { actionRecovery, fundingRecovery, hasAtomicNativeInput, tradingGasStatus, type WalletExecutionConfig } from "./trade-ux";
+import { actionRecovery, fundingRecovery, hasAtomicNativeInput, tradingGasStatus, withFundingRecoveryIntent, type WalletExecutionConfig } from "./trade-ux";
 
 const configured: WalletExecutionConfig = { chainId: 11155111, smartAccountsConfigured: true, gasSponsorship: { required: true, configured: true, status: "configured" } };
 
@@ -17,6 +17,27 @@ describe("honest trading gas readiness", () => {
 });
 
 describe("funding transfer recovery", () => {
+  it("persists an unknown intent with no invented hash before a wallet request can start", async () => {
+    const records = new Map<string, string>();
+    const storage = { getItem: (key: string) => records.get(key) ?? null, setItem: (key: string, value: string) => { records.set(key, value); } };
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    const send = vi.fn(() => {
+      expect(fundingRecovery(JSON.parse(records.get("account-one")!))).toEqual({ status: "unknown" });
+      expect(records.has("account-two")).toBe(false);
+      return pending;
+    });
+    const result = withFundingRecoveryIntent(storage, "account-one", send);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(fundingRecovery(JSON.parse(records.get("account-one")!))).toEqual({ status: "unknown" });
+    finish(); await result;
+  });
+  it("never calls a wallet if the recovery record cannot be written and read back", () => {
+    const send = vi.fn(async () => undefined);
+    expect(() => withFundingRecoveryIntent({ getItem: () => null, setItem: () => { throw new Error("storage blocked"); } }, "account", send)).toThrow(expect.objectContaining({ code: "FUNDING_RECOVERY_UNAVAILABLE", phase: "not-submitted" }));
+    expect(() => withFundingRecoveryIntent({ getItem: () => null, setItem: () => undefined }, "account", send)).toThrow();
+    expect(send).not.toHaveBeenCalled();
+  });
   it("keeps only bounded public transaction recovery metadata", () => {
     const transactionHash = `0x${"1".repeat(64)}`;
     expect(fundingRecovery({ status: "unknown", transactionHash, privateKey: "do-not-copy", rawProviderMessage: "not public" })).toEqual({ status: "unknown", transactionHash });
