@@ -3367,15 +3367,15 @@ td > small.negative {
 .agent-chat-toolbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .agent-chat-toolbar-actions .button { min-height: 36px; padding: 7px 12px; }
 .agent-chat-toolbar-actions .text-link { font-size: 11px; }
-.conversation-stage { position: relative; flex: 1 1 auto; min-height: 0; }
-.agent-route .agent-conversation-scroll { height: 100%; min-height: 0; max-height: none; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 0; scroll-padding: 24px; scrollbar-gutter: stable; overflow-anchor: none; }
+.conversation-stage { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.agent-route .agent-conversation-scroll { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 0; scroll-padding: 24px; scrollbar-gutter: stable; overflow-anchor: none; }
 .conversation-content { width: min(100%, 808px); margin: 0 auto; padding: 28px 24px 32px; }
 .agent-route .chat-message { margin-bottom: 28px; }
-.agent-route .chat-message.user { width: fit-content; max-width: 88%; margin-left: auto; background: #2c232b; }
+.agent-route .chat-message.user { width: fit-content; max-width: 88%; margin-left: auto; background: #2c232b; color: var(--text); }
 .agent-route .agent-welcome { padding: 36px 0; max-width: 590px; }
 .agent-route .agent-welcome h3 { font-size: clamp(28px, 3vw, 40px); }
 .agent-route .agent-welcome .suggestions { max-width: 420px; }
-.jump-to-latest { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: 24px; padding: 10px 16px; background: #302630; color: var(--text); font-size: 12px; box-shadow: 0 4px 18px #0005; }
+.jump-to-latest { flex: 0 0 auto; align-self: center; display: flex; align-items: center; gap: 7px; margin: 0 0 8px; border: 1px solid var(--border); border-radius: 24px; padding: 9px 16px; background: #302630; color: var(--text); font-size: 12px; }
 .agent-composer-dock { flex: 0 0 auto; padding: 0 24px max(12px, env(safe-area-inset-bottom)); }
 .agent-composer-inner { max-width: 760px; margin: 0 auto; }
 .agent-route .agent-message-composer { margin: 0; padding: 8px 12px; min-height: 0; background: #252126; border: 1px solid #49404a; border-radius: 16px; }

@@ -240,6 +240,7 @@ try {
     await evaluate("document.querySelector('.automation-approval-card > button.button.primary').scrollIntoView({block:'end',behavior:'instant'})");
     assert.ok(await visibleInChat(".approval-acknowledgement"), "Approval acknowledgement must be visible on mobile.");
     assert.ok(await visibleInChat(".automation-approval-card > button.button.primary"), "Activation button must be visible on mobile.");
+    assert.ok(await evaluate("(()=>{const e=document.querySelector('.automation-approval-card > button.button.primary'),r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()"), "Approval button must not be covered by floating controls.");
     await screenshot("fixture-mobile-approval");
     await rpc("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
     await evaluate("document.querySelector('.automation-approval-card > button.button.primary').scrollIntoView({block:'end',behavior:'instant'})");
