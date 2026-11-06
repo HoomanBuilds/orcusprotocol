@@ -62,7 +62,7 @@ describe("durable worker coordination",()=>{
         expect(name).toBe("evaluateStrategy");
         const input=args[0]as Record<string,unknown>,running=store.get<StoredAutomation>(user.id,"automation",job.id)!;
         expect(running.runningEvaluationId).toBe(input.evaluationId);
-        expect(store.get(user.id,"evaluation-run",String(input.evaluationId))).toMatchObject({status:"running"});
+        expect(store.get(user.id,"evaluation-run",`evaluation-run:${String(input.evaluationId)}`)).toMatchObject({status:"running",evaluationId:input.evaluationId});
         await gate;
         return evaluated(input);
       });
@@ -72,6 +72,9 @@ describe("durable worker coordination",()=>{
       release();await first;
       expect(store.get<StoredAutomation>(user.id,"automation",job.id)?.runningEvaluationId).toBeUndefined();
       expect(store.list(user.id,"evaluation-run")).toEqual([expect.objectContaining({status:"completed"})]);
+      const evaluation=store.list<{id:string;decision:string}>(user.id,"evaluation")[0];
+      expect(evaluation?.decision).toBe("no-action");
+      expect(store.get(user.id,"evaluation-run",`evaluation-run:${evaluation.id}`)).toMatchObject({evaluationId:evaluation.id,status:"completed"});
     }finally{release();engine.mockRestore();store.db.close();}
   });
 
@@ -98,8 +101,37 @@ describe("durable worker coordination",()=>{
       const result=await platform.tick();
       expect(result.results).toContainEqual(expect.objectContaining({status:"interrupted"}));
       expect(store.get<StoredAutomation>(user.id,"automation",job.id)).toMatchObject({status:"failed"});
-      expect(store.get(user.id,"evaluation-run","interrupted")).toMatchObject({status:"interrupted"});
+      expect(store.get(user.id,"evaluation-run","evaluation-run:interrupted")).toMatchObject({status:"interrupted",evaluationId:"interrupted"});
       expect(engine).not.toHaveBeenCalled();
+    }finally{engine.mockRestore();store.db.close();}
+  });
+  it("migrates a legacy interrupted run without changing its logical evaluation ID",async()=>{
+    const{store,user,platform,account}=setup(),engine=vi.spyOn(engineBoundary,"callEngine");
+    try{
+      const job=platform.createAutomation(user,{kind:"alert",accountId:account.id,name:"Legacy alert",condition:{symbol:"ETH",operator:"above",price:"2000"}}),now=Date.now();
+      store.put("evaluation-run",{id:"legacy-run",userId:user.id,automationId:job.id,status:"running",createdAt:now,updatedAt:now});
+      store.update<StoredAutomation>(user.id,"automation",job.id,{runningEvaluationId:"legacy-run",runningStartedAt:now});
+      await platform.tick();
+      expect(store.get(user.id,"evaluation-run","legacy-run")).toBeUndefined();
+      expect(store.get(user.id,"evaluation-run","evaluation-run:legacy-run")).toMatchObject({id:"evaluation-run:legacy-run",evaluationId:"legacy-run",status:"interrupted"});
+      expect(engine).not.toHaveBeenCalled();
+    }finally{engine.mockRestore();store.db.close();}
+  });
+  it("persists distinct run and evaluation records and rejects replaying the same evaluation",async()=>{
+    const{store,user,platform,account}=setup(),engine=vi.spyOn(engineBoundary,"callEngine");
+    try{
+      const job=platform.createAutomation(user,{kind:"alert",accountId:account.id,name:"Single alert",condition:{symbol:"ETH",operator:"above",price:"1"}});
+      engine.mockImplementation(async(_name,...args)=>({...evaluated(args[0]as Record<string,unknown>),decision:"allow"}));
+      await platform.tick();
+      const evaluation=store.list<{id:string;decision:string}>(user.id,"evaluation")[0];
+      expect(evaluation).toMatchObject({decision:"allow"});
+      expect(store.get(user.id,"evaluation-run",`evaluation-run:${evaluation.id}`)).toMatchObject({evaluationId:evaluation.id,status:"completed"});
+      expect(platform.notifications(user).notifications).toHaveLength(1);
+      store.update<StoredAutomation>(user.id,"automation",job.id,{nextRunAt:job.nextRunAt});
+      await platform.tick();
+      expect(engine).toHaveBeenCalledOnce();
+      expect(platform.notifications(user).notifications).toHaveLength(1);
+      expect(store.get<StoredAutomation>(user.id,"automation",job.id)).toMatchObject({status:"failed",error:expect.stringContaining("already consumed")});
     }finally{engine.mockRestore();store.db.close();}
   });
 

@@ -523,7 +523,7 @@ export class Platform {
       assertTick();
       const reason="The previous worker stopped during evaluation. Review the job and reconcile any submitted action before resuming; no trade was retried.";
       this.store.update<StoredAutomation>(interrupted.userId,"automation",interrupted.id,{status:interrupted.status==="active"?"failed":interrupted.status,runningEvaluationId:undefined,runningStartedAt:undefined,error:reason});
-      this.store.put("evaluation-run",{id:interrupted.runningEvaluationId!,userId:interrupted.userId,automationId:interrupted.id,accountId:interrupted.accountId,status:"interrupted",reason,createdAt:interrupted.runningStartedAt??Date.now(),updatedAt:Date.now()});
+      this.store.put("evaluation-run",{id:this.evaluationRunRecordId(interrupted.userId,interrupted.runningEvaluationId!),evaluationId:interrupted.runningEvaluationId!,userId:interrupted.userId,automationId:interrupted.id,accountId:interrupted.accountId,status:"interrupted",reason,createdAt:interrupted.runningStartedAt??Date.now(),updatedAt:Date.now()});
       results.push({automationId:interrupted.id,status:"interrupted",evaluationId:interrupted.runningEvaluationId});
     }
     let reconciled=0;
@@ -553,7 +553,7 @@ export class Platform {
         if(!alert&&!this.store.list<StoredPermission>(user.id,"permission").some(permission=>permission.accountId===account.id&&permission.status==="active"&&permission.expiresAt>Date.now()&&permission.controlRevision===account.controlRevision))throw new ApiError("AGENT_NOT_AUTHORIZED","Renew agent authorization before running this strategy.",403);
         this.store.db.transaction(()=>{
           this.store.update<StoredAutomation>(user.id,"automation",current.id,{runningEvaluationId:evaluationId,runningStartedAt:Date.now(),nextRunAt:Date.now()+current.intervalSeconds*1000,error:undefined});
-          this.store.put("evaluation-run",{id:evaluationId,userId:user.id,automationId:current.id,accountId:account.id,status:"running",policyVersion:current.policyVersion,controlRevision:current.controlRevision,createdAt:Date.now(),updatedAt:Date.now()});
+          this.store.put("evaluation-run",{id:this.evaluationRunRecordId(user.id,evaluationId),evaluationId,userId:user.id,automationId:current.id,accountId:account.id,status:"running",policyVersion:current.policyVersion,controlRevision:current.controlRevision,createdAt:Date.now(),updatedAt:Date.now()});
         }).immediate();marked=true;
         const assertCurrent=()=>{
           assertTick();
@@ -600,12 +600,18 @@ export class Platform {
       }
       finally{
         const latest=this.store.get<StoredAutomation>(user.id,"automation",automation.id);
-        if(marked&&latest?.runningEvaluationId===evaluationId){this.store.update<StoredAutomation>(user.id,"automation",automation.id,{runningEvaluationId:undefined,runningStartedAt:undefined,...(!latest.error?{retryCount:0}:{})});this.store.update<StoredEvaluationRun>(user.id,"evaluation-run",evaluationId,{status:latest.error?"failed":"completed",completedAt:Date.now()});}
+        if(marked&&latest?.runningEvaluationId===evaluationId){this.store.update<StoredAutomation>(user.id,"automation",automation.id,{runningEvaluationId:undefined,runningStartedAt:undefined,...(!latest.error?{retryCount:0}:{})});this.store.update<StoredEvaluationRun>(user.id,"evaluation-run",this.evaluationRunRecordId(user.id,evaluationId),{status:latest.error?"failed":"completed",completedAt:Date.now()});}
         clearInterval(timer);this.store.releaseLease(scope,holder);
       }
     }
     return {processed:results.length,results,reconciled,observedAt:Date.now()};
     }finally{clearInterval(tickTimer);this.store.releaseLease(tickScope,tickHolder);}
+  }
+  private evaluationRunRecordId(userId:string,evaluationId:string):string{
+    const recordId=`evaluation-run:${evaluationId}`;
+    const legacy=this.store.get<StoredEvaluationRun>(userId,"evaluation-run",evaluationId);
+    if(legacy&&!this.store.get(userId,"evaluation-run",recordId))this.store.db.prepare("UPDATE records SET id=?,body=json_set(body,'$.id',?,'$.evaluationId',?) WHERE id=? AND user_id=? AND kind='evaluation-run'").run(recordId,recordId,evaluationId,evaluationId,userId);
+    return recordId;
   }
   private storedUser(userId:string):User|undefined{const row=this.store.db.prepare("SELECT id,address,created_at FROM users WHERE id=?").get(userId)as{id:string;address:string;created_at:number}|undefined;return row?{id:row.id,address:row.address,createdAt:row.created_at}:undefined;}
 }
