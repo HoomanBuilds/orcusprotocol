@@ -64,4 +64,20 @@ describe("safe public agent evidence", () => {
     expect(safeAgentToolSteps(proxy.proxy)).toEqual([]);
     expect(safeAgentToolSteps([new Proxy({}, { getOwnPropertyDescriptor() { throw new Error("untrusted descriptor"); } })])).toEqual([]);
   });
+  it("publishes only public source metadata from successful research tools", () => {
+    const source = { id: "source-1", title: "Public market data", url: "https://example.com/research", retrievedAt: step.observedAt, network: "testnet", privateData: "hidden" };
+    expect(safeAgentToolSteps([{ ...step, result: { sources: [source], rawPrompt: "not public" } }])[0].sources).toEqual([{ id: source.id, title: source.title, url: source.url, retrievedAt: source.retrievedAt, network: "testnet" }]);
+    expect(safeAgentToolSteps([{ ...step, ok: false, result: { sources: [source] } }])[0].sources).toBeUndefined();
+    expect(safeAgentToolSteps([{ ...step, name: "search_memory", result: { sources: [source] } }])[0].sources).toBeUndefined();
+  });
+  it.each(["javascript:alert(1)", "http://example.com", "https://127.0.0.1/", "https://[::1]/", "https://example.com/?token=hidden", "https://example.com/#hidden", "https://user:pass@example.com", "https://example.internal/", "https://example.com/0x" + "1".repeat(40)])("does not expose unsafe or credential-bearing source links: %s", url => {
+    expect(safeAgentToolSteps([{ ...step, result: { sources: [{ id: "source-1", title: "Public article", url, retrievedAt: step.observedAt }] } }])[0].sources).toBeUndefined();
+  });
+  it("does not invoke source getters or leak credential-shaped titles", () => {
+    const get = vi.fn(() => "secret");
+    const source = { id: "source-1", title: "api_key: sk-notrealbutsecretkey", url: "https://example.com/", retrievedAt: step.observedAt };
+    const getter = { ...source }; Object.defineProperty(getter, "url", { get });
+    expect(safeAgentToolSteps([{ ...step, result: { sources: [source, getter] } }])[0].sources).toBeUndefined();
+    expect(get).not.toHaveBeenCalled();
+  });
 });

@@ -35,20 +35,20 @@ export class AgentRun{
   private assertLease(){if(!this.store.renewLease(this.scope,this.holder,180_000))throw new ApiError("AGENT_LEASE_LOST","Agent coordination expired. Reconcile this run before retrying.",409);}
   private callReference(callId:string){
     const prefix=`${this.runId}:model:`;
-    if(!callId.startsWith(prefix)||!/^\d$/.test(callId.slice(prefix.length))||Number(callId.slice(prefix.length))>=4)throw new ApiError("MODEL_CALL_LIMIT","The agent reached its bounded model-call limit.",409);
+    if(!callId.startsWith(prefix)||!/^\d$/.test(callId.slice(prefix.length))||Number(callId.slice(prefix.length))>=6)throw new ApiError("MODEL_CALL_LIMIT","The agent reached its bounded model-call limit.",409);
     return callId.endsWith(":model:0")?this.runId:callId;
   }
   progress(input:Progress){
     this.assertLease();
     const previous=readAgentRunStatus(this.store,this.userId,this.runId),now=Date.now();
     const stage=stages.has(input.stage)?input.stage:"thinking",tool=input.tool&&/^[a-z][a-z0-9_]{0,59}$/i.test(input.tool)?input.tool:undefined;
-    this.store.put("agent-run",{id:agentRunRecordId(this.userId,this.runId),runId:this.runId,userId:this.userId,threadId:this.memory.threadId,status:stage==="completed"?"completed":stage==="failed"?"failed":"running",stage,tool,modelCalls:Math.max(previous?.modelCalls??0,Math.min(4,input.modelCalls??this.modelCalls)),toolCalls:Math.max(previous?.toolCalls??0,Math.min(6,input.toolCalls??0)),startedAt:previous?.startedAt??now,createdAt:previous?.createdAt??now,updatedAt:now,...(stage==="completed"||stage==="failed"?{completedAt:now}:{})}satisfies AgentRunStatus);
+    this.store.put("agent-run",{id:agentRunRecordId(this.userId,this.runId),runId:this.runId,userId:this.userId,threadId:this.memory.threadId,status:stage==="completed"?"completed":stage==="failed"?"failed":"running",stage,tool,modelCalls:Math.max(previous?.modelCalls??0,Math.min(6,input.modelCalls??this.modelCalls)),toolCalls:Math.max(previous?.toolCalls??0,Math.min(6,input.toolCalls??0)),startedAt:previous?.startedAt??now,createdAt:previous?.createdAt??now,updatedAt:now,...(stage==="completed"||stage==="failed"?{completedAt:now}:{})}satisfies AgentRunStatus);
   }
   context(){
     const explicitRemember=/\b(remember|save|store|note|prefer|preference)\b/i.test(this.message)&&!/(?:don't|do not|never)\s+(remember|save|store)/i.test(this.message);
     const explicitForget=/\b(forget|delete|remove)\b/i.test(this.message);
     return{
-      threadId:this.memory.threadId,maxModelCalls:4,maxToolCalls:6,maxTotalTokens:6000,timeoutMs:75_000,
+      threadId:this.memory.threadId,maxModelCalls:6,maxToolCalls:6,maxTotalTokens:12000,timeoutMs:75_000,
       checkpoints:{load:async(threadId:string)=>{this.assertLease();return this.memory.loadCheckpoint(threadId);},save:async(threadId:string,state:unknown)=>{this.assertLease();this.memory.saveCheckpoint(threadId,state);}},
       memoryStore:{search:async(query:string,limit?:number)=>this.memory.search(query,limit),remember:async(input:unknown)=>{if(!explicitRemember)throw new ApiError("MEMORY_CONSENT_REQUIRED","Save memory only when the user explicitly asks to remember a preference or note.",403);const value=memoryInputSchema.parse(input);return this.memory.remember(value,"user-request",this.runId);},forget:async(memoryId:string)=>{if(!explicitForget)throw new ApiError("MEMORY_CONSENT_REQUIRED","Forget memory only when the user explicitly requests it.",403);return this.onForget?this.onForget(memoryId):this.memory.forget(memoryId);}},
       onProgress:async(input:Progress)=>{this.progress(input);},

@@ -9,6 +9,19 @@ afterEach(() => { store.db.close(); vi.unstubAllEnvs(); vi.useRealTimers(); });
 function user(digit = "1") { const owner = store.ensureUser(`0x${digit.repeat(40)}`); setBudget(store, owner.id, "100", "0.1", false); return owner; }
 
 describe("operator-controlled compute ceilings", () => {
+  it("allows six bounded research steps while charging each reservation and rejects the seventh", async () => {
+    const owner = user(), run = new AgentRun(store, owner.id, "research-run", "Research current markets");
+    run.start();
+    try {
+      const context = run.context();
+      expect(context).toMatchObject({ maxModelCalls: 6, maxTotalTokens: 12000 });
+      for (let index = 0; index < 6; index++) await context.modelBudget.beforeCall({ callId: `research-run:model:${index}`, maxTokens: 1000 });
+      expect(getBudget(store, owner.id).reservedUsd).toBe("0.060000");
+      await expect(context.modelBudget.beforeCall({ callId: "research-run:model:6", maxTokens: 1000 })).rejects.toMatchObject({ code: "MODEL_CALL_LIMIT" });
+      await expect(context.modelBudget.beforeCall({ callId: "research-run:model:1", maxTokens: 1000 })).rejects.toMatchObject({ code: "EVALUATION_PENDING" });
+      expect(getBudget(store, owner.id).reservedUsd).toBe("0.060000");
+    } finally { run.close(); }
+  });
   it("permits the exact user boundary but owner cap edits and duplicate references cannot enlarge it", () => {
     const owner = user(); expect(reserveBudget(store, owner.id, "first", "1")).toBe(true);
     expect(reserveBudget(store, owner.id, "first", "1")).toBe(false);
