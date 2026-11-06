@@ -7,11 +7,13 @@ import { getHyperliquidCandles, getHyperliquidMarkets, getHyperliquidPortfolio }
 import { getUniswapMarkets, getUniswapPortfolio } from "../venues/uniswap";
 import type { AgentContext } from "./types";
 import { automationProposalSchema } from "./automation";
+import { resolveToolProfile, selectProfileTools } from "./tool-profiles";
 
 export interface AgentTool { name: string; description: string; arguments: string; run(input: unknown): Promise<unknown> }
 const venueSchema = z.enum(["uniswap", "hyperliquid"]);
 
 export function buildAgentTools(context: AgentContext, latestMessage: string) {
+  const profile = resolveToolProfile(context.toolProfile);
   const accounts = context.accounts ?? (context.account ? [context.account] : []);
   const registry = new Map<string, AgentTool>();
   const accountById = (id: string): TradingAccount => {
@@ -87,5 +89,5 @@ export function buildAgentTools(context: AgentContext, latestMessage: string) {
       : { ...automation, expiresAt: automation.expiresAt ?? now + 86_400_000 };
     return { automationProposal, executable: false, created: false, authorization: "User acceptance is required. The server independently checks expiry, budgets, account grants and CRE policy before any scheduled trade." };
   });
-  return registry;
+  return selectProfileTools(registry, profile);
 }

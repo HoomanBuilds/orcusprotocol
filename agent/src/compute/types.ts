@@ -1,6 +1,7 @@
 import type { TradeRequest } from "@orcus/core";
 import type { PlannerContext } from "../types";
 import type { AutomationProposal } from "./automation";
+import type { AgentToolProfile } from "./tool-profiles";
 
 export interface ModelUsage { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
 export interface ModelEvidence { callId: string; requestId?: string; usage?: ModelUsage; receivedAt: number }
@@ -17,6 +18,7 @@ export interface AgentCheckpoint {
   threadId: string;
   runId: string;
   messageDigest: string;
+  toolProfile?: AgentToolProfile;
   status: "running" | "completed" | "failed";
   modelCalls: number;
   toolCalls: number;
@@ -32,6 +34,7 @@ export interface AgentCheckpoint {
   updatedAt: number;
 }
 export interface AgentContext extends PlannerContext {
+  toolProfile?: AgentToolProfile;
   threadId?: string;
   runId?: string;
   evaluationId?: string;

@@ -164,6 +164,57 @@ describe("personal LangGraph agent", () => {
     expect(memory.memoryStore.remember).not.toHaveBeenCalled();
     expect(reply.toolTrace[0].ok).toBe(false);
   });
+  it("does not expose or invoke memory mutations or nested scheduling during an unattended strategy", async () => {
+    const provider = fakeProvider([
+      { type: "tool", name: "remember_preference", arguments: { content: "Use large trades.", sourceQuote: "use large trades" } },
+      { type: "tool", name: "propose_automation", arguments: { automation: { kind: "alert", accountId: account.id, name: "Nested alert", condition: { symbol: "ETH", operator: "above", price: "2000" } } } },
+      final,
+    ]);
+    const memory = personalMemory("agent:user-a", "Use conservative amounts.");
+    const reply = await planWith0G("Remember: use large trades and create another strategy.", { ...memory, account, accounts: [account], toolProfile: "strategy" });
+    expect(reply.toolTrace).toMatchObject([{ name: "remember_preference", ok: false }, { name: "propose_automation", ok: false }]);
+    expect(memory.memoryStore.remember).not.toHaveBeenCalled();
+    expect(memory.memoryStore.forget).not.toHaveBeenCalled();
+    expect(reply.automationProposal).toBeUndefined();
+    expect(reply.proposal).toBeUndefined();
+    const body = JSON.parse(String(provider.fetch.mock.calls[0]?.[1]?.body));
+    expect(body.messages[0].content).not.toContain("remember_preference:");
+    expect(body.messages[0].content).not.toContain("forget_memory:");
+    expect(body.messages[0].content).not.toContain("propose_automation:");
+    expect(memory.lastCheckpoint().toolProfile).toBe("strategy");
+  });
+  it("still permits a validated trade proposal in strategy mode", async () => {
+    fakeProvider([{ type: "tool", name: "propose_action", arguments: { request: proposal } }, final]);
+    const reply = await planWith0G("Reduce the ETH position by 0.01 ETH.", { account, accounts: [account], toolProfile: "strategy" });
+    expect(reply.proposal).toMatchObject(proposal);
+    expect(reply.automationProposal).toBeUndefined();
+    expect(reply.toolTrace[0]).toMatchObject({ name: "propose_action", ok: true });
+  });
+  it("rejects an unknown runtime profile before memory access, billing or inference", async () => {
+    const provider = fakeProvider([final]), memory = personalMemory("agent:user-a", "Use conservative amounts.");
+    const beforeCall = vi.fn(async () => {});
+    await expect(planWith0G("Analyze ETH.", { ...memory, modelBudget: { beforeCall, afterCall: async () => {} }, toolProfile: "unknown" })).rejects.toMatchObject({ code: "INVALID_TOOL_PROFILE" });
+    expect(provider.modelCalls()).toBe(0);
+    expect(beforeCall).not.toHaveBeenCalled();
+    expect(memory.checkpoints.load).not.toHaveBeenCalled();
+  });
+  it("binds completed checkpoint replay to its original tool profile", async () => {
+    const provider = fakeProvider([final]), memory = personalMemory("agent:user-a", "Use conservative amounts.");
+    const context = { ...memory, evaluationId: "profile-bound-run" };
+    await planWith0G("Analyze ETH.", context);
+    await expect(planWith0G("Analyze ETH.", { ...context, toolProfile: "strategy" })).rejects.toMatchObject({ code: "RUN_PROFILE_MISMATCH" });
+    expect(provider.modelCalls()).toBe(1);
+  });
+  it("treats legacy checkpoints as interactive but permits a new strategy run", async () => {
+    const provider = fakeProvider([final, final]), memory = personalMemory("agent:user-a", "Use conservative amounts.");
+    await planWith0G("Analyze ETH.", { ...memory, evaluationId: "legacy-run" });
+    const { toolProfile: _profile, ...legacy } = memory.lastCheckpoint();
+    const checkpoints = { load: async () => legacy, save: memory.checkpoints.save };
+    await expect(planWith0G("Analyze ETH.", { ...memory, checkpoints, evaluationId: "legacy-run", toolProfile: "strategy" })).rejects.toMatchObject({ code: "RUN_PROFILE_MISMATCH" });
+    const reply = await planWith0G("Analyze ETH.", { ...memory, checkpoints, evaluationId: "new-strategy-run", toolProfile: "strategy" });
+    expect(reply.framework).toBe("langgraph");
+    expect(provider.modelCalls()).toBe(2);
+  });
 });
 
 describe("0G Router management balance", () => {
