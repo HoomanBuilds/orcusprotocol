@@ -160,11 +160,11 @@ try {
   await rpc("Emulation.setDeviceMetricsOverride", { ...manifest.viewport, mobile: false });
   await rpc("Runtime.addBinding", { name: "__filmWallet" });
   await rpc("Page.addScriptToEvaluateOnNewDocument", { source: `(()=>{let id=0;const pending=new Map();window.__filmWalletReply=r=>{const p=pending.get(r.id);pending.delete(r.id);r.error?p.reject(r.error):p.resolve(r.result)};window.ethereum={request:r=>new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});window.__filmWallet(JSON.stringify({id:key,...r}))}),on:()=>{},removeListener:()=>{}}})()` });
-  await rpc("Page.navigate", { url: new URL("/landing", origin).href });
+  await rpc("Page.navigate", { url: origin.href });
   await until("document.readyState==='complete'&&!!document.querySelector('video')", "Landing hero");
   await evaluate("document.fonts.ready"); await delay(1800);
   if (!overviewOnly) await shot("01-landing", 10, "Testnet product walkthrough | No trades submitted", async () => { await move({ x: 950, y: 670 }); await delay(4500); });
-  await rpc("Page.navigate", { url: origin.href });
+  await rpc("Page.navigate", { url: new URL("/overview", origin).href });
   await until("!!document.querySelector('.connect-button')&&Object.keys(document.querySelector('.connect-button')).some(k=>k.startsWith('__reactProps'))", "Application hydration");
   let account;
   await shot("02-onboarding", 18, "Actual local sign-in followed by explicit browser-local Demo account | Sample balances are not real funds", async () => {

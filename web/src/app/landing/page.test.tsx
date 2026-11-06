@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { readFileSync, statSync } from "node:fs";
-import LandingPage, { metadata } from "./page";
+import LandingPage, { metadata } from "./landing-page";
 import { HERO_MEDIA, canPlayHero, MarketMotion, MotionVideo } from "./landing-interactions";
 
 describe("Orcus landing page", () => {
@@ -36,9 +36,9 @@ describe("Orcus landing page", () => {
   it("keeps all navigation local and section targets unique", () => {
     const markup = renderToStaticMarkup(<LandingPage/>);
     const links = [...markup.matchAll(/<a\b[^>]*href="([^"]+)"/g)].map(match => match[1]);
-    expect(links.filter(link => link === "/").length).toBeGreaterThan(3);
+    expect(links.filter(link => link === "/overview").length).toBeGreaterThan(3);
     for (const link of links) {
-      expect(link === "/" || link.startsWith("#")).toBe(true);
+      expect(link === "/overview" || link.startsWith("#")).toBe(true);
       if (link.startsWith("#")) expect(markup).toContain(`id="${link.slice(1)}"`);
     }
     const ids = [...markup.matchAll(/\sid="([^"]+)"/g)].map(match => match[1]);

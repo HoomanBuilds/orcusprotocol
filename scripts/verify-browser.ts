@@ -65,7 +65,7 @@ try {
   const clickText = async (selector: string, text: string) => evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.textContent.trim()===${JSON.stringify(text)});if(!e||e.disabled)throw new Error('Action unavailable');e.click();})()`);
   const visibleInChat = async (selector: string) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}),scroll=document.querySelector('.chat-scroll');if(!e||!scroll)return false;const r=e.getBoundingClientRect(),s=scroll.getBoundingClientRect();return r.top>=Math.max(0,s.top)-1&&r.bottom<=Math.min(innerHeight,s.bottom)+1&&r.left>=0&&r.right<=innerWidth;})()`);
   const navigate = async (label: string) => {
-    const path = label === "Overview" ? "/" : `/${label.toLowerCase()}`;
+    const path = `/${label.toLowerCase()}`;
     await evaluate(`(()=>{const mobile=innerWidth<=760;if(mobile&&document.querySelector('#mobile-workspace-navigation').hidden)document.querySelector('.workspace-menu-toggle').click();const e=[...document.querySelectorAll(mobile?'#mobile-workspace-navigation a':'.primary-nav a')].find(e=>e.getAttribute('href')===${JSON.stringify(path)});if(!e)throw new Error('Navigation unavailable');e.click();})()`);
     await until(`location.pathname===${JSON.stringify(path)}`, `The ${label} route did not load.`);
   };
@@ -88,7 +88,7 @@ try {
   await rpc("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await rpc("Runtime.addBinding", { name: "__orcusWalletBinding" });
   await rpc("Page.addScriptToEvaluateOnNewDocument", { source: `(()=>{let id=0;const pending=new Map(),listeners=new Map();window.__orcusWalletReply=r=>{const p=pending.get(r.id);pending.delete(r.id);r.error?p.reject(r.error):p.resolve(r.result)};window.__orcusWalletChanged=()=>{for(const fn of listeners.get('accountsChanged')??[])fn([])};window.ethereum={request:r=>new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});window.__orcusWalletBinding(JSON.stringify({id:key,...r}))}),on:(name,fn)=>listeners.set(name,[...(listeners.get(name)??[]),fn]),removeListener:(name,fn)=>listeners.set(name,(listeners.get(name)??[]).filter(x=>x!==fn))};})()` });
-  await rpc("Page.navigate", { url: origin.href });
+  await rpc("Page.navigate", { url: new URL("/overview", origin).href });
   await until("!!document.querySelector('.connect-button')", "The local application did not render.");
   await until("Object.keys(document.querySelector('.connect-button')).some(key=>key.startsWith('__reactProps'))&&typeof window.ethereum?.request==='function'", "The browser application did not hydrate.");
   rejectLogin = true; await click(".connect-button");
@@ -108,7 +108,7 @@ try {
   await evaluate("history.back()"); await until("location.pathname==='/settings'", "Browser back did not restore Settings.");
   await evaluate("history.forward()"); await until("location.pathname==='/trade'", "Browser forward did not restore Trade.");
   assert.equal(await evaluate("window.__orcusNavigationProof"), "preserved");
-  await navigate("Overview"); await until("document.querySelector('h1')?.textContent==='Overview'", "Root is not the overview dashboard.");
+  await navigate("Overview"); await until("document.querySelector('h1')?.textContent==='Overview'", "The overview dashboard did not load.");
   await navigate("Agent"); await until("!!document.querySelector('button[aria-label=\"Pause agent\"]')", "The dedicated agent workspace did not load.");
   checks.push("real route links, root overview and browser back/forward preserve the shared workspace document");
   const before = controlRequests;

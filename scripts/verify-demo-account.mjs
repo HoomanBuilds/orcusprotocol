@@ -62,7 +62,7 @@ try {
   await rpc("Page.enable"); await rpc("Runtime.enable");
   await rpc("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
   await rpc("Emulation.setDeviceMetricsOverride", { width: 1536, height: 864, deviceScaleFactor: 1, mobile: false });
-  await rpc("Page.navigate", { url: origin.href });
+  await rpc("Page.navigate", { url: new URL("/overview", origin).href });
   await until("!!document.querySelector('[aria-label=\"Explore demo account\"]')&&Object.keys(document.querySelector('[aria-label=\"Explore demo account\"]')).some(k=>k.startsWith('__reactProps'))");
   demoActive = true;
   await click("button[aria-label='Explore demo account']");
@@ -86,8 +86,8 @@ try {
     await screenshot(`desktop-${name}`);
   }
   await rpc("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
-  for (const [name, path] of [["overview", "/"], ...routes]) { await navigate(path); await screenshot(`mobile-${name}`); }
-  await navigate("/");
+  for (const [name, path] of [["overview", "/overview"], ...routes]) { await navigate(path); await screenshot(`mobile-${name}`); }
+  await navigate("/overview");
   await click("details summary.wallet-button"); await screenshot("mobile-account-menu");
   demoActive = false;
   await evaluate("[...document.querySelectorAll('details button')].find(e=>e.textContent==='Exit demo').click()");

@@ -11,7 +11,7 @@ import { InlineError } from "../trading/primitives";
 import { AccountControl } from "./account-control";
 
 export const workspacePages = [
-  { href: "/", title: "Overview", icon: LayoutDashboard },
+  { href: "/overview", title: "Overview", icon: LayoutDashboard },
   { href: "/trade", title: "Trade", icon: CandlestickChart },
   { href: "/agent", title: "Agent", icon: Bot },
   { href: "/automations", title: "Automations", icon: GitBranch },
@@ -44,10 +44,10 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   return <div className={`product-workspace ${pathname === "/trade" ? "trade-route" : pathname === "/agent" ? "agent-route" : ""}`}>
     <a className="workspace-skip" href="#workspace-content">Skip to content</a>
     <aside className="workspace-sidebar">
-      <Link className="workspace-brand" href="/" prefetch={false} aria-label="Orcus overview"><span>orcus<span>.</span></span></Link>
+      <Link className="workspace-brand" href="/overview" prefetch={false} aria-label="Orcus overview"><span>orcus<span>.</span></span></Link>
       <span className="sidebar-label">YOUR WORKSPACE</span>
       <nav className="primary-nav" aria-label="Main navigation">{navigation}</nav>
-      <div className="sidebar-bottom"><div className="sidebar-environment"><ShieldCheck size={18}/><div><strong>Testnet workspace</strong><small>No mainnet trading</small></div></div><Link href="/landing" prefetch={false}><CircleHelp size={16}/>About Orcus<ArrowUpRight size={13}/></Link></div>
+      <div className="sidebar-bottom"><div className="sidebar-environment"><ShieldCheck size={18}/><div><strong>Testnet workspace</strong><small>No mainnet trading</small></div></div><Link href="/" prefetch={false}><CircleHelp size={16}/>About Orcus<ArrowUpRight size={13}/></Link></div>
     </aside>
     <div className="workspace-body">
       <header className="workspace-topbar"><div className="workspace-breadcrumb"><button className="icon-button workspace-menu-toggle" type="button" aria-label={menuOpen ? "Close workspace navigation" : "Open workspace navigation"} aria-expanded={menuOpen} aria-controls="mobile-workspace-navigation" onClick={() => setMenuOpen(value => !value)}>{menuOpen ? <X size={21}/> : <Menu size={21}/>}</button><span>Workspace</span><span className="breadcrumb-divider">/</span><strong>{page.title}</strong></div><div className="workspace-header-actions"><span className="workspace-service-badge"><i className={`dot ${readyServices === (w.health?.ostium ? 6 : 5) ? "good" : "warn"}`}/>{readyServices === undefined ? "Checking services" : readyServices === (w.health?.ostium ? 6 : 5) ? "Integrations configured" : "Setup required"}</span><button className="icon-button refresh-control" type="button" disabled={w.refreshing} aria-label="Refresh accounts" title="Refresh accounts" onClick={() => void w.refresh()}><RefreshCw size={17} className={w.refreshing ? "spin" : ""}/></button><AccountControl/></div></header>
