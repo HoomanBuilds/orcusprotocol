@@ -35,7 +35,7 @@ function Chart() {
 
 function SharedAccount() {
   return <div className={styles.sharedAccount}>
-    <div className={styles.accountTop}><Brand/><span className={styles.demoLabel}>Illustrative interface</span><span className={styles.accountTag}>One trading account</span></div>
+    <div className={styles.accountTop}><Brand/><span className={styles.accountTag}>One trading account</span></div>
     <div className={styles.accountBody}>
       <div className={styles.ownerSide}><span className={styles.smallLabel}>YOU</span><h3>Make the move.</h3><div className={styles.orderPreview}><div><img src="/landing/tokens/WETH.png" alt="WETH" width="28" height="28"/><span>WETH / USDC</span><img src="/landing/tokens/USDC.svg" alt="USDC" width="22" height="22"/></div><Chart/><span className={styles.orderHint}>Choose. Review. Trade.</span></div></div>
       <div className={styles.sharedRail}><span/><span>SHARED<br/>POSITIONS</span><span/></div>
