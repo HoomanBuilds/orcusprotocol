@@ -43,5 +43,6 @@ describe('chaptered walkthrough', () => {
     expect(html).toContain('data:font/woff2');
     expect(html).not.toContain('Lori');
     expect(html).not.toContain('http');
+    expect(cardHtml({title: 'Orcus', accent: 'You stay in control.'})).not.toContain('Testnet preview');
   });
 });
