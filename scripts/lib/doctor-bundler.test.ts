@@ -11,6 +11,9 @@ describe("active bundler diagnostics", () => {
   it("does not substitute configured secondary credentials for a missing primary", () => {
     expect(doctorBundlerConfiguration({ ZERODEV_RPC_URL: "https://rpc.zerodev.app/secondary-secret" })).toEqual({ provider: "operator", status: "missing" });
   });
+  it("does not label a blank primary endpoint as configured", () => {
+    expect(doctorBundlerConfiguration({ BUNDLER_RPC_URL: "   ", ZERODEV_RPC_URL: "https://rpc.zerodev.app/secondary-secret" })).toEqual({ provider: "operator", status: "missing" });
+  });
   it("does not disclose an invalid provider value or an inactive endpoint", () => {
     expect(doctorBundlerConfiguration({ ORCUS_GAS_SPONSOR_PROVIDER: "secret-invalid-provider", BUNDLER_RPC_URL: "https://bundler.example/secret" })).toEqual({ status: "invalid" });
   });
