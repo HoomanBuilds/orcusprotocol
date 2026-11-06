@@ -77,7 +77,27 @@ export interface TradingAccount {
   createdAt?: number;
 }
 
-export interface Market {
+export interface OstiumMarketSchedule {
+  id: number;
+  alwaysOpen?: boolean;
+  timezone?: string;
+  openingHours?: string[];
+}
+
+export interface OstiumMarketData {
+  minLeverage: number;
+  overnightMaxLeverage: number;
+  marketOpen: boolean;
+  oracleFeeUsdc: string;
+  openFeeBps: number;
+  // Signed eight-hour percentages: negative earns, positive pays.
+  rolloverRate: { long: string; short: string };
+  // Current combined long and short exposure in USD.
+  openInterest: string;
+  schedule?: OstiumMarketSchedule;
+}
+
+export interface Market extends Partial<OstiumMarketData> {
   venue: Venue;
   symbol: string;
   baseAsset: string;
@@ -93,6 +113,8 @@ export interface Market {
   unavailableReason?: string;
   observedAt: number;
 }
+
+export type OstiumMarket = Market & OstiumMarketData & { venue: "ostium" };
 
 export interface MarketCandle {
   time: number;

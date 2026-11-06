@@ -1,5 +1,5 @@
 import { getAddress, isAddressEqual } from "viem";
-import type { Market, MarketCandle, TradingAccount } from "@orcus/core";
+import type { Market, MarketCandle, OstiumMarket, TradingAccount } from "@orcus/core";
 import { OSTIUM_TESTNET } from "@orcus/wallets/ostium";
 import { EngineError } from "../../errors";
 import type { AccountPortfolio } from "../../types";
@@ -20,12 +20,12 @@ export async function getOstiumPair(symbol: string): Promise<OstiumPair> {
   return matches[0];
 }
 
-export async function getOstiumMarkets(): Promise<Market[]> {
+export async function getOstiumMarkets(): Promise<OstiumMarket[]> {
   const client = await ostiumSdk();
   const [{ pairs }, prices] = await Promise.all([boundedOstiumRead(() => client.getPairs({ builderFeeBps: 0 })), getOstiumPrices()]);
   return pairs.map(pair => {
     const price = priceForPair(pair, prices), enabled = pair.maxLeverage > 0;
-    return { venue: "ostium" as Market["venue"], symbol: pairSymbol(pair), baseAsset: pair.pairFrom, quoteAsset: pair.pairTo, midPrice: price?.mid ?? "", maxLeverage: pair.maxLeverage, observedAt: price?.observedAt ?? 0, pairId: Number(pair.pairId), category: pair.category, tradable: enabled && !!price?.isMarketOpen, marketOpen: price?.isMarketOpen ?? false, unavailableReason: !enabled ? "New positions are disabled by the testnet pair." : !price ? "Live price is unavailable or stale." : !price.isMarketOpen ? "This market is closed." : undefined, minLeverage: pair.minLeverage, overnightMaxLeverage: pair.overnightMaxLeverage, rolloverRate: pair.rolloverRate, openInterest: pair.openInterest, openFeeBps: pair.openFee, oracleFeeUsdc: pair.oracleFee, schedule: price?.schedule };
+    return { venue: "ostium" as const, symbol: pairSymbol(pair), baseAsset: pair.pairFrom, quoteAsset: pair.pairTo, midPrice: price?.mid ?? "", maxLeverage: pair.maxLeverage, observedAt: price?.observedAt ?? 0, pairId: Number(pair.pairId), category: pair.category, tradable: enabled && !!price?.isMarketOpen, marketOpen: price?.isMarketOpen ?? false, unavailableReason: !enabled ? "New positions are disabled by the testnet pair." : !price ? "Live price is unavailable or stale." : !price.isMarketOpen ? "This market is closed." : undefined, minLeverage: pair.minLeverage, overnightMaxLeverage: pair.overnightMaxLeverage, rolloverRate: pair.rolloverRate, openInterest: pair.openInterest, openFeeBps: pair.openFee, oracleFeeUsdc: pair.oracleFee, schedule: pair.schedule };
   });
 }
 
