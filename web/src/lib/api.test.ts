@@ -14,6 +14,17 @@ describe("safe actionable wallet and API errors", () => {
   it("separates the owner-paid initial deposit fee from sponsored trading", () => {
     expect(displayError({ code: "INSUFFICIENT_GAS" })).toMatch(/external-wallet deposits/);
   });
+  it.each([
+    { code: "UNSUPPORTED_MARKET", expected: /supported market/ },
+    { code: "TOKEN_DIRECTION_MISMATCH", expected: /buy\/sell direction/ },
+    { code: "TRADE_LIMIT", expected: /approved limit/ },
+  ])("explains $code without exposing venue diagnostics or bypassing rejection", ({ code, expected }) => {
+    const error = new ApiError(code, "private upstream diagnostics 0xdeadbeef", 422);
+    expect(displayError(error)).toMatch(expected);
+    expect(displayError({ cause: error })).toMatch(expected);
+    expect(displayError(error)).not.toMatch(/diagnostics|0xdeadbeef|retry|bypass/);
+    expect(displayError({ phase: "submitted-unknown", cause: error })).toMatch(/do not submit a replacement/);
+  });
   it.each(["PAYMASTER_UNCONFIGURED", "SPONSORSHIP_UNCONFIGURED", "SPONSORSHIP_REJECTED"]) ("does not offer owner-paid fallback for %s", code => {
     expect(displayError({ code })).toMatch(/owner-paid/);
   });
