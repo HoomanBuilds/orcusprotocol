@@ -15,6 +15,8 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 let socket: WebSocket | undefined;
 let closeBrowser: (() => Promise<unknown>) | undefined;
 const checks: string[] = [];
+const fixtureChecks: string[] = [];
+const agentFixtures = process.env.ORCUS_BROWSER_AGENT_FIXTURES === "1";
 try {
   const activePort = join(profile, "DevToolsActivePort");
   for (let attempt = 0; !existsSync(activePort) && attempt < 100; attempt++) await delay(100);
@@ -154,23 +156,83 @@ try {
   const automationId = created.body.data.id ?? created.body.data.automation?.id;
   assert.equal((await api(`/api/automations/${automationId}`, { status: "active" }, "PATCH")).status, 409); checks.push("expired automation is disabled in browser and rejected by actual HTTP API");
   await navigate("Agent");
+  if (agentFixtures) {
+    const agentData = (await api("/api/agent")).body.data;
+    const proposal = { kind: "alert", name: "Fixture ETH crossing", accountId: account.id, intervalSeconds: 300, executionMode: "on-crossing", maxExecutions: 3, condition: { symbol: "ETH", operator: "above", price: "2400" }, expiresAt: Date.now() + 3_600_000 };
+    const messages = [
+      { id: "fixture-user", role: "user", content: "Research ETH and draft a bounded price alert.", createdAt: Date.now() },
+      { id: "fixture-research", role: "assistant", content: "## Market brief\n\nFrontend fixture, not live market evidence.\n\n| Market | Observed price | Context |\n| --- | ---: | --- |\n| ETH | $2,350 | Example only |\n| BTC | $80,000 | Example only |\n\n- The price condition is not met.\n- No trade has been submitted.", createdAt: Date.now(), toolSteps: [{ name: "read_markets", ok: true, observedAt: Date.now(), sources: [{ id: "fixture-source", title: "Example research source (fixture)", url: "https://example.com/research", retrievedAt: Date.now(), network: "fixture" }] }, { name: "search_research", ok: false, observedAt: Date.now() }] },
+      { id: "fixture-proposal", role: "assistant", content: "Review this price alert. It cannot activate without your approval.", createdAt: Date.now(), automationProposal: proposal },
+    ];
+    await evaluate(`(()=>{
+      const original=window.fetch.bind(window); window.__orcusOriginalFetch=original;
+      const state=window.__orcusAgentFixture={enabled:true,posts:0,releases:[],bodies:[]};
+      window.fetch=async(input,options={})=>{
+        const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;
+        const method=options.method??'GET';
+        if(path==='/api/automations'&&method==='POST'){
+          state.posts++;state.bodies.push(JSON.parse(options.body));
+          return new Promise(resolve=>state.releases.push(ok=>resolve(new Response(JSON.stringify(ok?{data:{id:'fixture-automation'}}:{error:{code:'REVIEW_REQUIRED',message:'Fixture refusal. Review the rule before retrying.'}}),{status:ok?201:409,headers:{'Content-Type':'application/json'}}))));
+        }
+        if(state.enabled&&method==='GET'&&path==='/api/agent')return new Response(JSON.stringify({data:{...${JSON.stringify(agentData)},messages:${JSON.stringify(messages)}}}),{headers:{'Content-Type':'application/json'}});
+        const response=await original(input,options);
+        if(state.enabled&&path==='/api/health'){const body=await response.json();body.data.cre.ready=true;return new Response(JSON.stringify(body),{status:response.status,headers:{'Content-Type':'application/json'}});}
+        return response;
+      };
+    })()`);
+    await until("!document.querySelector('button[aria-label=\"Refresh accounts\"]').disabled", "Refresh did not finish before fixture setup.");
+    await click("button[aria-label=\"Refresh accounts\"]");
+    await until("!!document.querySelector('.automation-approval-card')", "Structured fixture proposal did not render.");
+    assert.ok(await evaluate("document.querySelector('.automation-approval-card button').disabled"), "Approval must require explicit review.");
+    await evaluate("document.querySelector('.chat-scroll').scrollTop=0;scrollTo(0,0)");
+    await screenshot("fixture-desktop-research");
+    await evaluate("document.querySelector('.automation-approval-card').scrollIntoView({block:'nearest'});scrollTo(0,0)");
+    await screenshot("fixture-desktop-approval");
+    assert.ok(await evaluate("document.querySelector('.chat-compose').getBoundingClientRect().bottom<=innerHeight"), "Desktop composer should stay visible.");
+    await rpc("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await evaluate("document.querySelector('.chat-scroll').scrollTop=0;scrollTo(0,0)");
+    await screenshot("fixture-mobile-research");
+    assert.ok(await evaluate("document.documentElement.scrollWidth<=innerWidth"), "Populated research must not overflow mobile.");
+    await evaluate("document.querySelector('.automation-approval-card').scrollIntoView({block:'start'})");
+    await screenshot("fixture-mobile-approval");
+    await rpc("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+    await click(".approval-acknowledgement input");
+    await until("!document.querySelector('.automation-approval-card button').disabled", "Reviewed fixture proposal remained unavailable.");
+    await evaluate("(()=>{const button=document.querySelector('.automation-approval-card button');button.click();button.click()})()");
+    assert.equal(await evaluate("window.__orcusAgentFixture.posts"), 1);
+    assert.deepEqual(await evaluate("window.__orcusAgentFixture.bodies[0]"), proposal);
+    await evaluate("window.__orcusAgentFixture.releases.shift()(false)");
+    await until("document.querySelector('.automation-approval-card').innerText.includes('Fixture refusal')", "Activation refusal was not visible.");
+    assert.ok(await evaluate("!document.querySelector('.automation-approval-card').innerText.includes('Automation activated')"));
+    await click(".automation-approval-card button");
+    assert.equal(await evaluate("window.__orcusAgentFixture.posts"), 2);
+    fixtureChecks.push("frontend fixture: research table and successful-source references render on desktop/mobile without overflow");
+    fixtureChecks.push("frontend fixture: explicit approval sends unchanged proposal once under rapid clicks and displays refusal without claiming activation");
+  }
   await evaluate("(()=>{const e=document.querySelector('textarea[aria-label=\"Message your agent\"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'private-owner-one-draft');e.dispatchEvent(new Event('input',{bubbles:true}))})()");
   await until("!document.querySelector('button[aria-label=\"Refresh accounts\"]').disabled", "An earlier refresh did not finish.");
   holdNextOwnerRead = true; await click("button[aria-label=\"Refresh accounts\"]");
   for (let attempt = 0; !releaseOwnerRead && attempt < 50; attempt++) await delay(100);
   assert.ok(releaseOwnerRead, "The old owner refresh was not held for the race test.");
-  ownerIndex = 1; await evaluate("window.__orcusWalletChanged()");
+  ownerIndex = 1; await evaluate("if(window.__orcusAgentFixture)window.__orcusAgentFixture.enabled=false;window.__orcusWalletChanged()");
   await until("!!document.querySelector('.connect-button')", "Wallet change did not clear the authenticated workspace.");
   assert.equal(await evaluate("document.querySelector('textarea[aria-label=\"Message your agent\"]').value"), "");
   await until("fetch('/api/session').then(r=>r.json()).then(r=>r.data.user===null)", "The old HTTP session was not cleared.");
   await click(".connect-button"); await until("!!document.querySelector('.wallet-button')", "The second owner could not sign in.");
   releaseOwnerRead(); await delay(1000);
+  if (agentFixtures) {
+    await evaluate("window.__orcusAgentFixture.releases.shift()(true)");
+    await delay(300);
+    assert.ok(await evaluate("!document.querySelector('.automation-approval-card')&&!document.body.innerText.includes('Fixture ETH crossing')"), "Old-owner approval leaked into the new session.");
+    await evaluate("window.fetch=window.__orcusOriginalFetch");
+    fixtureChecks.push("frontend fixture: delayed activation response cannot restore an old owner proposal after wallet switch");
+  }
   const second = (await api("/api/session")).body.data;
   assert.equal(second.user.address.toLowerCase(), owners[1].address.toLowerCase()); assert.equal(second.accounts.length, 0);
   checks.push("wallet switch clears private drafts, old session and cross-owner trading accounts");
   checks.push("a delayed old-owner refresh cannot clear or log out the newly signed-in owner");
   assert.equal(exchangeRequests, 0); assert.equal(tradeSignatureAttempts, 0);
-  console.log(JSON.stringify({ scope: "local Chromium with injected disposable wallet and real HTTP/SQLite", checks, publicTradingWrites: 0, paidInferenceCalls: 0, notProven: ["real browser-extension behavior", "funded or public venue execution", "sponsor deployment", "worker processing or paid0G inference"] }, null, 2));
+  console.log(JSON.stringify({ scope: "local Chromium with injected disposable wallet and real HTTP/SQLite", checks, fixtureChecks, publicTradingWrites: 0, paidInferenceCalls: 0, notProven: ["real browser-extension behavior", "funded or public venue execution", "sponsor deployment", "worker processing or paid0G inference", ...(agentFixtures ? ["fixture activation is frontend-only proof, not backend execution"] : [])] }, null, 2));
 } finally {
   await closeBrowser?.().catch(() => undefined);
   socket?.close(); browser.kill("SIGTERM");
