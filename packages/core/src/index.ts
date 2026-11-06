@@ -206,6 +206,7 @@ export interface ChatMessage {
   actionId?: string;
   privacy?: "unverified" | "independently-attested-private" | "gateway-reported-private";
   privacyEvidence?: unknown;
+  toolSteps?: Array<{ name: string; ok: boolean; observedAt: number; requestId?: string }>;
 }
 
 export interface Automation {
@@ -261,6 +262,7 @@ export interface OperatingBudget {
     message: string;
   };
   computeBalanceScope?: "configured-provider-account";
+  storagePayer?: { enabled?: boolean; configured: boolean; costBearer: "operator" | "agent"; userNeeds0G: boolean; payerAddress?: string; limits?: { maxGas0G: string; maxStorageFee0G: string }; dailyCap0G?: string; dailySpent0G?: string; reserved0G?: string; pending?: boolean; message: string };
   expenses?: Array<{ id: string; reference: string; status: string; amountUsd: string; created_at: number; evidence?: unknown }>;
   nativeExpenses?: Array<{ id: string; kind: "storage"; currency: "0g"; chainId: 16602; status: "confirmed" | "reverted" | "submitted-unknown" | "not-submitted"; transactionHash: string; gasPaidWei?: string; storageFeeWei?: string; totalSpentWei?: string }>;
 }

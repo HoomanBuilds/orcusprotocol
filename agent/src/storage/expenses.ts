@@ -7,7 +7,7 @@ import { z } from "zod";
 const hash = z.string().regex(/^0x[\da-fA-F]{64}$/), address = z.string().regex(/^0x[\da-fA-F]{40}$/), atoms = z.string().regex(/^(?:0|[1-9]\d{0,79})$/);
 const expenseSchema = z.object({ kind: z.literal("storage"), currency: z.literal("0g"), unit: z.literal("neuron"), chainId: z.literal(16602), status: z.enum(["confirmed", "reverted", "submitted-unknown", "not-submitted"]), transactionHash: hash, rootHash: hash, payerAddress: address, to: address, calldataHash: hash, storageValueWei: atoms, maxGasWei: atoms, maxStorageFeeWei: atoms, gasPaidWei: atoms.optional(), storageFeeWei: atoms.optional(), totalSpentWei: atoms.optional(), blockNumber: z.string().regex(/^\d+$/).optional(), observedAt: z.number().int().positive() });
 export type StorageExpense = z.infer<typeof expenseSchema>;
-export type StorageUploadOptions = { maxGas0G?: string; maxStorageFee0G?: string; assertAuthority?: () => void | Promise<void>; onSubmissionIntent?: (expense: StorageExpense) => void | Promise<void>; onExpense?: (expense: StorageExpense) => void | Promise<void> };
+export type StorageUploadOptions = { maxGas0G?: string; maxStorageFee0G?: string; expectedFlowAddress?: string; assertAuthority?: () => void | Promise<void>; onSubmissionIntent?: (expense: StorageExpense) => void | Promise<void>; onExpense?: (expense: StorageExpense) => void | Promise<void> };
 
 async function readStorageExpense(provider: JsonRpcProvider, expense: StorageExpense): Promise<StorageExpense> {
   const result: StorageExpense = { ...expense, status: "submitted-unknown", gasPaidWei: undefined, storageFeeWei: undefined, totalSpentWei: undefined, blockNumber: undefined, observedAt: Date.now() };

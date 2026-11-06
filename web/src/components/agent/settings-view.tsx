@@ -456,6 +456,11 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
   );
   const agent = w.agentData?.agent ?? w.session.agent;
   useEffect(() => {
+    const limits = w.budget?.storagePayer?.limits;
+    if (limits) { setStorageGasCap(limits.maxGas0G); setStorageFeeCap(limits.maxStorageFee0G); }
+  }, [w.budget?.storagePayer?.limits?.maxGas0G, w.budget?.storagePayer?.limits?.maxStorageFee0G]);
+
+  useEffect(() => {
     if (w.budget) setCap(w.budget.limitUsd);
   }, [w.budget?.limitUsd]);
   useEffect(() => {
@@ -744,13 +749,13 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
                   </dd>
                 </div>
               </dl>
-              <details className="technical-limits">
+              {w.budget?.storagePayer?.costBearer !== "operator" && <details className="technical-limits">
                 <summary>Fund the operating wallet for testnet storage gas</summary>
                 <p className="fine-print">Transfer testnet 0G on Galileo to the separate operating address above. Your owner wallet signs the amount and pays gas. This neither funds trading nor deposits into the compute provider.</p>
                 <Field label="Testnet 0G amount"><input inputMode="decimal" value={operatingAmount} onChange={event => setOperatingAmount(event.target.value)} placeholder="0.01" /></Field>
                 <button className="button secondary small" type="button" disabled={!!busy || !!operatingHash || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(operatingAmount) || Number(operatingAmount) <= 0} onClick={() => void fundOperating()}>{busy === "fund-operating" ? <Spinner /> : <Wallet size={13} />}Fund in owner wallet</button>
                 {operatingHash && <><a className="text-link" href={`https://chainscan-galileo.0g.ai/tx/${operatingHash}`} target="_blank" rel="noreferrer">Inspect operating transfer<ExternalLink size={12} /></a><button className="button secondary small" type="button" onClick={() => setOperatingHash(null)}>I checked this transfer; enter another</button></>}
-              </details>
+              </details>}
               {w.budget?.providerBalance?.accountAddress && <p className="fine-print">Configured provider account: <Address value={w.budget.providerBalance.accountAddress} />. This is not a separate per-user credit pool.</p>}
               <p className="fine-print">Pending expense reservations: {usd(w.budget?.reservedUsd)}. Requests with unknown billing retain their reservation instead of reporting an invented cost.</p>
               {!!w.budget?.expenses?.length && <details className="technical-limits"><summary>Operating expense evidence</summary>{w.budget.expenses.slice(0, 20).map(expense => <div className="evaluation" key={expense.id}><small>{expense.status} / {usd(expense.amountUsd)}</small><code>{expense.reference}</code></div>)}</details>}
@@ -759,7 +764,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
                   "Live credit balance and replenishment require a verified provider funding path. Owner deposits are not earned revenue."}
               </p>
             </article>
-            {w.session.user && <ComputeFundingPanel key={w.session.user.id} onRefresh={w.refresh} />}
+            {w.session.user && <details className="technical-limits"><summary>Advanced: native compute-account funding</summary><p className="fine-print">Optional operator integration controls, not a requirement for using agent inference. A service-payment checkout is separate from these native deposits.</p><ComputeFundingPanel key={w.session.user.id} onRefresh={w.refresh} /></details>}
             <article className="settings-card">
               <div className="card-heading">
                 <ShieldCheck size={20} />
@@ -839,18 +844,21 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
           </div>
           <p className="fine-print">
             Back up encrypted preferences and conversation context with the
-            authorized Galileo operating wallet. Each backup can spend up to the gas and storage-fee caps below. These native 0G costs are separate from the USD inference allowance. A
+            {w.budget?.storagePayer?.costBearer === "operator" ? "platform's capped Galileo payer. You do not need 0G in your wallet for these sponsored backups." : "authorized Galileo operating wallet."} Each backup can spend up to the gas and storage-fee caps below. These native 0G costs are separate from the USD inference allowance. A
             failed upload is never shown as a persisted backup.
           </p>
-          <div className="form-grid">
+          {w.budget?.storagePayer && <p className="fine-print">{w.budget.storagePayer.message}{w.budget.storagePayer.dailyCap0G ? ` Shared platform daily limit: ${w.budget.storagePayer.dailyCap0G} 0G.` : ""}</p>}
+          {w.budget?.storagePayer?.payerAddress && <p className="fine-print">Storage fee payer: <Address value={w.budget.storagePayer.payerAddress} explorer="https://chainscan-galileo.0g.ai" /></p>}
+          {w.budget?.storagePayer?.enabled === false && <p className="warning-note">The storage integration is currently disabled by the operator.</p>}
+          <details className="technical-limits"><summary>Advanced native fee ceilings</summary><div className="form-grid">
             <Field label="Maximum transaction gas per backup (0G)"><input inputMode="decimal" value={storageGasCap} maxLength={27} disabled={!!busy} onChange={event => setStorageGasCap(event.target.value)} /></Field>
             <Field label="Maximum storage fee per backup (0G)"><input inputMode="decimal" value={storageFeeCap} maxLength={27} disabled={!!busy} onChange={event => setStorageFeeCap(event.target.value)} /></Field>
-          </div>
+          </div></details>
           <div className="memory-actions">
             <button
               className="button secondary small"
               type="button"
-              disabled={!!busy}
+              disabled={!!busy || w.budget?.storagePayer?.enabled === false}
               onClick={() => void memory("backup")}
             >
               {busy === "backup" ? <Spinner /> : <Database size={13} />}Back up
@@ -859,7 +867,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
             <button
               className="button secondary small"
               type="button"
-              disabled={!!busy}
+              disabled={!!busy || w.budget?.storagePayer?.enabled === false}
               onClick={() => void memory("restore")}
             >
               {busy === "restore" ? <Spinner /> : <RotateCw size={13} />}Restore

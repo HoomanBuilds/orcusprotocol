@@ -6,6 +6,7 @@ import { engineConfig } from "../config";
 import { EngineError } from "../errors";
 import { boundedStorageSigner, type StorageUploadOptions } from "./expenses";
 export { reconcileStorageExpense } from "./expenses";
+export { quoteEncryptedUpload } from "./quote";
 
 const HEADER = Buffer.from("ORCUSMEM1");
 
@@ -39,7 +40,7 @@ export function decryptMemory(bytes: Uint8Array, key: string | Uint8Array): unkn
 export async function uploadMemory(memory: unknown, encryptionKey: string | Uint8Array, signerPrivateKey?: string, options: StorageUploadOptions = {}) {
   const cfg = engineConfig().storage;
   if (!cfg.configured || !signerPrivateKey) throw new EngineError("STORAGE_NOT_CONFIGURED", "0G Storage is not enabled with an authorized testnet operating signer.", 503);
-  const { JsonRpcProvider } = await import("ethers");
+  const { JsonRpcProvider, getAddress } = await import("ethers");
   const { Indexer, MemData } = await import("@0gfoundation/0g-storage-ts-sdk");
   const provider = new JsonRpcProvider(cfg.rpcUrl);
   if ((await provider.getNetwork()).chainId !== 16602n) throw new EngineError("WRONG_NETWORK", "0G Storage writes are limited to Galileo testnet.");
@@ -56,6 +57,7 @@ export async function uploadMemory(memory: unknown, encryptionKey: string | Uint
     const [uploader, selectionError] = await indexer.newUploaderFromIndexerNodes(cfg.rpcUrl, guard.signer, 1);
     if (selectionError || !uploader) throw new EngineError("STORAGE_SELECTION_FAILED", "No usable storage nodes were available for this backup.", 502);
     const flowAddress = await uploader.flow.getAddress(), selector = uploader.flow.interface.getFunction("submit")?.selector;
+    if(options.expectedFlowAddress && getAddress(flowAddress)!==getAddress(options.expectedFlowAddress))throw new EngineError("STORAGE_FLOW_CHANGED","Storage discovery changed the approved Flow destination. Obtain a new quote before signing.",409);
     if (!selector || await provider.getCode(flowAddress) === "0x") throw new EngineError("INVALID_STORAGE_FLOW", "The selected Galileo Flow contract is unavailable.", 502);
     guard.allowFlow(flowAddress, selector);
     const [transaction, uploadError] = await uploader.uploadFile(data, { finalityRequired: true, expectedReplica: 1, skipIfFinalized: false, onProgress: assertDeadline }, { Retries: 1, Interval: 1, MaxGasPrice: 0 });

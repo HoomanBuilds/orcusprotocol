@@ -18,7 +18,7 @@ export function getHealth(): HealthStatus {
   return {
     mode: "testnet",
     compute: { configured: compute, ready: compute, message: compute ? "0G endpoint configured. Request evidence is captured per inference; TEE attestation is not yet verified." : "Configure ZEROG_COMPUTE_CHAT_URL, ZEROG_COMPUTE_API_KEY and ZEROG_COMPUTE_MODEL." },
-    storage: { configured: cfg.storage.configured, ready: cfg.storage.configured, message: cfg.storage.configured ? "Encrypted 0G Storage enabled; uploads require an authorized funded Galileo signer." : "Enable ZEROG_STORAGE_ENABLED after funding an isolated Galileo operating wallet." },
+    storage: { configured: cfg.storage.configured, ready: cfg.storage.configured, message: cfg.storage.configured ? "Encrypted 0G Storage enabled; the selected operator or agent payer needs funded Galileo gas. End users do not need 0G when the operator pays." : "0G Storage is disabled. Configure the operator's funded Galileo payer before enabling sponsored backups." },
     uniswap: { configured: true, ready: true, message: "Sepolia Uniswap V3. Real liquidity and token allowance are checked during quotes." },
     hyperliquid: { configured: true, ready: true, message: "Hyperliquid testnet public reads enabled. Trading needs explicit owner/agent authorization." },
     cre: { configured: cfg.cre.enabled, ready: cfg.cre.enabled && Boolean(cfg.cre.workflowDir), message: cfg.cre.enabled ? "CRE local simulation configured; CLI login, workflow compilation and output are checked per evaluation." : "Configure CRE_ENABLED, CRE_CLI_PATH and CRE_WORKFLOW_DIR, then authenticate the CRE CLI." },

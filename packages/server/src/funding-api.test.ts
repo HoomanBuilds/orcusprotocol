@@ -61,6 +61,7 @@ describe("owner-authorized compute funding API with explicit payment fixtures",(
       expect((await h.request("budget/funding/submit",{intentId})).result.data.status).toBe("confirmed");
       expect(h.engine.mock.calls.filter(call=>call[0]==="submitComputeFunding")).toHaveLength(1);
       const state=(await h.request("budget/funding")).result.data;expect(state.spent0G).toBe("0.0100000000000001");expect(state.reserved0G).toBe("0");
+      expect((await h.request("budget")).result.data.replenishmentStatus).toBe("confirmed");
     }finally{h.close();}
   });
   it("holds uncertain transfers, never rebroadcasts, and reconciles even after owner revocation",async()=>{

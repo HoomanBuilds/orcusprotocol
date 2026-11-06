@@ -14,12 +14,14 @@ import type { Document,StoredAccount,StoredAction,StoredAgent,StoredAutomation,S
 import { AgentMemoryStore,rejectMemorySecrets } from "./memory";
 import { AgentRun,type AgentRunStatus } from "./agent-runtime";
 import { listStorageExpenses,recordStorageExpense } from "./storage-expenses";
+import { safeAgentToolSteps } from "./agent-evidence";
+import { selectStoragePayer,assertStoragePayerAllowance,publicStoragePayerMetadata } from "./storage-payer";
 
 export const accountSchema=z.object({venue:z.enum(["uniswap","hyperliquid"]),address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
 export const automationSchema=z.object({kind:z.enum(["trade","alert"]).default("trade"),accountId:z.string(),name:z.string().min(1).max(80),instruction:z.string().min(1).max(2000).optional(),intervalSeconds:z.number().int().min(60).max(86400).default(300),request:tradeRequestSchema.optional(),condition:z.object({symbol:z.string().min(1).max(50),operator:z.enum(["above","below"]),price:z.string().max(80).regex(/^\d+(?:\.\d+)?$/).refine(value=>/[1-9]/.test(value),"Use a positive alert threshold")}).optional(),expiresAt:z.number().int().optional()}).strict().superRefine((value,ctx)=>{if(value.kind==="alert"&&(!value.condition||value.request))ctx.addIssue({code:"custom",message:"Price alerts require a condition and cannot contain a trade request."});if(value.kind==="trade"&&!value.request&&!value.instruction)ctx.addIssue({code:"custom",message:"Trading strategies require an instruction or an explicitly approved recurring request."});});
 const terminalStates=new Set(["confirmed","rejected","cancelled"]);
 const evaluationSchema=z.object({id:z.string(),automationId:z.string(),accountId:z.string(),chainId:z.number().int(),decision:z.enum(["allow","reject","no-action"]),reason:z.string(),source:z.literal("local-simulation"),observedAt:z.number().int(),expiresAt:z.number().int(),controlRevision:z.number().int(),policyVersion:z.number().int(),requestId:z.string().optional()}).passthrough();
-type AgentReply={message:string;proposal?:TradeRequest;automationProposal?:unknown;requestId?:string;requestIds?:string[];modelCalls?:number;usage?:unknown;costUsd?:string;requiresClarification?:boolean;privacy?:StoredMessage["privacy"];privacyEvidence?:unknown};
+type AgentReply={message:string;proposal?:TradeRequest;automationProposal?:unknown;requestId?:string;requestIds?:string[];modelCalls?:number;usage?:unknown;costUsd?:string;requiresClarification?:boolean;privacy?:StoredMessage["privacy"];privacyEvidence?:unknown;toolTrace?:unknown};
 
 export class Platform {
   constructor(readonly store:Store=getStore()){}
@@ -86,7 +88,12 @@ export class Platform {
     })();
   }
   async budget(user:User){
-    const local={...getBudget(this.store,user.id),operatingAddress:this.agent(user).operatingAddress,nativeExpenses:listStorageExpenses(this.store,user.id)};
+    let storagePayer;
+    try{storagePayer={enabled:process.env.ZEROG_STORAGE_ENABLED==="true",configured:true,...publicStoragePayerMetadata(this.store,this.memoryPayer(user))};}
+    catch(error){storagePayer={enabled:false,configured:false,costBearer:process.env.ZEROG_STORAGE_PAYER==="operator"?"operator":"agent",userNeeds0G:process.env.ZEROG_STORAGE_PAYER!=="operator",message:error instanceof ApiError?error.message:"The storage payer is not configured."};}
+    const funding=this.computeFunding(user),latest=funding.intents[0];
+    const replenishmentStatus=funding.intents.some(intent=>["prepared","submitting","submitted-unknown"].includes(intent.status))?"pending":latest?.status==="confirmed"?"confirmed":latest?.status==="failed"?"failed":funding.status==="authorized"?"idle":"unconfigured";
+    const local={...getBudget(this.store,user.id),operatingAddress:this.agent(user).operatingAddress,nativeExpenses:listStorageExpenses(this.store,user.id),storagePayer,replenishmentStatus};
     try{
       const provider=await callEngine<{status:"verified"|"unavailable"|"unconfigured";balance?:string;message:string;unit?:string;address?:string;[key:string]:unknown}>("getComputeBalance");
       return {...local,computeBalanceStatus:provider.status,providerBalance:provider,computeBalanceScope:"configured-provider-account",warning:`${local.warning} ${provider.message}`};
@@ -424,7 +431,7 @@ export class Platform {
     const agent=this.agent(user),account=input.accountId?this.account(user,input.accountId):undefined;
     if(!priorUserMessage)this.store.put("message",{id:`${reference}:user`,userId:user.id,role:"user",content:input.message,requestFingerprint,accountId:input.accountId,createdAt:Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     const result=await this.proposal(user,input.message,account,reference);
-    let message:StoredMessage=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,privacy:result.privacy,privacyEvidence:result.privacyEvidence,createdAt:priorAssistant?.createdAt??Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
+    let message:StoredMessage=this.store.put("message",{id:`${reference}:assistant`,userId:user.id,role:"assistant",content:result.message,requestId:result.requestId,proposedAction:result.proposal,automationProposal:result.automationProposal,privacy:result.privacy,privacyEvidence:result.privacyEvidence,toolSteps:safeAgentToolSteps(result.toolTrace),createdAt:priorAssistant?.createdAt??Date.now(),updatedAt:Date.now()} satisfies StoredMessage);
     let action:StoredAction|undefined;
     if(result.proposal&&input.autonomous&&agent.mode==="autonomous"&&!agent.paused){
       const prepared=await this.prepare(user,result.proposal,`chat:${reference}`,"agent",{instruction:input.message,providerRequestId:result.requestId,messageId:message.id});
@@ -466,7 +473,10 @@ export class Platform {
     if(expense.status!=="submitted-unknown")return expense;
     return recordStorageExpense(this.store,user.id,await callEngine("reconcileStorageExpense",expense));
   }
-  async memory(user:User,action:"backup"|"restore",limits:{maxGas0G?:string;maxStorageFee0G?:string}={}){
+  private memoryPayer(user:User,limits:{maxGas0G?:string;maxStorageFee0G?:string}={}){
+    return selectStoragePayer(this.store,user,{limits,agent:()=>({payerAddress:this.agent(user).operatingAddress,privateKey:readSigner(this.store,user.id,"operating")})});
+  }
+  async memory(user:User,action:"backup"|"restore",limits:{maxGas0G?:string;maxStorageFee0G?:string;expectedFlowAddress?:string}={}){
     const key=memoryKey(this.store,user.id);
     try{
       if(action==="backup"){
@@ -474,10 +484,13 @@ export class Platform {
         const content={version:2,agent:{preferences:this.agent(user).preferences},messages:this.store.list<StoredMessage>(user.id,"message",16).map(({role,content,createdAt})=>({role,content:content.slice(0,4000),createdAt})),longTerm,capturedAt:Date.now()};
         while(Buffer.byteLength(JSON.stringify(content))>750_000&&content.longTerm.notes.length)content.longTerm.notes.pop();
         if(Buffer.byteLength(JSON.stringify(content))>750_000)throw new ApiError("MEMORY_TOO_LARGE","Compact the active checkpoint before backing up this memory.",413);
-        const result=await this.withAccountLease(`operating:${user.id}`,async assertLease=>{
-          assertLease();
+        const payer=this.memoryPayer(user,limits);
+        const result=await this.withAccountLease(payer.scope,async assertLease=>{
+          let signedHash:string|undefined;
+          const assertAuthority=()=>{assertLease();assertStoragePayerAllowance(this.store,payer,signedHash);};
           if(listStorageExpenses(this.store,user.id).some(expense=>expense.status==="submitted-unknown"))throw new ApiError("STORAGE_OUTCOME_UNKNOWN","Reconcile the previous storage expense before paying for another backup.",409);
-          return callEngine<Document>("uploadMemory",content,key,readSigner(this.store,user.id,"operating"),{maxGas0G:limits.maxGas0G??"0.003",maxStorageFee0G:limits.maxStorageFee0G??"0.01",assertAuthority:assertLease,onSubmissionIntent:(expense:unknown)=>{recordStorageExpense(this.store,user.id,expense);},onExpense:(expense:unknown)=>{recordStorageExpense(this.store,user.id,expense);}});
+          assertAuthority();
+          return callEngine<Document>("uploadMemory",content,key,payer.privateKey,{...payer.limits,expectedFlowAddress:limits.expectedFlowAddress,assertAuthority,onSubmissionIntent:(expense:unknown)=>{assertStoragePayerAllowance(this.store,payer);const record=recordStorageExpense(this.store,user.id,expense);signedHash=record.transactionHash;},onExpense:(expense:unknown)=>{recordStorageExpense(this.store,user.id,expense);}});
         });
         const rootHash=result.rootHash??result.root;
         if(result.status!=="confirmed"||typeof rootHash!=="string"||!/^0x[\da-fA-F]{64}$/.test(rootHash))throw new ApiError("STORAGE_UNCONFIRMED","Storage did not confirm an uploaded root. No backup was marked successful.",502);

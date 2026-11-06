@@ -191,8 +191,8 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     }
     if (path === "memory" && method === "POST") {
       const cap=z.string().regex(/^(?:0|[1-9]\d{0,7})(?:\.\d{1,18})?$/).refine(value=>/[1-9]/.test(value),"Use a positive native 0G expense cap");
-      const input=z.object({action:z.enum(["backup","restore"]),maxGas0G:cap.optional(),maxStorageFee0G:cap.optional()}).strict().parse(await readBody(request));
-      return json({data:await platform.memory(user,input.action,{maxGas0G:input.maxGas0G,maxStorageFee0G:input.maxStorageFee0G})});
+      const input=z.object({action:z.enum(["backup","restore"]),maxGas0G:cap.optional(),maxStorageFee0G:cap.optional(),expectedFlowAddress:address.optional()}).strict().parse(await readBody(request));
+      return json({data:await platform.memory(user,input.action,{maxGas0G:input.maxGas0G,maxStorageFee0G:input.maxStorageFee0G,expectedFlowAddress:input.expectedFlowAddress})});
     }
     return json({ error: { code: "NOT_FOUND", message: "This API route does not exist." } }, 404);
   } catch (error) {

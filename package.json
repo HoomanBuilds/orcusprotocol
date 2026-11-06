@@ -11,6 +11,7 @@
     "build": "node scripts/web.mjs build",
     "doctor": "node --env-file-if-exists=.env --import tsx scripts/doctor.ts",
     "verify:compute": "node --import tsx scripts/verify-compute.ts",
+    "verify:storage": "node --env-file-if-exists=.env --import tsx scripts/verify-storage.ts",
     "verify:uniswap-fork": "node --env-file-if-exists=.env --import tsx scripts/verify-uniswap-fork.ts",
     "verify:kernel-fork": "node --env-file-if-exists=.env --import tsx scripts/verify-kernel-fork.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
