@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { reserveBudget,settleReservation } from "./budget";
+import { reserveBudget,settleReservation,settleComputeReservation } from "./budget";
 import { ApiError } from "./errors";
 import { AgentMemoryStore,memoryInputSchema } from "./memory";
 import { id,type Store } from "./store";
@@ -56,9 +56,9 @@ export class AgentRun{
         if(reference===this.runId){if(!this.initialReservation)throw new ApiError("EVALUATION_PENDING","This first model call was already attempted. A duplicate billable call is blocked.",409);this.initialReservation=false;}
         else if(!reserveBudget(this.store,this.userId,reference,this.reservation))throw new ApiError("EVALUATION_PENDING","This model call is already pending reconciliation.",409);
         this.modelCalls++;this.progress({stage:"thinking",modelCalls:this.modelCalls});
-      },afterCall:async(input:{callId:string;outcome:"completed"|"rejected"|"unknown";requestId?:string;usage?:unknown})=>{
+      },afterCall:async(input:{callId:string;outcome:"completed"|"rejected"|"unknown";requestId?:string;usage?:unknown;billing?:unknown})=>{
         const reference=this.callReference(input.callId);
-        settleReservation(this.store,this.userId,reference,input.outcome==="rejected"?"released":"unknown",{callId:input.callId,outcome:input.outcome,requestId:input.requestId,usage:input.usage,billing:"Actual USD cost is not available; completed or unknown requests retain their authorized reservation."});
+        settleComputeReservation(this.store,this.userId,reference,input);
       }},
     };
   }
