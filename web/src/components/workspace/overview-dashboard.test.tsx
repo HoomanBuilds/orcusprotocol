@@ -50,6 +50,8 @@ describe("account overview", () => {
     expect(html).toContain("Agent expense cap, separate from trading capital.");
     expect(html).toContain("$7.00");
     expect(html).toContain("Reserved");
+    expect(html).toContain('href="/settings?section=budget"');
+    expect(html).not.toContain('href="/settings?section=agent"');
   });
   it("does not infer an empty balance for an account missing from the snapshot", () => {
     state.workspace.portfolio.accounts = [];
