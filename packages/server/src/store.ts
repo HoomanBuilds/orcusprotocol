@@ -33,7 +33,7 @@ INSERT OR IGNORE INTO migrations(version,applied_at) VALUES(2,unixepoch()*1000);
 export function dataDirectory(): string {
   const path = process.env.ORCUS_DATA_DIR ?? join(homedir(), ".local", "share", "orcus-ethglobal");
   if (!isAbsolute(path)) throw new ApiError("INVALID_DATA_PATH", "ORCUS_DATA_DIR must be an absolute path outside the checkout.", 503);
-  const resolved = resolve(path);
+  const resolved = resolve(/* turbopackIgnore: true */ path);
   let dir = process.cwd();
   while (dirname(dir) !== dir && !existsSync(join(dir, ".git"))) dir = dirname(dir);
   if (existsSync(join(dir, ".git")) && (resolved === dir || resolved.startsWith(dir + sep))) throw new ApiError("INVALID_DATA_PATH", "Runtime data must remain outside the checkout.", 503);
