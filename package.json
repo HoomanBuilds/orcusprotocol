@@ -18,6 +18,9 @@
     "verify:storage": "node --env-file-if-exists=.env --import tsx scripts/verify-storage.ts",
     "verify:uniswap-fork": "node --env-file-if-exists=.env --import tsx scripts/verify-uniswap-fork.ts",
     "verify:kernel-fork": "node --env-file-if-exists=.env --import tsx scripts/verify-kernel-fork.ts",
+    "verify:operator-paymaster-fork": "node --env-file-if-exists=.env --import tsx scripts/verify-kernel-fork.ts --operator-paymaster",
+    "compile:paymaster": "node --import tsx scripts/compile-operator-paymaster.ts",
+    "test:contracts": "vitest run scripts/lib/compile-operator-paymaster.test.ts packages/wallets/src/operator-paymaster.test.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:cre": "vitest run workflows/cre/strategy/workflow.test.ts"

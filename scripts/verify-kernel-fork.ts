@@ -11,6 +11,8 @@ import { createOwnerKernel,createPermissionPlugin,entryPoint,kernelVersion,type 
 import { assertKernelPolicyCompatible,inspectPreparedSwap,swapCallAbi } from "../packages/wallets/src/preflight";
 import { engineConfig,prepareAction,reconcileAction } from "../agent/src/index";
 import { withSepoliaFork } from "./lib/sepolia-fork";
+import { compileOperatorPaymaster } from "./lib/compile-operator-paymaster";
+import { encodeOperatorPaymasterData, operatorPaymasterAbi, operatorSponsorshipHash, operatorSponsorshipTypedData, type OperatorSponsorshipAuthorization } from "../packages/wallets/src/operator-paymaster";
 
 await withSepoliaFork(async({rpcUrl,rpc})=>{
   process.env.SEPOLIA_RPC_URL=rpcUrl;
@@ -20,13 +22,40 @@ await withSepoliaFork(async({rpcUrl,rpc})=>{
   assert.ok(await client.getCode({address:entryPoint.address}));
   await rpc("anvil_setBalance",[payer.address,"0x8ac7230489e80000"]);
   await rpc("anvil_setBalance",[kernel.account.address,"0xde0b6b3a7640000"]);
+  const sponsored=process.argv.includes("--operator-paymaster"),gasSigner=privateKeyToAccount(generatePrivateKey());
+  let paymaster:Address|undefined;
+  const initialDeposit=100_000_000_000_000_000n;
+  if(sponsored){
+    const compiled=compileOperatorPaymaster(),deployment=await wallet.deployContract({...compiled,args:[entryPoint.address,payer.address,gasSigner.address,3_000_000_000_000_000n]});
+    const deployed=await client.waitForTransactionReceipt({hash:deployment});assert.equal(deployed.status,"success");assert.ok(deployed.contractAddress);paymaster=deployed.contractAddress;
+    const deposit=await wallet.writeContract({address:paymaster,abi:operatorPaymasterAbi,functionName:"deposit",value:initialDeposit});assert.equal((await client.waitForTransactionReceipt({hash:deposit})).status,"success");
+    assert.equal(await client.readContract({address:paymaster,abi:operatorPaymasterAbi,functionName:"getDeposit"}),initialDeposit);
+    await assert.rejects(client.simulateContract({account:owner.address,address:paymaster,abi:operatorPaymasterAbi,functionName:"withdrawTo",args:[owner.address,1n]}),/reverted/u);
+    await assert.rejects(client.simulateContract({account:owner.address,address:paymaster,abi:operatorPaymasterAbi,functionName:"setVerifyingSigner",args:[owner.address]}),/reverted/u);
+    await assert.rejects(client.simulateContract({account:payer.address,address:paymaster,abi:operatorPaymasterAbi,functionName:"renounceOwnership"}),/reverted/u);
+  }
   const account:TradingAccount={id:"kernel-fork",userId:"isolated-verification",venue:"uniswap",address:kernel.account.address,smartAccountAddress:kernel.account.address,ownerAddress:owner.address,agentAddress:session.address,chainId:11155111,status:"authorized",controlRevision:0};
   const receipts:Record<string,unknown>[]=[];
+  let sponsorSpent=0n;
+  function pack(operation:UserOperation<"0.7">){
+    return {sender:operation.sender,nonce:operation.nonce,initCode:operation.factory?concatHex([operation.factory,operation.factoryData??"0x"]):"0x"as Hex,callData:operation.callData,accountGasLimits:concatHex([toHex(operation.verificationGasLimit,{size:16}),toHex(operation.callGasLimit,{size:16})]),preVerificationGas:operation.preVerificationGas,gasFees:concatHex([toHex(operation.maxPriorityFeePerGas,{size:16}),toHex(operation.maxFeePerGas,{size:16})]),paymasterAndData:operation.paymaster?concatHex([operation.paymaster,toHex(operation.paymasterVerificationGasLimit??0n,{size:16}),toHex(operation.paymasterPostOpGasLimit??0n,{size:16}),operation.paymasterData??"0x"]):"0x"as Hex,signature:operation.signature};
+  }
+  async function approveGas(operation:UserOperation<"0.7">,overrides:Partial<OperatorSponsorshipAuthorization>={}){
+    assert.ok(paymaster);
+    const now=Number((await client.getBlock()).timestamp),authorization:OperatorSponsorshipAuthorization={paymaster,entryPoint:entryPoint.address,chainId:sepolia.id,validAfter:now-5,validUntil:now+120,maxCostWei:3_000_000_000_000_000n,paymasterVerificationGasLimit:150_000n,paymasterPostOpGasLimit:0n,...overrides};
+    operation.paymaster=paymaster;operation.paymasterVerificationGasLimit=authorization.paymasterVerificationGasLimit;operation.paymasterPostOpGasLimit=authorization.paymasterPostOpGasLimit;
+    operation.paymasterData=encodeOperatorPaymasterData(authorization,await gasSigner.signTypedData(operatorSponsorshipTypedData(operation,authorization)));
+    if(authorization.chainId===sepolia.id&&authorization.entryPoint===entryPoint.address){
+      assert.equal(await client.readContract({address:paymaster,abi:operatorPaymasterAbi,functionName:"getSponsorshipHash",args:[pack(operation),authorization.validUntil,authorization.validAfter,authorization.maxCostWei]}),operatorSponsorshipHash(operation,authorization));
+    }
+    return authorization;
+  }
   async function execute(signer:typeof kernel.account,calls:{to:Address;data:Hex;value:bigint}[],label:string){
     const factory=await signer.getFactoryArgs();
     const operation:UserOperation<"0.7">={sender:signer.address,nonce:await signer.getNonce(),callData:await signer.encodeCalls(calls),callGasLimit:900_000n,verificationGasLimit:8_000_000n,preVerificationGas:100_000n,maxFeePerGas:100_000_000n,maxPriorityFeePerGas:1_000_000n,signature:"0x",...factory};
+    if(sponsored)await approveGas(operation);
     operation.signature=await signer.signUserOperation(operation);
-    const packed={sender:operation.sender,nonce:operation.nonce,initCode:operation.factory?concatHex([operation.factory,operation.factoryData??"0x"]):"0x"as Hex,callData:operation.callData,accountGasLimits:concatHex([toHex(operation.verificationGasLimit,{size:16}),toHex(operation.callGasLimit,{size:16})]),preVerificationGas:operation.preVerificationGas,gasFees:concatHex([toHex(operation.maxPriorityFeePerGas,{size:16}),toHex(operation.maxFeePerGas,{size:16})]),paymasterAndData:"0x"as Hex,signature:operation.signature};
+    const packed=pack(operation),capitalBefore=await client.getBalance({address:signer.address});
     try{await client.simulateContract({account:payer.address,address:entryPoint.address,abi:entryPoint07Abi,functionName:"handleOps",args:[[packed],payer.address]});}
     catch(error){
       const trace=await rpc("debug_traceCall",[{from:payer.address,to:entryPoint.address,data:encodeFunctionData({abi:entryPoint07Abi,functionName:"handleOps",args:[[packed],payer.address]})},"latest",{tracer:"callTracer"}]);
@@ -37,10 +66,34 @@ await withSepoliaFork(async({rpcUrl,rpc})=>{
     const hash=await wallet.writeContract({address:entryPoint.address,abi:entryPoint07Abi,functionName:"handleOps",args:[[packed],payer.address],gas:12_000_000n});
     const receipt=await client.waitForTransactionReceipt({hash});assert.equal(receipt.status,"success");
     const event=parseEventLogs({abi:entryPoint07Abi,logs:receipt.logs,eventName:"UserOperationEvent"});assert.equal(event.length,1);assert.equal(event[0].args.success,true,`${label} account execution failed`);
+    if(sponsored){
+      sponsorSpent+=event[0].args.actualGasCost;
+      assert.equal(event[0].args.paymaster.toLowerCase(),paymaster!.toLowerCase());
+      assert.equal(await client.readContract({address:entryPoint.address,abi:entryPoint07Abi,functionName:"balanceOf",args:[signer.address]}),0n);
+      assert.equal(await client.getBalance({address:signer.address}),capitalBefore-calls.reduce((total,call)=>total+call.value,0n));
+    }
     receipts.push({label,transactionHash:hash,userOperationHash:event[0].args.userOpHash,success:true});return hash;
   }
   const transactions=(prepared:PreparedAction)=>prepared.transactions!.map(tx=>({to:getAddress(tx.to),data:tx.data as Hex,value:BigInt(tx.value)}));
   await execute(kernel.account,[{to:getAddress(cfg.weth),data:encodeFunctionData({abi:parseAbi(["function deposit() payable"]),functionName:"deposit"}),value:3_000_000_000_000_000n}],"owner-wrap");
+  if(sponsored){
+    const nonce=await kernel.account.getNonce(),now=Number((await client.getBlock()).timestamp),readOwnerNonce=()=>client.readContract({address:entryPoint.address,abi:entryPoint07Abi,functionName:"getNonce",args:[kernel.account.address,nonce>>64n]});
+    async function denied(label:string,changes:Partial<OperatorSponsorshipAuthorization>,mutate?:(operation:UserOperation<"0.7">)=>void){
+      const operation:UserOperation<"0.7">={sender:kernel.account.address,nonce,callData:await kernel.account.encodeCalls([{to:getAddress(cfg.weth),data:"0xd0e30db0",value:0n}]),callGasLimit:900_000n,verificationGasLimit:8_000_000n,preVerificationGas:100_000n,maxFeePerGas:100_000_000n,maxPriorityFeePerGas:1_000_000n,signature:"0x"};
+      await approveGas(operation,changes);mutate?.(operation);operation.signature=await kernel.account.signUserOperation(operation);
+      await assert.rejects(client.simulateContract({account:payer.address,address:entryPoint.address,abi:entryPoint07Abi,functionName:"handleOps",args:[[pack(operation)],payer.address]}),/AA3[234]/u,label);
+      assert.equal(await readOwnerNonce(),nonce,label);
+    }
+    await denied("expired sponsorship",{validAfter:now-200,validUntil:now-1});
+    await denied("future sponsorship",{validAfter:now+60,validUntil:now+120});
+    await denied("wrong-chain sponsorship",{chainId:1});
+    await denied("wrong-entrypoint sponsorship",{entryPoint:payer.address});
+    await denied("signed cap below required prefund",{maxCostWei:1n});
+    await denied("signed cap above contract maximum",{maxCostWei:3_000_000_000_000_001n});
+    await denied("tampered gas",{},operation=>{operation.callGasLimit+=1n;});
+    await denied("tampered calldata",{},operation=>{operation.callData=concatHex([operation.callData,"0x00"]);});
+    await denied("invalid estimation stub",{},operation=>{operation.paymasterData=encodeOperatorPaymasterData({paymaster:paymaster!,entryPoint:entryPoint.address,chainId:sepolia.id,validAfter:now-5,validUntil:now+120,maxCostWei:3_000_000_000_000_000n,paymasterVerificationGasLimit:150_000n,paymasterPostOpGasLimit:0n},`0x${"00".repeat(65)}`);});
+  }
   const request=tradeRequestSchema.parse({accountId:account.id,venue:"uniswap",type:"swap",symbol:"WETH/USDC",side:"sell",amount:"0.001",slippageBps:50,mode:"manual"});
   const ownerPrepared=await prepareAction(request,account),ownerHash=await execute(kernel.account,transactions(ownerPrepared),"owner-swap");assert.equal((await reconcileAction({transactionHash:ownerHash,prepared:ownerPrepared},account)).status,"confirmed");
   const ownerNative=await prepareAction({...request,nativeInput:true},account),nativeOwnerHash=await execute(kernel.account,transactions(ownerNative),"owner-native-input-swap");assert.equal((await reconcileAction({transactionHash:nativeOwnerHash,prepared:ownerNative},account)).status,"confirmed");
@@ -68,5 +121,9 @@ await withSepoliaFork(async({rpcUrl,rpc})=>{
   const ownerExit=await prepareAction({...request,side:"buy",amount:formatUnits(usdc/2n,6)},account),exitHash=await execute(kernel.account,transactions(ownerExit),"owner-manages-agent-holdings");assert.equal((await reconcileAction({transactionHash:exitHash,prepared:ownerExit},account)).status,"confirmed");
   await rpc("evm_setNextBlockTimestamp",[Math.floor(policy.expiresAt/1000)+1]);await rpc("evm_mine");
   await assert.rejects(execute(authorized,transactions(prepared),"expired-agent-grant"),/AA22/u);
-  console.log(JSON.stringify({scope:"isolated-sepolia-fork",forkBlock:forkBlock.toString(),publicNetworkWrites:0,protocolDeployments:0,localKernelAccountsCreated:1,verified:["owner-signed WETH and native ETH input trading","owner-enrolled bounded native wrapping permission","agent-signed native ETH input swap in same Kernel account","owner management of agent-acquired holdings","native rejection of token/native transfer, wrapping overspend and changed output recipient","repeated bounded wrapping retains WETH ownership in the same user account","native rejection after grant expiry"],receipts,notProven:["native ETH swap output (not supported)","external bundler compatibility","public-network funded execution","Hyperliquid funded execution"]},null,2));
+  if(sponsored){
+    assert.equal(await client.readContract({address:paymaster!,abi:operatorPaymasterAbi,functionName:"getDeposit"}),initialDeposit-sponsorSpent);
+    assert.equal(await client.getBalance({address:owner.address}),0n);assert.equal(await client.getBalance({address:session.address}),0n);
+  }
+  console.log(JSON.stringify({scope:"isolated-sepolia-fork",forkBlock:forkBlock.toString(),publicNetworkWrites:0,protocolDeployments:0,localKernelAccountsCreated:1,...(sponsored?{localPaymasterDeployments:1,operatorPaymaster:paymaster,operatorDepositSpentWei:sponsorSpent.toString(),sponsorshipVerified:["owner and agent gas charged only to platform EntryPoint deposit","Solidity and TypeScript EIP712 hashes match","expired, future, wrong-chain, wrong-EntryPoint, invalid-signature, tampered gas/calldata and excessive-cost requests rejected","owner signer and agent signer hold zero ETH","paymaster administrative calls reject non-owner"]}:{}),verified:["owner-signed WETH and native ETH input trading","owner-enrolled bounded native wrapping permission","agent-signed native ETH input swap in same Kernel account","owner management of agent-acquired holdings","native rejection of token/native transfer, wrapping overspend and changed output recipient","repeated bounded wrapping retains WETH ownership in the same user account","native rejection after grant expiry"],receipts,notProven:["native ETH swap output (not supported)","external bundler compatibility","public-network funded execution","Hyperliquid funded execution"]},null,2));
 });
