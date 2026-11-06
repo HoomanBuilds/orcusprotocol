@@ -160,21 +160,21 @@ try {
     await click(".order-type-tabs button", "Limit"); await type("input[aria-label='Order amount']", "0.001"); await delay(2200);
     await click(".market-select"); await type("input[aria-label='Search markets']", "BTC"); await click(".market-options-list button"); await until("document.querySelector('.market-select strong')?.textContent==='BTC'", "BTC market"); await delay(2200);
   });
-  await shot("04-uniswap", 18, "Uniswap Sepolia | Swap inputs only | No quote or swap submitted", async () => {
+  await shot("04-uniswap", 14, "Uniswap Sepolia | Swap inputs only | No quote or swap submitted", async () => {
     await select("select[aria-label='Trading venue']", "uniswap"); await until("document.body.innerText.includes('Swap tokens')", "Uniswap swap controls"); await delay(2500); await click(".side-toggle button", "Sell"); await type("input[aria-label='Order amount']", "0.01"); await delay(2500);
   });
   await evaluate(`(()=>{const original=window.fetch.bind(window);window.__filmOriginalFetch=original;window.__filmResearchPlayback=true;window.fetch=async(input,options={})=>{const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;const response=await original(input,options);if(window.__filmResearchPlayback&&path==='/api/agent'&&(!options.method||options.method==='GET')){const body=await response.json();body.data.messages=${JSON.stringify(research[0].messages)};return new Response(JSON.stringify(body),{status:response.status,headers:{'Content-Type':'application/json'}})}return response}})()`);
   await nav("Agent"); await click("button[aria-label='Refresh accounts']"); await until("document.body.innerText.includes('Based on the Hyperliquid testnet observation')", "Recorded research restored");
   await evaluate("document.querySelector('.chat-scroll').scrollTop=0");
-  await shot("05-research", 25, "Recorded 0G research | Original testnet observations | Not a live generation", async () => {
-    await delay(2500); await click("button[aria-controls='agent-context']"); await delay(2800); await click("button[aria-label='Close agent context']");
-    await click(".agent-tool-activity summary"); await delay(2500); await scroll(".chat-scroll", 150);
-    await click(".chat-message.assistant .message-evidence summary"); await delay(1500); await scroll(".chat-scroll", 90); await delay(5000);
+  await shot("05-research", 14, "Recorded 0G research | Original testnet observations | Not a live generation", async () => {
+    await delay(1200); await click("button[aria-controls='agent-context']"); await delay(1400); await click("button[aria-label='Close agent context']");
+    await click(".agent-tool-activity summary"); await delay(1200); await scroll(".chat-scroll", 150);
+    await click(".chat-message.assistant .message-evidence summary"); await delay(900); await scroll(".chat-scroll", 90); await delay(3200);
     assert.ok(await evaluate("(()=>{const r=document.querySelector('.chat-message.assistant .agent-response').getBoundingClientRect(),s=document.querySelector('.chat-scroll').getBoundingClientRect();return r.top>=s.top&&r.bottom<=s.bottom})()"), "Recorded answer must remain completely readable.");
   });
   await evaluate("window.__filmResearchPlayback=false");
   await nav("Trade"); await select("select[aria-label='Trading venue']", "hyperliquid"); await nav("Automations");
-  await shot("06-strategy", 22, "Actual strategy review | Not activated | No trading authority granted", async () => {
+  await shot("06-strategy", 16, "Actual strategy review | Not activated | No trading authority granted", async () => {
     await click(".automation-starter.strategy");
     await until("!!document.querySelector('.automation-form')", "Rule form");
     await type("input[placeholder='My ETH rule']", "Bounded ETH entry");
@@ -193,7 +193,7 @@ try {
   assert.equal(queued.status, 202); assert.equal(queued.body.data.request.status, "queued");
   manifest.queueEvidence = { requestId: queued.body.data.request.id, status: "queued", paidInferencePerformed: false };
   await nav("Activity"); await click("button[aria-label='Refresh accounts']"); await until("document.body.innerText.includes('Agent instruction')", "Durable instruction history");
-  await shot("07-control-history", 20, "Saved local instruction: queued | No worker or paid inference | Owner controls", async () => {
+  await shot("07-control-history", 17, "Saved local instruction: queued | No worker or paid inference | Owner controls", async () => {
     await delay(3500); await nav("Agent"); await until("!!document.querySelector('button[aria-label=\"Pause agent\"]')", "Owner pause control"); await click("button[aria-label='Pause agent']"); await until("!!document.querySelector('button[aria-label=\"Resume agent\"]')", "Paused state");
     await click("button[aria-controls='agent-context']"); await delay(2000); await click(".agent-context-panel button", "Take over accounts"); await delay(2000);
   });
