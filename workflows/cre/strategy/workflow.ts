@@ -1,10 +1,12 @@
 import { ConsensusAggregationByFields, LATEST_BLOCK_NUMBER, blockNumber, bytesToBase64, bytesToHex, consensusIdenticalAggregation, consensusMedianAggregation, cre, encodeCallMsg, median, ok, protoBigIntToBigint, text, type HTTPSendRequester, type Runtime } from "@chainlink/cre-sdk";
-import { decodeFunctionResult, encodeFunctionData, erc20Abi, getAddress, parseUnits, zeroAddress } from "viem";
+import { decodeFunctionResult, encodeFunctionData, erc20Abi, getAddress, hexToBytes, parseUnits, zeroAddress } from "viem";
 import { z } from "zod";
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const decimal = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d+)?$/);
-const requestSchema = z.object({ accountId: z.string(), venue: z.enum(["uniswap", "hyperliquid"]), type: z.string(), symbol: z.string(), side: z.enum(["buy", "sell"]), amount: decimal }).passthrough();
+const requestSchema = z.object({ accountId: z.string(), venue: z.enum(["uniswap", "hyperliquid"]), type: z.string(), symbol: z.string(), side: z.enum(["buy", "sell"]), amount: decimal, nativeInput: z.boolean().optional() }).passthrough().superRefine((request, context) => {
+  if (request.nativeInput && (request.venue !== "uniswap" || request.type !== "swap" || request.side !== "sell" || request.symbol.toUpperCase() !== "WETH/USDC")) context.addIssue({ code: "custom", message: "Native ETH input requires a supported spot sell." });
+});
 export const configSchema = z.object({
   schedule: z.string(), evaluationId: z.string().min(1), automationId: z.string().min(1), accountId: z.string().min(1), accountAddress: address,
   chainId: z.number().int(), chainName: z.literal("ethereum-testnet-sepolia"), tokenAddress: address, tokenDecimals: z.number().int().min(0).max(36),
@@ -66,6 +68,7 @@ export function onCron(runtime: Runtime<Config>) {
   if (config.kind === "trade") {
     if (!proposal || !request) return finish("no-action", "No executable proposal was supplied.");
     for (const key of ["accountId", "venue", "type", "symbol", "side", "amount"] as const) if (proposal[key] !== request[key]) return finish("reject", "The proposal differs from the approved candidate.");
+    if ((proposal.nativeInput ?? false) !== (request.nativeInput ?? false)) return finish("reject", "The proposal changes the approved input asset.");
   } else if (config.condition.operator === "always") return finish("reject", "Alerts require an explicit price threshold.");
   const market = http.sendRequest(runtime, readMarket, ConsensusAggregationByFields<{ price: number; observedAt: number }>({ price: median, observedAt: median }))(config.marketUrl, now, config.condition.maxAgeSeconds).result();
   observations.marketPriceUsd = market.price;
@@ -80,13 +83,20 @@ export function onCron(runtime: Runtime<Config>) {
     const block = protoBigIntToBigint(header.blockNumber);
     const blockTime = Number(header.timestamp) * 1000;
     if (blockTime > now + 5_000 || now - blockTime > config.condition.maxAgeSeconds * 1000) return finish("reject", "The target-chain observation is stale.");
-    const result = evm.callContract(runtime, { call: encodeCallMsg({ from: zeroAddress, to: getAddress(config.tokenAddress), data: encodeFunctionData({ abi: erc20Abi, functionName: "balanceOf", args: [getAddress(config.accountAddress)] }) }), blockNumber: blockNumber(block) }).result();
-    const balance = decodeFunctionResult({ abi: erc20Abi, functionName: "balanceOf", data: bytesToHex(result.data) });
+    let balance: bigint;
+    if (request?.nativeInput) {
+      const result = evm.balanceAt(runtime, { account: bytesToBase64(hexToBytes(getAddress(config.accountAddress))), blockNumber: blockNumber(block) }).result();
+      if (!result.balance) return finish("reject", "The target chain returned no native ETH balance evidence.");
+      balance = protoBigIntToBigint(result.balance);
+    } else {
+      const result = evm.callContract(runtime, { call: encodeCallMsg({ from: zeroAddress, to: getAddress(config.tokenAddress), data: encodeFunctionData({ abi: erc20Abi, functionName: "balanceOf", args: [getAddress(config.accountAddress)] }) }), blockNumber: blockNumber(block) }).result();
+      balance = decodeFunctionResult({ abi: erc20Abi, functionName: "balanceOf", data: bytesToHex(result.data) });
+    }
     observations.blockNumber = block.toString();
     observations.blockObservedAt = blockTime;
     observations.inputBalanceAtoms = balance.toString();
-    observations.inputToken = config.tokenAddress;
-    if (config.kind === "trade" && (!config.amount || balance < parseUnits(config.amount, config.tokenDecimals))) return finish("reject", "The account lacks the approved input token balance.");
+    observations.inputToken = request?.nativeInput ? "ETH" : config.tokenAddress;
+    if (config.kind === "trade" && (!config.amount || balance < parseUnits(config.amount, request?.nativeInput ? 18 : config.tokenDecimals))) return finish("reject", "The account lacks the approved input asset balance.");
   } else {
     if (config.chainId !== 421614) return finish("reject", "The perpetual strategy is not bound to Hyperliquid testnet.");
     const collateral = http.sendRequest(runtime, readHyperliquidBalance, consensusMedianAggregation<number>())(config.accountAddress).result();

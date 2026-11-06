@@ -29,7 +29,7 @@ The parent process supplies CLI authentication but does not forward master signi
 
 ## Actual data flow
 
-- A Uniswap job reads the latest Sepolia header and the selected input token's balance at that block through CRE's EVM capability. It checks balance and observation freshness, then combines those observations with a real Coinbase price response through the HTTP capability.
+- A Uniswap job reads the latest Sepolia header and the selected input asset's balance at that block through CRE's EVM capability. Native ETH input uses `balanceAt`; ordinary WETH/USDC inputs use `balanceOf`. It checks balance and observation freshness, then combines those observations with a real Coinbase price response through the HTTP capability. A proposal cannot silently substitute ETH for WETH or the reverse.
 - A Hyperliquid job reads the actual testnet `clearinghouseState` via CRE HTTP. It does not pretend a Sepolia token balance is Hyperliquid collateral. The Uniswap path is the EVM-plus-external-data sponsor demonstration.
 - The worker supplies its deduplicated 0G proposal and request ID as bounded evaluation input. If a separate proposal URL is configured, the workflow requests it with the secret `ORCUS_CRE_PROPOSAL_TOKEN` and checks the returned evaluation/request IDs. Configure the secret through CRE before using that optional path; do not put its value in JSON or committed YAML.
 - Results are `allow`, `reject` or `no-action`, with account, policy, control revision, evaluation ID, expiry and observation evidence. A CRE allow is not wallet authorization. The application rechecks current permissions, risk limits, account state and idempotency before protected signing.
@@ -38,5 +38,7 @@ The parent process supplies CLI authentication but does not forward master signi
 ## Current verification
 
 The workflow passed TypeScript checking and the official WASM build without skipped typechecks. Live CLI initialization/simulation was blocked by missing CRE authentication in the implementation environment. No successful simulation, hosted deployment, fee entitlement or real trade is claimed until separately demonstrated with authorized test accounts.
+
+After installing the workflow dependencies above, `npm run test:cre` from the repository root runs native-input branch tests with explicit capability fixtures. These check native versus token balance selection, missing/insufficient balance and proposal asset changes. Fixture results are not presented as a live CRE simulation.
 
 The CLI is invoked with production-default limits. The demo needs reachable API/RPC services and sufficient account access. The runner must stay running for conditional automation; stopping it pauses those jobs, while owner controls and venue-native protective orders stay separate.

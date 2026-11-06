@@ -15,7 +15,8 @@
     "verify:uniswap-fork": "node --env-file-if-exists=.env --import tsx scripts/verify-uniswap-fork.ts",
     "verify:kernel-fork": "node --env-file-if-exists=.env --import tsx scripts/verify-kernel-fork.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "test:cre": "vitest run workflows/cre/strategy/workflow.test.ts"
   },
   "engines": { "node": ">=22.16.0" },
   "devDependencies": {
