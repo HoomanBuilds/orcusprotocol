@@ -57,12 +57,22 @@ const safeErrors: Record<string, string> = {
   SPONSORSHIP_UNCONFIGURED: "Gas sponsorship is not configured. This action is disabled; owner-paid gas will not be used instead.",
   SPONSORSHIP_REJECTED: "Gas sponsorship was declined. No owner-paid fallback was attempted. Review the sponsor limits before retrying.",
   SPONSORSHIP_UNAVAILABLE: "The platform gas sponsor could not approve this request. Refresh readiness; no owner-paid fallback was attempted.",
-  SPONSORSHIP_USER_CAP: "Your sponsored gas allowance is exhausted. Wait for its reset or contact the operator; owner-paid gas will not be used instead.",
-  SPONSORSHIP_PROJECT_CAP: "The platform gas budget is exhausted. Try again later; owner-paid gas will not be used instead.",
+  SPONSORSHIP_USER_CAP: "Your platform gas allowance is exhausted or reserved. Reconcile existing activity or wait for its reset; owner-paid gas will not be used instead.",
+  SPONSORSHIP_PROJECT_CAP: "The shared platform gas allowance is exhausted or reserved. Check existing activity or try later; owner-paid gas will not be used instead.",
+  SPONSORSHIP_CONFIG_INVALID: "Platform gas coverage is temporarily unavailable. Wait for readiness to recover; no owner-paid fallback was attempted.",
+  SPONSORSHIP_ALREADY_SUBMITTED: "This operation was already submitted or finalized. Check its existing activity record; do not send a replacement.",
+  SPONSORSHIP_RECEIPT_PENDING: "The operation receipt is not available yet and its gas allowance remains reserved. Reconcile the existing operation; do not submit it again.",
   SPONSORSHIP_ACTION_STALE: "The sponsored action expired or changed. Refresh the account and prepare a new quote.",
   SPONSORSHIP_CALL_MISMATCH: "The requested account calls do not match the approved action. Nothing new was authorized; prepare a fresh quote.",
   SPONSORSHIP_ACCOUNT_MISMATCH: "Gas sponsorship is not approved for this trading account. Refresh and select the correct owner account.",
   SPONSORSHIP_GRANT_MISMATCH: "The sponsored operation does not match the account's current agent grant. Refresh permissions before trying again.",
+  SPONSORSHIP_AUTHORITY_CHANGED: "Agent authority changed before gas approval. Refresh account permissions before preparing a new action.",
+  SPONSORSHIP_SCOPE_REQUIRED: "Gas coverage requires a reviewed trade or an explicit account-permission recovery action.",
+  SPONSORSHIP_OWNER_MISMATCH: "The trading account does not match the signed-in owner. Reconnect its owner and refresh.",
+  SPONSORSHIP_FACTORY_MISMATCH: "The trading account deployment could not be verified. Refresh its setup before requesting gas coverage.",
+  SPONSORSHIP_ENTRYPOINT_MISMATCH: "This smart-account operation is not supported on the configured testnet. Refresh its account setup.",
+  SPONSORSHIP_SIGNATURE_REQUIRED: "Review and sign the exact sponsored operation in your owner wallet before submitting it.",
+  SPONSORSHIP_HASH_INVALID: "The signed operation identity could not be verified. Check existing activity before trying another action.",
   SPONSORSHIP_REQUIRED: "This action requires gas sponsorship. Refresh sponsor readiness before signing.",
   AUTH_REQUIRED: "Your session expired. Sign in with your owner wallet again.",
   AGENT_NOT_APPROVED: "Approve a scoped agent permission for this trading account first.",
@@ -97,6 +107,7 @@ export function displayError(error: unknown): string {
   if (nodes.some(node => node.phase === "submitted-unknown" || node.code === "SUBMISSION_UNKNOWN")) return safeErrors.SUBMISSION_UNKNOWN!;
   if (nodes.some(node => node.code === 4001 || node.code === "ACTION_REJECTED" || node.code === "OWNER_REJECTED" || /user rejected|user denied/i.test(node.message ?? ""))) return "Cancelled in your wallet. Nothing new was submitted.";
   for (const node of nodes) if (typeof node.code === "string" && Object.hasOwn(safeErrors, node.code)) return safeErrors[node.code]!;
+  if (nodes.some(node => typeof node.code === "string" && node.code.startsWith("SPONSORSHIP_"))) return "Trading gas approval could not be verified. Check existing activity and platform readiness; no owner-paid fallback was attempted.";
   if (nodes.some(node => node.status === 401 || node.code === 4100)) return safeErrors.AUTH_REQUIRED!;
   if (nodes.some(node => node.code === -32002)) return "A wallet request is already open. Confirm or dismiss it in your wallet.";
   if (nodes.some(node => node.code === 4902 || node.code === 4901)) return safeErrors.NETWORK_CHANGED!;

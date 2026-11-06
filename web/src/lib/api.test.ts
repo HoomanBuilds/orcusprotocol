@@ -21,6 +21,22 @@ describe("safe actionable wallet and API errors", () => {
     expect(displayError({ code, message: "private provider diagnostics" })).toMatch(/owner-paid/);
     expect(displayError({ code, message: "private provider diagnostics" })).not.toContain("diagnostics");
   });
+  it.each(["SPONSORSHIP_ALREADY_SUBMITTED", "SPONSORSHIP_RECEIPT_PENDING"]) ("keeps recovery monotonic for %s", code => {
+    expect(displayError({ code, message: "private provider details" })).toMatch(/existing/);
+    expect(displayError({ code })).toMatch(/do not (?:send|submit)/);
+    expect(displayError({ code, phase: "submitted-unknown", cause: { code: 4001 } })).toMatch(/do not submit a replacement/);
+  });
+  it.each(["SPONSORSHIP_USER_CAP", "SPONSORSHIP_PROJECT_CAP"]) ("directs %s to reconciliation or waiting, not buying compute tokens", code => {
+    const message = displayError({ code });
+    expect(message).toMatch(/activity/);
+    expect(message).not.toMatch(/0G|buy|provider/);
+  });
+  it("handles platform configuration and unknown sponsor codes without leaking or asking the customer to configure a provider", () => {
+    expect(displayError({ code: "SPONSORSHIP_CONFIG_INVALID" })).toMatch(/Platform gas coverage/);
+    const message = displayError({ code: "SPONSORSHIP_NEW_UPSTREAM_ERROR", message: "provider credential not-public" });
+    expect(message).toMatch(/platform readiness/);
+    expect(message).not.toMatch(/credential|not-public|0G|configure/);
+  });
   it("uses safe code-based instructions without reflecting provider messages, credentials, or raw revert data", () => {
     const secret = `Bearer ${"not-a-real-token".repeat(30)}`;
     const raw = new ApiError("VENUE_REJECTED", `${secret} https://rpc.example/key 0xdeadbeef`, 400);
