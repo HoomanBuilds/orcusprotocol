@@ -116,7 +116,7 @@ try {
   const nav = async name => { const path = name === "Overview" ? "/" : `/${name.toLowerCase()}`; await click(`.primary-nav a[href='${path}']`); await until(`location.pathname===${JSON.stringify(path)}`, name); await delay(700); };
   const api = async (path, body) => evaluate(`fetch(${JSON.stringify(path)},{method:${body ? "'POST'" : "'GET'"},headers:{'Content-Type':'application/json'},${body ? `body:${JSON.stringify(JSON.stringify(body))},` : ""}credentials:'same-origin'}).then(async r=>({status:r.status,body:await r.json()}))`);
   const shot = async (id, seconds, label, actions) => {
-    if (overviewOnly) { await actions(); return; }
+    if (overviewOnly) { await overlay(); await actions(); return; }
     if (stopping) throw new Error("Capture stopped between shots; completed clips are preserved.");
     await overlay(label); await delay(350);
     const path = join(directory, id); mkdirSync(path);
