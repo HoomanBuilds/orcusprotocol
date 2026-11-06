@@ -256,7 +256,7 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
       ) : (
         <div className="automation-list">
           {w.automations.map((job) => (
-            <article className="automation-card" key={job.id}>
+            <article className="automation-card" key={job.id} id={job.id}>
               <div className="automation-top">
                 <span className="automation-icon">
                   <GitBranch size={18} />

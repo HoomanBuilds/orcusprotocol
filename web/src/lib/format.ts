@@ -32,3 +32,12 @@ export function tokenUnits(value: string | undefined, decimals: number, symbol: 
   const digits = amount < 1 ? 6 : amount < 1000 ? 4 : 2;
   return `${amount.toLocaleString("en-US", { maximumFractionDigits: digits })} ${symbol}`;
 }
+
+export function assetAmount(value: string | undefined, symbol: string): string {
+  if (value === undefined || !/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return `Unavailable ${symbol}`;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return `Unavailable ${symbol}`;
+  if (parsed === 0) return `0 ${symbol}`;
+  if (Math.abs(parsed) < 0.0001) return `${parsed < 0 ? ">-" : "<"}0.0001 ${symbol}`;
+  return `${parsed.toLocaleString("en-US", { maximumFractionDigits: Math.abs(parsed) < 1 ? 6 : Math.abs(parsed) < 1000 ? 4 : 2 })} ${symbol}`;
+}

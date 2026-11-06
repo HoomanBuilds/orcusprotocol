@@ -13,6 +13,7 @@ import { number, usd } from "@/lib/format";
 import { displayError } from "@/lib/api";
 import { tradingGasStatus } from "@/lib/trade-ux";
 import { Address, Field, InlineError, Spinner } from "./primitives";
+import { AssetIcon } from "../workspace/asset-icon";
 
 export function OrderTicket({
   workspace: w,
@@ -175,7 +176,7 @@ export function OrderTicket({
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
           />
-          <span>{inputAsset}</span>
+          <span><AssetIcon symbol={inputAsset} size={22}/>{inputAsset}</span>
         </div>
       </Field>
       {!spot && orderType !== "market" && (

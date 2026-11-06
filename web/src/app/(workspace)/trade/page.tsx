@@ -1,5 +1,5 @@
 import { Terminal } from "@/components/trading/terminal";
 
-export default function Home() {
-  return <Terminal />;
+export default function TradePage() {
+  return <Terminal/>;
 }

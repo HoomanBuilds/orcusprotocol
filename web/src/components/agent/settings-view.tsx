@@ -26,7 +26,9 @@ import {
   fundOperatingWallet,
 } from "@/lib/wallets";
 import { tokenUnits, usd } from "@/lib/format";
-import { fundingRecovery, tradingGasStatus, withFundingRecoveryIntent } from "@/lib/trade-ux";
+import { tradingGasStatus, withFundingRecoveryIntent } from "@/lib/trade-ux";
+import { clearDepositRecovery, depositRecoveryKey, readDepositRecovery } from "@/lib/deposit-recovery";
+import { ProtocolIcon } from "../workspace/asset-icon";
 import { MemoryControls } from "./memory-controls";
 import { ComputeFundingPanel } from "./compute-funding-panel";
 import { ServicePaymentPanel } from "./service-payment-panel";
@@ -80,7 +82,7 @@ function AccountCard({
   const spot = account.venue === "uniswap";
   const disabledPermissions = (w.agentData?.permissions ?? []).filter(item => item.accountId === account.id && item.status === "revoked" && item.expiresAt > Date.now()) as Permission[];
   const gas = tradingGasStatus(w.walletConfig, account.venue);
-  const fundingRecoveryKey = `orcus:trading-deposit:${account.ownerAddress}:${account.id}`;
+  const fundingRecoveryKey = depositRecoveryKey(account.ownerAddress, account.id);
   const currentFundingKey = useRef(fundingRecoveryKey);
   currentFundingKey.current = fundingRecoveryKey;
   const fundingLoaded = loadedFundingKey === fundingRecoveryKey;
@@ -89,13 +91,13 @@ function AccountCard({
   useEffect(() => {
     setLoadedFundingKey(null); setFundingHash(null); setFundingState(null); setFundingChecked(false);
     try {
-      const saved = fundingRecovery(JSON.parse(sessionStorage.getItem(fundingRecoveryKey) ?? "null"));
+      const saved = readDepositRecovery(localStorage, sessionStorage, account.ownerAddress, account.id);
       if (saved) { setFundingHash(saved.transactionHash ?? null); setFundingState(saved.status); }
     } catch {}
     setLoadedFundingKey(fundingRecoveryKey);
   }, [fundingRecoveryKey]);
   function saveFundingRecovery(status: "confirmed" | "unknown" | "reverted", transactionHash?: string) {
-    try { sessionStorage.setItem(fundingRecoveryKey, JSON.stringify({ status, ...(transactionHash ? { transactionHash } : {}) })); } catch {}
+    try { localStorage.setItem(fundingRecoveryKey, JSON.stringify({ status, ...(transactionHash ? { transactionHash } : {}) })); } catch {}
   }
 
   async function prepare() {
@@ -137,7 +139,7 @@ function AccountCard({
     setFundingState(null); setFundingChecked(false);
     try {
       setFundingState("unknown");
-      const recoveryStorage = { getItem: (key: string) => sessionStorage.getItem(key), setItem: (key: string, value: string) => sessionStorage.setItem(key, value) };
+      const recoveryStorage = { getItem: (key: string) => localStorage.getItem(key), setItem: (key: string, value: string) => localStorage.setItem(key, value) };
       const result = await withFundingRecoveryIntent(recoveryStorage, fundingRecoveryKey, () => fundTradingAccount({ account, asset: fundingAsset, amount: fundingAmount }));
       saveFundingRecovery("confirmed", result.transactionHash);
       if (currentFundingKey.current !== fundingRecoveryKey) return;
@@ -150,7 +152,7 @@ function AccountCard({
       const phase = cause && typeof cause === "object" && "phase" in cause ? cause.phase : undefined;
       const transactionHash = cause && typeof cause === "object" && "evidence" in cause && cause.evidence && typeof cause.evidence === "object" && "transactionHash" in cause.evidence && typeof cause.evidence.transactionHash === "string" ? cause.evidence.transactionHash : undefined;
       if (phase === "not-submitted") {
-        try { sessionStorage.removeItem(fundingRecoveryKey); } catch {}
+        clearDepositRecovery(localStorage, sessionStorage, account.ownerAddress, account.id);
       } else saveFundingRecovery(phase === "reverted" && transactionHash ? "reverted" : "unknown", transactionHash);
       if (currentFundingKey.current !== fundingRecoveryKey) return;
       if (cause && typeof cause === "object" && "evidence" in cause) {
@@ -277,9 +279,7 @@ function AccountCard({
   return (
     <article className="settings-card account-card">
       <div className="card-heading">
-        <span className={`venue-icon ${spot ? "uni" : "hyper"}`}>
-          {spot ? "U" : "H"}
-        </span>
+        <ProtocolIcon name={account.venue} size={36}/>
         <div>
           <h2>{spot ? "Uniswap" : "Hyperliquid"}</h2>
           <p>
@@ -339,7 +339,7 @@ function AccountCard({
           <button className="button secondary small" type="button" disabled={!!busy || !fundingLoaded || !!fundingHash || fundingState === "unknown" || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(fundingAmount) || Number(fundingAmount) <= 0} onClick={() => void fund()}>
             {busy === "fund" ? <><Spinner />Confirm transfer and await receipt</> : <><Wallet size={13} />Review transfer in owner wallet</>}
           </button>
-          {(fundingHash || fundingState === "unknown") && <div className="warning-note"><p>{fundingState === "confirmed" ? "Deposit confirmed in the trading account." : fundingState === "reverted" ? "The transfer reverted. Check its receipt before another attempt." : "The transfer result is uncertain. Check this same transaction or your wallet history before sending more funds."}</p>{fundingHash && <a className="text-link" href={`https://sepolia.etherscan.io/tx/${fundingHash}`} target="_blank" rel="noreferrer">Inspect funding transaction<ExternalLink size={12} /></a>}{fundingState === "unknown" && <label className="checkbox"><input type="checkbox" checked={fundingChecked} onChange={event => setFundingChecked(event.target.checked)} />I checked the final receipt or wallet history and understand a second transfer is a separate deposit.</label>}<button className="button secondary small" type="button" disabled={!!busy || fundingState === "unknown" && !fundingChecked} onClick={() => { setFundingHash(null); setFundingState(null); setFundingChecked(false); try { sessionStorage.removeItem(fundingRecoveryKey); } catch {} }}>Enter a separate new deposit</button></div>}
+          {(fundingHash || fundingState === "unknown") && <div className="warning-note"><p>{fundingState === "confirmed" ? "Deposit confirmed in the trading account." : fundingState === "reverted" ? "The transfer reverted. Check its receipt before another attempt." : "The transfer result is uncertain. Check this same transaction or your wallet history before sending more funds."}</p>{fundingHash && <a className="text-link" href={`https://sepolia.etherscan.io/tx/${fundingHash}`} target="_blank" rel="noreferrer">Inspect funding transaction<ExternalLink size={12} /></a>}{fundingState === "unknown" && <label className="checkbox"><input type="checkbox" checked={fundingChecked} onChange={event => setFundingChecked(event.target.checked)} />I checked the final receipt or wallet history and understand a second transfer is a separate deposit.</label>}<button className="button secondary small" type="button" disabled={!!busy || fundingState === "unknown" && !fundingChecked} onClick={() => { setFundingHash(null); setFundingState(null); setFundingChecked(false); clearDepositRecovery(localStorage, sessionStorage, account.ownerAddress, account.id); void w.refresh(); }}>Enter a separate new deposit</button></div>}
         </details>
       )}
       {pendingPolicy && (
@@ -522,7 +522,9 @@ function AccountCard({
   );
 }
 
-export function SettingsView({ workspace: w }: { workspace: Workspace }) {
+export type SettingsSection = "accounts" | "budget" | "agent" | "services";
+
+export function SettingsView({ workspace: w, section = "accounts" }: { workspace: Workspace; section?: SettingsSection }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cap, setCap] = useState("");
@@ -679,18 +681,18 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
 
   return (
     <section className="workspace-page settings-page">
-      <div className="page-heading">
+      <div className="page-heading settings-content-heading">
         <div>
           <span className="eyebrow">OWNERSHIP BEFORE AUTOMATION</span>
-          <h1>Accounts & agent controls</h1>
+          <h2>{{ accounts: "Trading accounts", budget: "Operating budget", agent: "Agent preferences & memory", services: "Service status" }[section]}</h2>
           <p>
-            Connect an owner wallet, deposit trading assets, then trade yourself or grant limited agent access. No owner private key is shared.
+            {{ accounts: "Trade yourself or grant limited access to the same accounts. Your owner private key is never shared.", budget: "Trading capital, application expense limits, service credits and native 0G are separate balances.", agent: "Control how your agent works and what it remembers. Preferences never grant trading authority.", services: "Inspect configuration and availability before relying on an integration." }[section]}
           </p>
         </div>
         <ShieldCheck size={22} />
       </div>
       <InlineError message={error} onDismiss={() => setError(null)} />
-      {!w.session.user ? (
+      {!w.session.user && section !== "services" ? (
         <Empty
           title="Your wallet is the owner"
           action={
@@ -707,8 +709,9 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
         >
           Sign in to add your trading accounts and review delegated access. Normal trading does not require 0G or a separate compute deposit.
         </Empty>
-      ) : (
+      ) : w.session.user ? (
         <>
+          {section === "accounts" && <>
           <div className="settings-section-heading">
             <div>
               <h2>Trading accounts</h2>
@@ -760,7 +763,9 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
               </div>
             )}
           </div>
-          <div className="settings-grid secondary-settings">
+          </>}
+          {(section === "budget" || section === "agent") && <div className="settings-grid secondary-settings">
+            {section === "budget" && <>
             <article className="settings-card">
               <div className="card-heading">
                 <Wallet size={20} />
@@ -847,7 +852,8 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
             </article>
             {w.session.user && <ServicePaymentPanel key={`service:${w.session.user.address.toLowerCase()}`} owner={w.session.user.address} onRefresh={w.refresh} />}
             {w.session.user && <details className="technical-limits"><summary>Advanced: native compute-account funding</summary><p className="fine-print">Optional operator integration controls, not a requirement for using agent inference. A service-payment checkout is separate from these native deposits.</p><ComputeFundingPanel key={w.session.user.id} onRefresh={w.refresh} /></details>}
-            <article className="settings-card">
+            </>}
+            {section === "agent" && <article className="settings-card">
               <div className="card-heading">
                 <ShieldCheck size={20} />
                 <div>
@@ -911,11 +917,11 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
                   Take over accounts
                 </button>
               </div>
-            </article>
-          </div>
+            </article>}
+          </div>}
         </>
-      )}
-      {w.session.user && (
+      ) : null}
+      {w.session.user && section === "agent" && (
         <section className="settings-card service-status">
           <div className="card-heading">
             <Database size={19} />
@@ -965,7 +971,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
           <MemoryControls key={w.session.user.id} userId={w.session.user.id} />
         </section>
       )}
-      <section className="service-status settings-card">
+      {section === "services" && <section className="service-status settings-card">
         <div className="card-heading">
           <Database size={19} />
           <div>
@@ -1006,7 +1012,7 @@ export function SettingsView({ workspace: w }: { workspace: Workspace }) {
           hosted DON execution. Public swaps and positions remain public. Manual
           owner exits do not depend on inference or the CRE runner.
         </p>
-      </section>
+      </section>}
     </section>
   );
 }

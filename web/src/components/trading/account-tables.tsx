@@ -4,7 +4,8 @@ import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { ActionRecord, Position, TradeRequest } from "@orcus/core";
 import type { Workspace } from "@/lib/use-workspace";
-import { number, time, usd } from "@/lib/format";
+import { assetAmount, number, time, usd } from "@/lib/format";
+import { AssetIcon } from "../workspace/asset-icon";
 import { actionRecovery } from "@/lib/trade-ux";
 import { displayError } from "@/lib/api";
 import { Badge, Empty, InlineError, Spinner, Status } from "./primitives";
@@ -46,7 +47,7 @@ function PositionRow({
     <>
       <tr>
         <td>
-          <strong>{position.symbol}</strong>
+          <span className="table-asset-label"><AssetIcon symbol={position.symbol} size={25}/><strong>{position.symbol}</strong></span>
           <small>Hyperliquid perpetual</small>
         </td>
         <td>
@@ -322,7 +323,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
                 {orders.map((order) => (
                   <tr key={order.id}>
                     <td>
-                      <strong>{order.symbol}</strong>
+                      <span className="table-asset-label"><AssetIcon symbol={order.symbol} size={25}/><strong>{order.symbol}</strong></span>
                     </td>
                     <td>{order.type}</td>
                     <td
@@ -384,15 +385,15 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
                 {w.portfolio.balances.map((balance) => (
                   <tr key={`${balance.accountId}:${balance.symbol}`}>
                     <td>
-                      <strong>{balance.symbol}</strong>
+                      <span className="table-asset-label"><AssetIcon symbol={balance.symbol} size={25}/><strong>{balance.symbol}</strong></span>
                     </td>
                     <td>
                       {w.session.accounts.find(
                         (account) => account.id === balance.accountId,
                       )?.venue ?? "Trading account"}
                     </td>
-                    <td>{number(balance.amount, 6)}</td>
-                    <td>{usd(balance.usdValue)}</td>
+                    <td>{assetAmount(balance.amount, balance.symbol)}</td>
+                    <td>{balance.usdValue === undefined ? "Unavailable" : `${usd(balance.usdValue)} testnet`}</td>
                     <td>
                       <Badge>{w.session.accounts.find(account => account.id === balance.accountId)?.venue === "hyperliquid" ? "Perpetual collateral" : "Spot holding"}</Badge>
                     </td>

@@ -1,0 +1,74 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Activity, ArrowUpRight, Bot, Check, ChevronRight, Clock3, ExternalLink, FileText, Search, Wallet, X } from "lucide-react";
+import { useWorkspace, type Workspace } from "@/lib/use-workspace";
+import { actionReviewIssue, activityEntries, activityTime, filterActivity, type ActivityEntry } from "@/lib/workspace-model";
+import { actionRecovery } from "@/lib/trade-ux";
+import { assetAmount, statusLabel, tokenUnits, usd } from "@/lib/format";
+import { Badge, Empty, InlineError, Spinner, Status } from "../trading/primitives";
+
+function EntryIcon({ entry }: { entry: ActivityEntry }) {
+  const Icon = entry.kind === "agent" ? Bot : entry.kind === "funding" ? Wallet : entry.kind === "expense" ? FileText : Activity;
+  return <span className={`activity-entry-icon ${entry.kind}`}><Icon size={19}/></span>;
+}
+
+function EvidenceLink({ hash, native = false }: { hash?: string; native?: boolean }) {
+  if (!hash || !/^0x[\da-f]{64}$/i.test(hash)) return <span className="muted">No transaction receipt recorded</span>;
+  return <a className="activity-evidence-link" href={`${native ? "https://chainscan-galileo.0g.ai" : "https://sepolia.etherscan.io"}/tx/${hash}`} target="_blank" rel="noreferrer"><code>{hash}</code><ExternalLink size={14}/></a>;
+}
+
+function ActivityDetail({ entry, workspace: w, onClose }: { entry: ActivityEntry; workspace: Workspace; onClose: () => void }) {
+  const action = entry.action;
+  const request = entry.request;
+  const linkedRequest = action ? w.requests.find(item => item.actionId === action.id || item.response?.actionId === action.id) : undefined;
+  const linkedMessage = action ? w.agentData?.messages.find(item => item.actionId === action.id) : undefined;
+  const linkedAction = request?.actionId ? w.actions.find(item => item.id === request.actionId) : undefined;
+  const issue = action ? actionReviewIssue(action, w.session.user?.id, w.session.accounts) : null;
+  const ownerAccount = w.session.accounts.find(item => item.id === (action?.accountId ?? request?.accountId ?? entry.deposit?.accountId));
+  return <aside className="workspace-panel activity-detail" aria-label="Activity details">
+    <div className="activity-detail-top"><span className="panel-kicker">ACTIVITY DETAILS</span><button className="icon-button" type="button" onClick={onClose} aria-label="Close activity details"><X size={18}/></button></div>
+    <EntryIcon entry={entry}/><h2>{entry.title}</h2><Status value={entry.status}/><p className="activity-detail-description">{entry.description}</p>
+    <dl className="activity-facts"><div><dt>Recorded</dt><dd>{activityTime(entry.createdAt)}</dd></div><div><dt>Initiated by</dt><dd>{statusLabel(entry.initiator)}</dd></div><div><dt>Record ID</dt><dd><code>{entry.id.split(":").slice(1).join(":")}</code></dd></div>{ownerAccount && <div><dt>Trading account</dt><dd>{ownerAccount.venue === "uniswap" ? "Uniswap Sepolia" : "Hyperliquid testnet"}<code>{ownerAccount.id}</code></dd></div>}</dl>
+    {action && <>
+      <div className="activity-detail-section"><h3>Trade instruction</h3><dl className="activity-facts"><div><dt>Order</dt><dd>{statusLabel(action.request.type)} / {action.request.side}</dd></div><div><dt>Amount</dt><dd>{assetAmount(action.request.amount, action.request.symbol)}</dd></div>{action.request.price && <div><dt>Limit price</dt><dd>{usd(action.request.price)}</dd></div>}{action.request.triggerPrice && <div><dt>Trigger price</dt><dd>{usd(action.request.triggerPrice)}</dd></div>}<div><dt>Venue</dt><dd>{action.request.venue === "uniswap" ? "Uniswap / Ethereum Sepolia" : "Hyperliquid testnet"}</dd></div></dl></div>
+      {(linkedRequest || linkedMessage) && <div className="activity-detail-section"><h3>Agent relationship</h3><p>{linkedRequest?.message ?? "The recorded conversation links to this action."}</p>{linkedRequest && <><span className="panel-kicker">RUN ID</span><code className="detail-code">{linkedRequest.runId}</code><Link className="text-link" href={`/activity?item=${encodeURIComponent(`request:${linkedRequest.id}`)}`}>View instruction record<ChevronRight size={14}/></Link></>}<Link className="text-link" href="/agent">Open saved conversation<ArrowUpRight size={14}/></Link></div>}
+      <div className="activity-detail-section"><h3>Execution evidence</h3><EvidenceLink hash={action.transactionHash}/>{action.orderId && <p>Venue order <code>{action.orderId}</code></p>}{action.userOperationHash && <p>Signed operation <code className="detail-code">{action.userOperationHash}</code></p>}{action.providerRequestId && <p>Provider request <code className="detail-code">{action.providerRequestId}</code></p>}{action.error && <InlineError message={action.error}/>}</div>
+      {["prepared", "awaiting-approval"].includes(action.status) ? <div className="activity-recovery"><h3>Continue this review</h3><p>{issue ?? "Review the saved, unexpired quote. Confirmation still requires an explicit owner action."}</p><button className="button primary full" type="button" disabled={Boolean(issue) || w.executing} onClick={() => w.reviewAction(action)}>Review saved action<ArrowUpRight size={15}/></button>{issue && <Link className="text-link" href="/trade">Prepare a fresh quote on Trade<ArrowUpRight size={14}/></Link>}</div> : entry.pending && <div className="activity-recovery"><h3>Check, do not replay</h3><p>{actionRecovery(action.status) ?? "The saved action is still resolving. Check the same record before making another trade."}</p><button className="button secondary full" type="button" disabled={w.refreshing} onClick={() => void w.refresh()}>{w.refreshing ? <Spinner/> : <Clock3 size={16}/>}Check existing action status</button></div>}
+    </>}
+    {request && <>
+      <div className="activity-detail-section"><h3>Original instruction</h3><p className="activity-instruction">{request.message}</p><dl className="activity-facts"><div><dt>Request ID</dt><dd><code>{request.requestId}</code></dd></div><div><dt>Run ID</dt><dd><code>{request.runId}</code></dd></div><div><dt>Execution mode</dt><dd>{request.autonomous ? "Within granted limits" : "Approval required"}</dd></div>{request.stage && <div><dt>Latest stage</dt><dd>{statusLabel(request.stage)}</dd></div>}{request.modelCalls !== undefined && <div><dt>Recorded model calls</dt><dd>{request.modelCalls}</dd></div>}{request.toolCalls !== undefined && <div><dt>Recorded tool calls</dt><dd>{request.toolCalls}</dd></div>}</dl>{request.error && <InlineError message={request.error}/>}</div>
+      {request.response && <div className="activity-detail-section"><h3>Saved response</h3><p className="activity-instruction">{request.response.content}</p></div>}
+      {linkedAction && <Link className="activity-related-link" href={`/activity?item=${encodeURIComponent(`action:${linkedAction.id}`)}`}><Activity size={17}/><span>Linked trade action</span><Status value={linkedAction.status}/><ChevronRight size={14}/></Link>}
+      <div className="activity-recovery"><p>{request.status === "queued" ? "Accepted and saved. The worker must be available to process it. Leaving this page does not cancel or resend it." : request.status === "running" ? "The worker is processing this saved instruction. Returning here only checks progress." : request.status === "interrupted" ? "The previous worker stopped before completion. This instruction is not automatically replayed. Inspect its saved evidence before issuing a new one." : "This is the saved outcome, not a newly executed instruction."}</p><Link className="button secondary full" href="/agent">Open agent workspace<ArrowUpRight size={15}/></Link></div>
+    </>}
+    {(entry.payment || entry.funding || entry.deposit) && <>
+      <div className="activity-detail-section"><h3>Funding evidence</h3>{entry.payment && <p>{usd(entry.payment.amountUsd)} testnet service credits. These are not trading collateral or earned revenue.</p>}{entry.funding && <p>{tokenUnits(entry.funding.amountWei, 18, "0G")} native compute deposit. Onchain confirmation does not by itself prove provider credit.</p>}{entry.deposit && <p>This browser saved only the owner/account-bound transfer status and optional hash. A missing hash is not confirmation. No transfer is repeated when you return.</p>}<EvidenceLink hash={entry.payment?.transactionHash ?? entry.funding?.transactionHash ?? entry.deposit?.transactionHash} native={Boolean(entry.funding)}/></div>
+      <div className="activity-recovery"><p>Continue with the existing funding record. A separate deposit requires a new explicit wallet approval.</p><Link className="button secondary full" href={`/settings?section=${entry.deposit ? "accounts" : "budget"}`}>Review funding controls<ArrowUpRight size={15}/></Link></div>
+    </>}
+    {(entry.expense || entry.nativeExpense) && <div className="activity-detail-section"><h3>Operating cost evidence</h3>{entry.expense && <><p>{usd(entry.expense.amountUsd)} recorded allowance cost. A reserved or unresolved amount is not a final charge.</p><code className="detail-code">{entry.expense.reference}</code></>}{entry.nativeExpense && <><p>Gas: {tokenUnits(entry.nativeExpense.gasPaidWei, 18, "0G")}<br/>Storage: {tokenUnits(entry.nativeExpense.storageFeeWei, 18, "0G")}</p><EvidenceLink hash={entry.nativeExpense.transactionHash} native/></>}<Link className="text-link" href={`/settings?section=${entry.nativeExpense ? "agent" : "budget"}`}>Review receipt controls<ArrowUpRight size={14}/></Link></div>}
+  </aside>;
+}
+
+export function ActivityWorkspace() {
+  const w = useWorkspace();
+  const params = useSearchParams();
+  const router = useRouter();
+  const entries = w.session.user ? activityEntries({ actions: w.actions, requests: w.requests, budget: w.budget, payments: w.payments, funding: w.funding, deposits: w.tradingDeposits }) : [];
+  const filter = { kind: params.get("kind") ?? "all", status: params.get("status") ?? "all", initiator: params.get("initiator") ?? "all", query: params.get("q") ?? "" };
+  const filtered = filterActivity(entries, filter);
+  const selected = entries.find(entry => entry.id === params.get("item"));
+  const pending = entries.filter(entry => entry.pending).length;
+  const statuses = [...new Set(entries.map(entry => entry.status))].sort();
+  const update = (key: string, value: string, replace = false) => { const next = new URLSearchParams(params); if (!value || value === "all") next.delete(key); else next.set(key, value); const href = `/activity${next.size ? `?${next}` : ""}`; if (replace) router.replace(href, { scroll: false }); else router.push(href, { scroll: false }); };
+  const unavailable = ["activity", "requests", "budget", "payments", "funding"].filter(key => w.resourceErrors[key]);
+  return <div className="activity-page">
+    <div className="workspace-page-header"><div><span className="workspace-eyebrow">EVERY ACTION, ONE RECORD</span><h1>Activity</h1><p>Follow instructions, approvals and actual execution outcomes.</p></div><button className="button secondary" type="button" disabled={w.refreshing} onClick={() => void w.refresh()}>{w.refreshing ? <Spinner/> : <Clock3 size={16}/>}Check progress</button></div>
+    <div className="activity-summary-strip"><span><Activity size={17}/><strong>{w.session.user ? entries.length : "--"}</strong> recorded items</span><button type="button" onClick={() => update("status", "pending")}><Clock3 size={17}/><strong>{w.session.user ? pending : "--"}</strong> pending items<ChevronRight size={14}/></button><span><Check size={16}/>Nothing resubmits on return</span></div>
+    {unavailable.length > 0 && <div className="workspace-unavailable" role="status">Some activity sources are unavailable ({unavailable.join(", ")}). The records below may be incomplete. Refresh to check again.</div>}
+    <div className="activity-filters"><label className="activity-search"><Search size={17}/><input aria-label="Search activity" placeholder="Search instructions, assets or IDs" value={filter.query} onChange={event => update("q", event.target.value, true)}/></label><label><span>Type</span><select aria-label="Activity type" value={filter.kind} onChange={event => update("kind", event.target.value)}><option value="all">All activity</option><option value="trade">Trades</option><option value="agent">Agent instructions</option><option value="funding">Funding</option><option value="expense">Operating costs</option></select></label><label><span>Status</span><select aria-label="Activity status" value={filter.status} onChange={event => update("status", event.target.value)}><option value="all">All statuses</option><option value="pending">Pending work</option>{statuses.filter(status => status !== "pending").map(status => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></label><label><span>Initiator</span><select aria-label="Activity initiator" value={filter.initiator} onChange={event => update("initiator", event.target.value)}><option value="all">Everyone</option><option value="manual">Manual</option><option value="agent">Agent</option><option value="automation">Automation</option><option value="owner">Owner setup</option></select></label></div>
+    <div className={`activity-workspace-grid ${selected ? "with-detail" : ""}`}><section className="workspace-panel activity-list" aria-label="Recorded activity">{w.loading ? <div className="activity-loading" role="status"><Spinner/>Loading saved activity</div> : !w.session.user ? <Empty title="Your activity is owner-scoped" action={<button className="button primary" type="button" disabled={w.connecting} onClick={() => void w.connect()}><Wallet size={16}/>Connect wallet</button>}>Sign in to load saved instructions, trade actions, funding and operating costs. Public visitors cannot view another owner's records.</Empty> : !filtered.length ? <Empty title={entries.length ? "No matching activity" : "Your activity starts here"}>{entries.length ? "Try another filter or search term. Your saved records have not been changed." : "Your first manual trade review or agent instruction will appear here with its recorded outcome."}</Empty> : <>{filtered.map(entry => <button className={`activity-entry ${selected?.id === entry.id ? "selected" : ""}`} key={entry.id} type="button" aria-pressed={selected?.id === entry.id} onClick={() => update("item", entry.id)}><EntryIcon entry={entry}/><span className="activity-entry-copy"><strong>{entry.title}</strong><small>{entry.description}</small><span>{activityTime(entry.createdAt)}<i/>By {entry.initiator}</span></span><Status value={entry.status}/><ChevronRight size={16}/></button>)}</>}</section>{selected && <ActivityDetail entry={selected} workspace={w} onClose={() => update("item", "")}/>}</div>
+    {params.get("item") && !selected && !w.loading && w.session.user && <div className="workspace-unavailable">This record is not available for the signed-in owner. No action was replayed.</div>}
+  </div>;
+}

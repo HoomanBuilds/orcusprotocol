@@ -60,7 +60,11 @@ try {
   };
   const until = async (expression: string, message: string) => { for (let attempt = 0; attempt < 150; attempt++) { if (await evaluate(expression)) return; await delay(200); } throw new Error(`${message} ${await evaluate("[...document.querySelectorAll('[role=alert]')].map(e=>e.textContent).join(' ')")}`); };
   const click = async (selector: string) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw new Error('Action unavailable');e.click();})()`);
-  const navigate = async (label: string) => evaluate(`(()=>{const e=[...document.querySelectorAll('.primary-nav button')].find(e=>e.textContent.trim()===${JSON.stringify(label)});if(!e)throw new Error('Navigation unavailable');e.click();})()`);
+  const navigate = async (label: string) => {
+    const path = label === "Overview" ? "/" : `/${label.toLowerCase()}`;
+    await evaluate(`(()=>{const e=[...document.querySelectorAll('.primary-nav a')].find(e=>e.getAttribute('href')===${JSON.stringify(path)});if(!e)throw new Error('Navigation unavailable');e.click();})()`);
+    await until(`location.pathname===${JSON.stringify(path)}`, `The ${label} route did not load.`);
+  };
   const api = async (path: string, body?: unknown, method = body ? "POST" : "GET") => evaluate(`fetch(${JSON.stringify(path)},{method:${JSON.stringify(method)},headers:{'Content-Type':'application/json'},${body ? `body:${JSON.stringify(JSON.stringify(body))},` : ""}credentials:'same-origin'}).then(async r=>({status:r.status,body:await r.json()}))`);
   await rpc("Runtime.enable"); await rpc("Page.enable"); await rpc("Network.enable");
   await rpc("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
@@ -82,6 +86,13 @@ try {
   await navigate("Trade");
   await until("document.body.innerText.includes('Agent operating wallet')", "Distinct wallet roles were not rendered.");
   assert.ok(await evaluate("document.body.innerText.includes('Owner wallet')&&document.body.innerText.includes('Hyperliquid trading account')")); checks.push("owner, shared trading and operating wallet roles remain distinct");
+  await evaluate("window.__orcusNavigationProof='preserved'");
+  await evaluate("history.back()"); await until("location.pathname==='/settings'", "Browser back did not restore Settings.");
+  await evaluate("history.forward()"); await until("location.pathname==='/trade'", "Browser forward did not restore Trade.");
+  assert.equal(await evaluate("window.__orcusNavigationProof"), "preserved");
+  await navigate("Overview"); await until("document.querySelector('h1')?.textContent==='Overview'", "Root is not the overview dashboard.");
+  await navigate("Agent"); await until("!!document.querySelector('button[aria-label=\"Pause agent\"]')", "The dedicated agent workspace did not load.");
+  checks.push("real route links, root overview and browser back/forward preserve the shared workspace document");
   const before = controlRequests;
   await evaluate("(()=>{const e=document.querySelector('button[aria-label=\"Pause agent\"]');e.click();e.click()})()");
   await until("!!document.querySelector('button[aria-label=\"Resume agent\"]')", "The paused agent state did not load.");
@@ -94,7 +105,7 @@ try {
   await until("!!document.querySelector('button[aria-label=\"Automation expired\"]:disabled')", "Expired automation incorrectly offers resume.");
   const automationId = created.body.data.id ?? created.body.data.automation?.id;
   assert.equal((await api(`/api/automations/${automationId}`, { status: "active" }, "PATCH")).status, 409); checks.push("expired automation is disabled in browser and rejected by actual HTTP API");
-  await navigate("Trade");
+  await navigate("Agent");
   await evaluate("(()=>{const e=document.querySelector('textarea[aria-label=\"Message your agent\"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'private-owner-one-draft');e.dispatchEvent(new Event('input',{bubbles:true}))})()");
   await until("!document.querySelector('button[aria-label=\"Refresh accounts\"]').disabled", "An earlier refresh did not finish.");
   holdNextOwnerRead = true; await click("button[aria-label=\"Refresh accounts\"]");
