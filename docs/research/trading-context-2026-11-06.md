@@ -1,6 +1,6 @@
 # Trading context additions
 
-Verified November 6, 2026. This is research and integration evidence, not runtime configuration. The separately mentioned recommendation text was not supplied, so no unprovided recommendations are attributed or approved here.
+Verified November 6, 2026. This is research and integration evidence, not runtime configuration. This slice verified existing-venue market context. A later supplied venue shortlist is evaluated separately under checklist section 12; it is not execution evidence for these read-only additions.
 
 ## Decision
 

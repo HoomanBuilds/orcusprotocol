@@ -2,7 +2,7 @@
 
 Updated: 2026-11-06
 
-Implementation checklist for this repository. IDs link to the [implementation plan](../plans/implementation-plan.md). All core user and agent capabilities are retained; the six former EF/Anon-RPC requirements in section 9 are replaced by CRE requirements in this revision. There are now 67 items, including ten new workspace and return-to-session requirements in section 11. The earlier 53/57 completion baseline does not include this new work. Source provenance is recorded separately in the [reuse inventory](../research/reuse-inventory.md).
+Implementation checklist for this repository. IDs link to the [implementation plan](../plans/implementation-plan.md). All core user and agent capabilities are retained; the six former EF/Anon-RPC requirements in section 9 are replaced by CRE requirements in this revision. There are now 75 items, including ten workspace/return-to-session requirements in section 11 and eight venue-completeness requirements in section 12. The earlier 53/57 completion baseline does not include this new work. Source provenance is recorded separately in the [reuse inventory](../research/reuse-inventory.md).
 
 Build a personal-agent trading platform where users can research, trade and manage positions themselves or through their authorized agent. Both interfaces operate on the same supported trading accounts. Privacy supports the product; it does not turn public trades into private transactions.
 
@@ -130,6 +130,19 @@ This is newly requested implementation work, not a claim that the earlier termin
 - [ ] `C11.8` Use the actual protocol and supported-token logos throughout the product. Keep network/testnet badges and feature availability explicit; a decorative asset or read-only market listing must not imply execution support.
 - [ ] `C11.9` Verify worthwhile trading additions against official Hyperliquid and Uniswap documentation before implementation. Add useful supported market context such as real order-book depth and funding, and truthful swap execution/quote details, without forcing another venue, bridge, lending product or unapproved permission expansion.
 - [ ] `C11.10` Review the real dashboard and terminal visually on desktop and mobile, including empty/loading/error states and return-to-session behavior. Run focused regression tests and typechecks serially within the established memory cap; do not equate a mock display with live execution proof.
+
+## 12. Venue completeness and additional market coverage
+
+For each integrated venue, target its complete relevant trading workflow rather than a deliberately minimal subset. A protocol-documented capability is not automatically implemented or available on testnet. Track actual coverage, native versus application-enforced authority and specific external gates. Sponsors remain 0G, Uniswap and Chainlink; venue additions do not change that selection.
+
+- [ ] `C12.1` Maintain a source-verified capability matrix for integrated venues and evaluated candidates. Cover markets, order types, position management, account/funding/history, owner signing, agent authority, cancellation/revocation and settlement. Mark implemented, pending and externally blocked behavior separately; do not turn this planning matrix into runtime configuration.
+- [ ] `C12.2` Add Ostium Arbitrum Sepolia market discovery, actual prices, available candles and tradability status for current supported instruments. Describe FX, commodity, index and equity-linked products as leveraged price exposure, not ownership. No mainnet fallback or fabricated testnet market support.
+- [ ] `C12.3` Load the owner's actual Ostium balances, positions, open orders and available fill/history/risk information. Preserve venue-specific collateral and identities; a Hyperliquid position cannot be closed through Ostium or GMX.
+- [ ] `C12.4` Implement the supported Ostium order-entry modes using verified SDK builders and previews, with bounded approvals and explicit owner signing. Bind trader, chain, pair, collateral/base/notional units, leverage, slippage, recipient and expiry. Display the actual gas payer and do not imply Sepolia's Uniswap paymaster also sponsors Arbitrum Sepolia.
+- [ ] `C12.5` Implement native owner/agent authorization, review and revocation only after verifying the current deployed testnet contract, not just SDK examples. Separate native restrictions from local risk caps/expiry; reject owner-only actions outside the agent grant. Never request the owner's private key, silently replace an existing delegate or advertise unverified permission guarantees.
+- [ ] `C12.6` Cover supported position/order management, including closing or reducing positions, protective levels, order modification/cancellation and collateral controls where the venue supports them. Manual and agent interfaces address the same positions; unavailable capabilities need an explicit reason rather than a fabricated fallback.
+- [ ] `C12.7` Persist additional-venue requests and execution evidence in the shared activity/recovery flow. Distinguish submission, order acceptance, execution, rejection, cancellation and unknown outcomes. Returning or retrying must not create duplicate signatures, transfers, inference or trades.
+- [ ] `C12.8` Verify coverage against the capability matrix with focused tests and lightweight read-only checks, then integrate real controls into the terminal and account pages. Do not label a capability complete just because its API exists. Public trades, permissions, paid provider calls and deployments remain outside this implementation authorization.
 
 ## Scope boundaries
 
