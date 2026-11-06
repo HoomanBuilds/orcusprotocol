@@ -188,7 +188,8 @@ export class Platform {
   async submit(user:User,input:{actionId:string;transactionHash?:string;txHash?:string;userOperationHash?:string;orderId?:string;response?:unknown;result?:unknown}){
     let action=this.store.get<StoredAction>(user.id,"action",input.actionId);
     if(!action)throw new ApiError("ACTION_NOT_FOUND","Prepare this action first.",404);
-    if(terminalStates.has(action.status))return {action};
+    const lateOwnerEvidence=Boolean(input.transactionHash||input.txHash||input.userOperationHash||input.orderId||input.response||input.result);
+    if(terminalStates.has(action.status)&&!(action.status==="cancelled"&&lateOwnerEvidence))return {action};
     const account=this.account(user,action.accountId);
     return this.withAccountLease(account.id,async assertLease=>{
       action=this.store.get<StoredAction>(user.id,"action",input.actionId)!;

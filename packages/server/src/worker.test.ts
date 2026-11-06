@@ -24,6 +24,20 @@ function evaluated(input:Record<string,unknown>){
 }
 
 describe("durable worker coordination",()=>{
+  it("reconciles owner evidence arriving after a queued proposal was cancelled",async()=>{
+    const{store,user,platform,account}=setup(),engine=vi.spyOn(engineBoundary,"callEngine");
+    try{
+      const request=tradeRequestSchema.parse({accountId:account.id,venue:"hyperliquid",type:"market",symbol:"ETH",side:"buy",amount:"1",mode:"manual"});
+      const prepared:PreparedAction={id:"late-owner",request,account,kind:"hyperliquid",expiresAt:Date.now()+60_000,controlRevision:0};
+      store.put("action",{id:prepared.id,userId:user.id,accountId:account.id,request,prepared,status:"awaiting-approval",initiator:"agent",controlRevision:0,agentRevision:0,expiresAt:prepared.expiresAt,createdAt:Date.now(),updatedAt:Date.now()}satisfies StoredAction);
+      platform.control(user,{command:"pause"});
+      expect(store.get<StoredAction>(user.id,"action",prepared.id)?.status).toBe("cancelled");
+      engine.mockImplementation(async name=>{expect(name).toBe("reconcileAction");return{status:"confirmed",orderId:"123"};});
+      const result=await platform.submit(user,{actionId:prepared.id,orderId:"123",response:{resting:true}});
+      expect(result.action.status).toBe("confirmed");
+      expect(engine).toHaveBeenCalledOnce();
+    }finally{engine.mockRestore();store.db.close();}
+  });
   it("refuses pasted credentials before storing chat history or calling the engine",async()=>{
     const{store,user,platform}=setup(),engine=vi.spyOn(engineBoundary,"callEngine");
     try{

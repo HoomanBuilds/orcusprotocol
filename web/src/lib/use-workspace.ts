@@ -266,7 +266,7 @@ export function useWorkspace() {
       setPreview(null);
       await refresh();
       if (saved.action.status === "rejected") throw new Error(saved.action.error ?? "The venue rejected this action. Check activity before preparing another.");
-      setNotice(saved.action.status === "confirmed" ? "Action confirmed by the venue." : saved.action.status === "cancelled" ? "Order cancellation confirmed by the venue." : saved.action.status === "submitted-unknown" ? "Submission outcome is unknown. Check activity before retrying." : "Action submitted. Reconciliation will confirm its final status.");
+      setNotice(saved.action.status === "confirmed" ? "Action confirmed by the venue." : saved.action.status === "cancelled" ? "Action cancelled. Check activity for any partial fills." : saved.action.status === "submitted-unknown" ? "Submission outcome is unknown. Check activity before retrying." : "Action submitted. Reconciliation will confirm its final status.");
     } catch (cause) {
       const phase = cause && typeof cause === "object" && "phase" in cause ? cause.phase : undefined;
       if (ownerResult || phase === "submitted-unknown" || phase === "reverted") { setPreview(null); await refresh(); }
@@ -279,6 +279,7 @@ export function useWorkspace() {
   async function control(command: "pause" | "resume" | "take-over") {
     try {
       await post("/api/agent/control", { command });
+      if (command !== "resume") setPreview(null);
       setNotice(
         command === "resume"
           ? "Agent resumed within its existing permissions."
