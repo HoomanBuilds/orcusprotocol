@@ -50,6 +50,19 @@ async function harness(){
 }
 
 describe("shared-account server acceptance with explicit venue fixtures",()=>{
+  it("leaves owner trade controls independent of inference failure or an empty allowance",async()=>{
+    const h=await harness();
+    try{
+      const ownerRequest={accountId:h.account.id,venue:"hyperliquid",type:"market",symbol:"ETH",side:"buy",amount:"1",mode:"manual"};
+      expect((await h.request("actions/prepare","POST",ownerRequest)).status).toBe(200);
+      await h.request("budget","POST",{limitUsd:"1"});
+      const previous=h.engine.getMockImplementation()!;
+      h.engine.mockImplementation(async(name,...args)=>{if(name==="planWith0G")throw Object.assign(new Error("Provider temporarily unavailable"),{code:"INFERENCE_REJECTED",status:502});return previous(name,...args);});
+      expect((await h.request("agent/chat","POST",{message:"Analyze my position",accountId:h.account.id,requestId:"failed-analysis"})).status).toBe(502);
+      expect((await h.request("actions/prepare","POST",ownerRequest)).status).toBe(200);
+      expect(h.engine.mock.calls.filter(([name])=>name==="planWith0G")).toHaveLength(1);
+    }finally{h.close();}
+  });
   it("requires explicit native-input opt-in and binds the exact wrap cap into enrollment",async()=>{
     const h=await harness();
     try{

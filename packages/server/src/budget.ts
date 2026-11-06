@@ -1,6 +1,7 @@
 import type { OperatingBudget } from "@orcus/core";
 import { ApiError } from "./errors";
-import { id, type Store } from "./store";
+import { id, tokenHash, type Store } from "./store";
+import { z } from "zod";
 import { parseRouterBilling } from "@orcus/engine/budget";
 import { reserveServiceCredits, settleServiceCredits } from "./service-credits";
 
@@ -24,7 +25,7 @@ function enforceOperatorComputeCaps(store:Store,userId:string,amount:number){
 }
 export function getBudget(store:Store,userId:string):OperatingBudget & {lowBalanceUsd:string;autoReplenish:boolean;expenses:NonNullable<OperatingBudget["expenses"]>} {
   const row=store.db.prepare("SELECT * FROM budgets WHERE user_id=?").get(userId) as {cap_micros:number;spent_micros:number;reserved_micros:number;low_micros:number;auto_replenish:number};
-  const expenses=store.db.prepare("SELECT id,reference,kind,amount_micros,status,evidence,created_at FROM expenses WHERE user_id=? ORDER BY created_at DESC LIMIT 50").all(userId) as {id:string;reference:string;kind:string;amount_micros:number;status:string;evidence:string|null;created_at:number}[];
+  const expenses=store.db.prepare("SELECT id,reference,kind,amount_micros,status,evidence,created_at FROM expenses WHERE user_id=? ORDER BY status IN ('reserved','unknown') DESC,created_at DESC LIMIT 50").all(userId) as {id:string;reference:string;kind:string;amount_micros:number;status:string;evidence:string|null;created_at:number}[];
   return {operatingAddress:"",limitUsd:usd(row.cap_micros),spentUsd:usd(row.spent_micros),reservedUsd:usd(row.reserved_micros),availableUsd:usd(Math.max(0,row.cap_micros-row.spent_micros-row.reserved_micros)),lowBalanceUsd:usd(row.low_micros),autoReplenish:Boolean(row.auto_replenish),computeBalanceStatus:"unconfigured",replenishmentStatus:"unconfigured",warning:"This is an authorized expense cap, not proof of funded compute credits.",expenses:expenses.map(item=>({...item,amountUsd:usd(item.amount_micros),evidence:item.evidence?JSON.parse(item.evidence):null}))};
 }
 export function setBudget(store:Store,userId:string,cap:string,low:string,auto:boolean) {
@@ -62,10 +63,88 @@ export function settleReservation(store:Store,userId:string,reference:string,sta
   }).immediate();
 }
 
-export function settleComputeReservation(store:Store,userId:string,reference:string,input:{requestId?:string;billing?:unknown;usage?:unknown;callId?:string;outcome?:"completed"|"rejected"|"unknown"}) {
+export function settleComputeReservation(store:Store,userId:string,reference:string,input:{requestId?:string;billing?:unknown;usage?:unknown;callId?:string;outcome?:"completed"|"rejected"|"unknown";billingOrigin?:string;billingApiKeyId?:string;model?:string}) {
   const billing=parseRouterBilling(input.billing);
   const hasRequestId=typeof input.requestId==="string"&&input.requestId.length>0&&input.requestId.length<=200;
   if(input.outcome==="rejected"){settleReservation(store,userId,reference,"released",{...input,billing:undefined});return;}
   if(!billing||!hasRequestId){settleReservation(store,userId,reference,"unknown",{...input,billing:undefined,recordedBilling:billing,billingStatus:"unverified",reason:"Provider billing and request identity are required before settling an expense."});return;}
-  settleReservation(store,userId,reference,"settled",{requestId:input.requestId,callId:input.callId,usage:input.usage,billing,billingStatus:"provider-reported",ledgerUnit:"USD-equivalent",walletDebitCurrency:billing.currency},billing.costUsd);
+  settleReservation(store,userId,reference,"settled",{requestId:input.requestId,callId:input.callId,usage:input.usage,billingOrigin:input.billingOrigin,billingApiKeyId:input.billingApiKeyId,model:input.model,billing,billingStatus:"provider-reported",ledgerUnit:"USD-equivalent",walletDebitCurrency:billing.currency},billing.costUsd);
+}
+
+const historyRow = z.object({ request_id: z.string().min(1).max(200), api_key_id: z.string().max(200), model_id: z.string().max(200), canonical_id: z.string().max(200).optional(), cost: z.string().regex(/^(?:0|[1-9]\d{0,79})$/), created_at: z.string().max(50) });
+const historyPage = z.object({ object: z.literal("list"), currency: z.enum(["0g", "usd"]), data: z.array(historyRow).max(100), total: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), offset: z.number().int().nonnegative(), limit: z.number().int().min(1).max(100), next_cursor: z.string().max(4096).optional() }).refine(value => value.data.length <= value.limit);
+const billingContextSchema = z.object({ requestId: z.string().regex(/^[\x21-\x7e]{1,200}$/), billingOrigin: z.enum(["https://router-api.0g.ai", "https://router-api-testnet.integratenetwork.work"]), billingApiKeyId: z.string().regex(/^[A-Za-z0-9_-]{1,200}$/), model: z.string().min(1).max(200) });
+type ComputeExpense = { id: string; reference: string; amount_micros: number; status: string; evidence: string | null; created_at: number };
+
+export async function reconcileComputeExpense(store: Store, userId: string, expenseId: string) {
+  const read = () => store.db.prepare("SELECT id,reference,amount_micros,status,evidence,created_at FROM expenses WHERE id=? AND user_id=? AND kind='compute-reservation'").get(expenseId, userId) as ComputeExpense | undefined;
+  const expense = read();
+  if (!expense) throw new ApiError("COMPUTE_EXPENSE_NOT_FOUND", "This compute expense does not belong to the signed-in wallet.", 404);
+  const result = (message: string) => ({ expenseId, status: read()?.status ?? expense.status, message });
+  if (!["reserved", "unknown"].includes(expense.status)) return result("This expense was already finalized. No new provider request or charge was made.");
+  const context = billingContextSchema.safeParse(expense.evidence ? JSON.parse(expense.evidence) : null);
+  if (!context.success) return result("Still reserved: the original call has no complete Router request, API-key, model and network identity. Operator-assisted billing review is required; inference was not retried.");
+  const managementKey = process.env.ZEROG_COMPUTE_MANAGEMENT_KEY;
+  if (!managementKey) return result("Still reserved: provider billing checks need a server-side management credential with account:read. No inference was requested.");
+  const scope = `compute-billing-read:${userId}`, holder = id();
+  if (!store.takeLease(scope, holder, 30_000)) throw new ApiError("COMPUTE_RECONCILIATION_BUSY", "A provider billing check is already running for this wallet.", 409);
+  try {
+    const { requestId, billingOrigin, billingApiKeyId, model } = context.data;
+    const start = expense.created_at - 60_000, end = expense.created_at + 86_400_000;
+    const matches: Array<z.infer<typeof historyRow>> = [];
+    let total: number | undefined, offset = 0, currency: "0g" | "usd" | undefined;
+    for (let page = 0; page < 5; page++) {
+      const url = new URL("/v1/account/usage/history", billingOrigin);
+      for (const [key, value] of Object.entries({ limit: "100", offset: String(offset), include_total: "true", api_key_id: billingApiKeyId, start_date: new Date(start).toISOString().slice(0, 10), end_date: new Date(end).toISOString().slice(0, 10) })) url.searchParams.set(key, value);
+      let body: z.infer<typeof historyPage>;
+      try {
+        const response = await fetch(url, { headers: { Authorization: `Bearer ${managementKey}` }, signal: AbortSignal.timeout(5_000), redirect: "error" });
+        if (!response.ok || Number(response.headers.get("content-length") ?? 0) > 1_048_576) throw new Error();
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error();
+        let text = "", bytes = 0;
+        const decoder = new TextDecoder();
+        try {
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            bytes += chunk.value.length;
+            if (bytes > 1_048_576) { await reader.cancel(); throw new Error(); }
+            text += decoder.decode(chunk.value, { stream: true });
+          }
+          body = historyPage.parse(JSON.parse(text + decoder.decode()));
+        } finally { reader.releaseLock(); }
+      } catch { throw new ApiError("COMPUTE_BILLING_UNAVAILABLE", "Provider billing could not be verified. The expense stays reserved; no inference was retried.", 503); }
+      if (total !== undefined && body.total !== total || currency !== undefined && body.currency !== currency || body.offset !== offset) throw new ApiError("COMPUTE_BILLING_CONFLICT", "Provider history changed or returned inconsistent units. The reservation stays held.", 409);
+      total = body.total; currency = body.currency;
+      if (total > 500) return result("Still reserved: the matching history window exceeds the bounded billing check. Operator-assisted review is required.");
+      matches.push(...body.data.filter(row => row.request_id === requestId));
+      offset += body.data.length;
+      if (offset > total || !body.data.length && offset < total || offset === total && body.next_cursor) throw new ApiError("COMPUTE_BILLING_CONFLICT", "Provider history is incomplete. The reservation stays held.", 409);
+      if (offset === total) {
+        if (!matches.length) return result("Still reserved: no matching booked provider usage record was found. Absence is not proof of a free request.");
+        if (matches.length !== 1) throw new ApiError("COMPUTE_BILLING_CONFLICT", "Provider history contains duplicate request identities. The reservation stays held.", 409);
+        const row = matches[0], observed = Date.parse(row.created_at);
+        if (row.api_key_id !== billingApiKeyId || ![row.model_id, row.canonical_id].includes(model) || !Number.isFinite(observed) || observed < start || observed > end) throw new ApiError("COMPUTE_BILLING_CONFLICT", "The provider record does not match the original call's API key, model and time window. The reservation stays held.", 409);
+        if (currency !== "usd") return result("Still reserved: the provider reports a native 0G cost without a verified per-request USD equivalent. No exchange-rate estimate or zero charge was recorded.");
+        const charge = BigInt(row.cost);
+        if (charge > BigInt(expense.amount_micros)) return result("Still reserved: the verified provider charge exceeds the original reservation. Operator-assisted review is required.");
+        return store.db.transaction(() => {
+          const current = read();
+          if (!current) throw new ApiError("COMPUTE_EXPENSE_NOT_FOUND", "This compute expense is no longer available.", 404);
+          if (!["reserved", "unknown"].includes(current.status)) return result("This expense was already finalized. No duplicate charge was recorded.");
+          if (current.evidence !== expense.evidence || current.amount_micros !== expense.amount_micros) throw new ApiError("COMPUTE_BILLING_CONFLICT", "This expense changed during the billing check. Review its current evidence before checking again.", 409);
+          const proofId = `compute-billing-proof:${tokenHash(JSON.stringify([billingOrigin, requestId]))}`;
+          const existing = store.db.prepare("SELECT body FROM records WHERE id=?").get(proofId) as { body: string } | undefined;
+          const settled = store.db.prepare("SELECT id FROM expenses WHERE id<>? AND status='settled' AND json_extract(evidence,'$.requestId')=? AND json_extract(evidence,'$.billingOrigin')=?").get(expenseId, requestId, billingOrigin);
+          if (settled || existing && JSON.parse(existing.body).expenseId !== expenseId) throw new ApiError("COMPUTE_BILLING_CONFLICT", "This provider request already belongs to another expense. The reservation stays held.", 409);
+          const now = Date.now();
+          store.put("compute-billing-proof", { id: proofId, userId, expenseId, requestId, billingOrigin, createdAt: now, updatedAt: now });
+          settleReservation(store, userId, expense.reference, "settled", { ...context.data, providerBilledAt: observed, billingStatus: "management-history-verified", billing: { source: "0g-router-history", currency, totalCost: row.cost, totalCostUsdMicro: row.cost, costUsd: usd(Number(charge)) }, ledgerUnit: "USD-equivalent", walletDebitCurrency: currency }, usd(Number(charge)));
+          return result("The original provider request was reconciled once from verified billing history. No new inference was requested.");
+        }).immediate();
+      }
+    }
+    return result("Still reserved: the provider history could not be completely checked within the bounded read. No inference was requested.");
+  } finally { store.releaseLease(scope, holder); }
 }

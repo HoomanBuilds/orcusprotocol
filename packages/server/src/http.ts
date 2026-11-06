@@ -10,6 +10,7 @@ import { listGasSponsorship, noteSponsoredBroadcast, reconcileGasSponsorship, se
 import { entryPoint } from "@orcus/wallets/kernel";
 import { gasSponsorConfig } from "./sponsorship-config";
 import { cancelServicePayment, createServicePayment, reconcileServicePayment, recordServicePaymentSubmission, servicePaymentSummary } from "./service-payments";
+import { reconcileComputeExpense } from "./budget";
 
 const COOKIE = "orcus_session";
 const address = z.string().regex(/^0x[\da-fA-F]{40}$/);
@@ -190,6 +191,10 @@ export async function handleRequest(request: Request, suppliedStore?: Store): Pr
     if (path === "budget" && method === "POST") {
       const input = z.object({ limitUsd: decimal.optional(), capUsd: decimal.optional(), lowBalanceUsd: decimal.optional(), autoReplenish: z.boolean().optional() }).strict().parse(await readBody(request));
       return json({ data: await platform.setBudget(user, input) });
+    }
+    if (path === "budget/reconcile" && method === "POST") {
+      const input = z.object({ expenseId: z.string().min(1).max(100) }).strict().parse(await readBody(request));
+      return json({ data: await reconcileComputeExpense(store, user.id, input.expenseId) });
     }
     if (path === "budget/payments" && method === "GET") return json({ data: servicePaymentSummary(store, user) });
     if (path === "budget/payments/intent" && method === "POST") return json({ data: await createServicePayment(store, user, await readBody(request)) }, 201);
