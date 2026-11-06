@@ -1,0 +1,25 @@
+import assert from "node:assert/strict";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { getAddress } from "viem";
+import { type TradingAccount } from "@orcus/core";
+import { OSTIUM_TESTNET } from "../packages/wallets/src/ostium-deployment";
+import { evaluateStrategy } from "../agent/src/automation/cre";
+
+const [argument, ...extra] = process.argv.slice(2);
+if (extra.length || !argument?.startsWith("--account-address=")) throw new Error("Use --account-address=0x... for one read-only native alert evaluation. No private key is needed.");
+const owner = getAddress(argument.slice("--account-address=".length));
+process.env.CRE_ENABLED = "true";
+process.env.CRE_WORKFLOW_DIR = resolve(fileURLToPath(new URL("../workflows/cre", import.meta.url)));
+process.env.CRE_TARGET = "staging-settings";
+const account: TradingAccount = { id: "read-only-native-observation", userId: "local-verification", address: owner, ownerAddress: owner, venue: "ostium", chainId: 421614, status: "connected", controlRevision: 0 };
+const result = await evaluateStrategy({ kind: "alert", evaluationId: `native-alert:${Date.now()}`, automationId: "native-alert-verification", account, controlRevision: 0, policyVersion: 1, expiresAt: Date.now() + 120_000, condition: { symbol: "XAU/USD", operator: "above", price: "1", maxAgeSeconds: 120 } });
+assert.equal(result.decision, "allow");
+assert.equal(result.observations?.symbol, "XAU/USD");
+assert.equal(String(result.observations?.inputToken).toLowerCase(), OSTIUM_TESTNET.usdc.toLowerCase());
+assert.equal(result.observations?.marketQuoteAsset, "USD");
+assert.ok(result.observations?.blockNumber);
+assert.ok(result.observations?.marketPriceE18);
+assert.ok(result.observations?.feedId);
+console.log(`Captured native CRE alert: ORCUS_CRE_RESULT=${JSON.stringify(result)}`);
+console.log(JSON.stringify({ scope: "authenticated-cli-native-read-only", simulations: 1, publicNetworkWrites: 0, billableInferenceCalls: 0, notProven: ["hosted DON execution", "native authorized trade submission", "deployment"] }));

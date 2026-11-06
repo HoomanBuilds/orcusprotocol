@@ -3,6 +3,7 @@ import { createPublicClient, getAddress, http, isAddressEqual, parseAbi, stringT
 import { arbitrumSepolia } from "viem/chains";
 import { OSTIUM_TESTNET, ostiumTradingAbi } from "@orcus/wallets/ostium";
 import { EngineError } from "../../errors";
+import { ostiumSymbol } from "./symbols";
 
 export type OstiumPair = Awaited<ReturnType<OstiumClient["getPairs"]>>["pairs"][number];
 export type OstiumPosition = Awaited<ReturnType<OstiumClient["getOpenPositions"]>>["pairPositions"][number]["position"];
@@ -85,13 +86,13 @@ export async function getOstiumPrices(): Promise<OstiumPriceTick[]> {
       const observedAt = Number(tick.timestampSeconds) * 1000;
       if (typeof tick.pair !== "string" || typeof tick.from !== "string" || typeof tick.to !== "string" || !Number.isSafeInteger(observedAt) || observedAt > Date.now() + 5_000 || Date.now() - observedAt > 20_000 || ![tick.bid, tick.ask, tick.mid].every(price => typeof price === "number" && Number.isFinite(price) && price > 0) || Number(tick.bid) > Number(tick.ask) || typeof tick.isMarketOpen !== "boolean" || typeof tick.isDayTradingClosed !== "boolean") return [];
       const plain = (value: unknown) => Number(value).toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 18 });
-      return [{ symbol: tick.pair.replace("-", "/"), rawSymbol: `${tick.from}/${tick.to}`, bid: plain(tick.bid), ask: plain(tick.ask), mid: plain(tick.mid), observedAt, isMarketOpen: tick.isMarketOpen, isDayTradingClosed: tick.isDayTradingClosed, schedule: tick.schedule }];
+      return [{ symbol: ostiumSymbol(tick.from, tick.to), rawSymbol: `${tick.from}/${tick.to}`, bid: plain(tick.bid), ask: plain(tick.ask), mid: plain(tick.mid), observedAt, isMarketOpen: tick.isMarketOpen, isDayTradingClosed: tick.isDayTradingClosed, schedule: tick.schedule }];
     });
     prices = { expiresAt: Date.now() + 3_000, value }; return value;
   })().catch(error => { throw error instanceof EngineError ? error : new EngineError("OSTIUM_PRICES_UNAVAILABLE", "Native market prices could not be verified.", 503); }).finally(() => { pricesPending = undefined; });
   return pricesPending;
 }
 
-export function pairSymbol(pair: OstiumPair) { return `${pair.pairFrom}/${pair.pairTo}`; }
-export function priceForPair(pair: OstiumPair, ticks: OstiumPriceTick[]) { const symbol = pairSymbol(pair); return ticks.find(tick => tick.symbol === symbol || tick.rawSymbol === symbol); }
+export function pairSymbol(pair: OstiumPair) { return ostiumSymbol(pair.pairFrom, pair.pairTo); }
+export function priceForPair(pair: OstiumPair, ticks: OstiumPriceTick[]) { const matches = ticks.filter(tick => tick.symbol === pairSymbol(pair)); return matches.length === 1 ? matches[0] : undefined; }
 export const ostiumAddress = (value: string): Address => getAddress(value);

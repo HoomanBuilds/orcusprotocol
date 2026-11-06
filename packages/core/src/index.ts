@@ -13,7 +13,7 @@ export const tradeRequestSchema = z.object({
   type: tradeActionSchema,
   symbol: z.string().min(1).max(50),
   side: z.enum(["buy", "sell"]),
-  amount: positiveDecimalSchema,
+  amount: decimalSchema,
   price: positiveDecimalSchema.optional(),
   triggerPrice: decimalSchema.optional(),
   slippageBps: z.number().int().min(1).max(500).default(50),
@@ -33,6 +33,7 @@ export const tradeRequestSchema = z.object({
   leverage: z.number().finite().min(1).max(1000).refine(value=>/^\d+(?:\.\d{1,2})?$/.test(String(value)),"Leverage supports at most two decimal places").optional(),
   mode: z.enum(["manual", "agent"]).default("manual"),
 }).strict().superRefine((value,context)=>{
+  if(!/[1-9]/.test(value.amount)&&!(value.venue==="ostium"&&value.type==="cancel"&&value.orderId&&value.amountUnit==="base"))context.addIssue({code:"custom",message:"Amount must be greater than zero unless cancelling an exact native Ostium order.",path:["amount"]});
   if(value.nativeInput&&(value.venue!=="uniswap"||value.type!=="swap"||value.side!=="sell"||value.symbol.toUpperCase()!=="WETH/USDC"))context.addIssue({code:"custom",message:"Native ETH input supports only selling ETH into the WETH/USDC spot pool. Buying returns WETH, not native ETH.",path:["nativeInput"]});
   if(value.venue!=="ostium"){
     if(["stop","edit-order","add-collateral","remove-collateral"].includes(value.type)||[value.positionId,value.amountUnit,value.takeProfit,value.stopLoss,value.isDayTrade].some(field=>field!==undefined))context.addIssue({code:"custom",message:"These action fields are supported only on Ostium."});

@@ -7,6 +7,8 @@ import { z } from "zod";
 import { type TradeRequest, type TradingAccount } from "@orcus/core";
 import { engineConfig } from "../config";
 import { EngineError, requireConfigured } from "../errors";
+import { OSTIUM_TESTNET } from "@orcus/wallets/ostium";
+import { assertOstiumAccount, getOstiumPair } from "../venues/ostium/data";
 
 const run = promisify(execFile);
 const workflowRunners = new Map<string, { tail: Promise<void>; count: number }>();
@@ -73,12 +75,38 @@ export interface CreEvaluationInput {
 
 export function parseCreOutput(stdout: string) {
   const clean = stdout.replace(/\u001b\[[0-9;]*m/g, "");
-  const marker = "ORCUS_CRE_RESULT=";
-  const lines = clean.split(/\r?\n/).filter(line => line.includes(marker));
-  if (!lines.length) throw new EngineError("CRE_OUTPUT_MISSING", "The CRE workflow returned no authenticated evaluation output.", 502);
-  const payload = lines[lines.length - 1].slice(lines[lines.length - 1].indexOf(marker) + marker.length).trim();
-  try { return outputSchema.parse(JSON.parse(payload)); }
+  const marker = "ORCUS_CRE_RESULT=", partMarker = "ORCUS_CRE_RESULT_PART=";
+  const all = clean.split(/\r?\n/), lines = all.filter(line => line.includes(marker)), parts = all.filter(line => line.includes(partMarker));
+  if (!lines.length && !parts.length) throw new EngineError("CRE_OUTPUT_MISSING", "The CRE workflow returned no authenticated evaluation output.", 502);
+  try {
+    if (lines.length > 1 || lines.length && parts.length || parts.length > 64) throw new Error("ambiguous result");
+    const payload = lines.length ? lines[0].slice(lines[0].indexOf(marker) + marker.length).trim() : new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(parts.map((line, index) => {
+      const match = /^([1-9]\d?)\/([1-9]\d?):([A-Za-z0-9+/]+={0,2})$/.exec(line.slice(line.indexOf(partMarker) + partMarker.length));
+      if (!match || Number(match[1]) !== index + 1 || Number(match[2]) !== parts.length || match[3].length > 684) throw new Error("incomplete result");
+      const bytes = Buffer.from(match[3], "base64");
+      if (!bytes.length || bytes.length > 512 || bytes.toString("base64") !== match[3]) throw new Error("invalid result part");
+      return bytes;
+    })));
+    if (Buffer.byteLength(payload, "utf8") > 32_768) throw new Error("oversized result");
+    return outputSchema.parse(JSON.parse(payload));
+  }
   catch { throw new EngineError("CRE_OUTPUT_INVALID", "The CRE workflow returned malformed or unsupported output.", 502); }
+}
+
+export async function strategyObservationConfig(input: CreEvaluationInput) {
+  const kind = input.kind ?? "trade", symbol = kind === "alert" ? input.condition!.symbol! : input.request!.symbol;
+  if (input.account.venue === "ostium") {
+    assertOstiumAccount(input.account);
+    if (input.request?.type === "remove-collateral") throw new EngineError("OWNER_ONLY", "Ostium collateral removal requires the owner's explicit signature, not an unattended strategy.", 403);
+    if (input.condition?.symbol && input.condition.symbol !== symbol) throw new EngineError("CONDITION_MARKET_MISMATCH", "The native condition must name the same exact pair as its approved action.");
+    const pair = await getOstiumPair(symbol);
+    return { chainName: "ethereum-testnet-sepolia-arbitrum-1", tokenAddress: OSTIUM_TESTNET.usdc, tokenDecimals: 6, marketUrl: "https://builder.prod.bedrock.ostium.io/v1/prices", ostium: { pairId: Number(pair.pairId), symbol } };
+  }
+  const base = symbol.toUpperCase().split(/[\/-]/)[0].replace(/USDC$|USD$/, ""), asset = base === "WETH" ? "ETH" : base;
+  if (!/^[A-Z0-9]{2,12}$/.test(asset)) throw new EngineError("UNSUPPORTED_MARKET", "This market cannot be evaluated by the configured external price source.");
+  const uni = engineConfig().uniswap;
+  const tokenAddress = input.proposal?.tokenIn ?? input.request?.tokenIn ?? (input.request?.side === "sell" ? uni.weth : uni.usdc);
+  return { chainName: "ethereum-testnet-sepolia", tokenAddress, tokenDecimals: tokenAddress.toLowerCase() === uni.usdc.toLowerCase() ? 6 : 18, marketUrl: `https://api.coinbase.com/v2/prices/${asset}-USD/spot` };
 }
 
 export async function evaluateStrategy(input: CreEvaluationInput) {
@@ -90,12 +118,7 @@ export async function evaluateStrategy(input: CreEvaluationInput) {
   const workflowDir = resolve(requireConfigured(cfg.workflowDir, "CRE_WORKFLOW_DIR"));
   const cliPath = cfg.cliPath.includes("/") ? resolve(cfg.cliPath) : cfg.cliPath;
   if (input.expiresAt <= Date.now() || input.account.controlRevision !== input.controlRevision) throw new EngineError("STALE_EVALUATION", "The strategy evaluation expired or its account control revision changed.");
-  const base = (kind === "alert" ? input.condition!.symbol! : input.request!.symbol).toUpperCase().split(/[\/-]/)[0].replace(/USDC$|USD$/, "");
-  const asset = base === "WETH" ? "ETH" : base;
-  if (!/^[A-Z0-9]{2,12}$/.test(asset)) throw new EngineError("UNSUPPORTED_MARKET", "This market cannot be evaluated by the configured external price source.");
-  const uni = engineConfig().uniswap;
-  const tokenAddress = input.proposal?.tokenIn ?? input.request?.tokenIn ?? (input.request?.side === "sell" ? uni.weth : uni.usdc);
-  const tokenDecimals = tokenAddress.toLowerCase() === uni.usdc.toLowerCase() ? 6 : 18;
+  const observationConfig = await strategyObservationConfig(input);
   const directory = await mkdtemp(join(tmpdir(), "orcus-cre-"));
   const configPath = join(directory, "evaluation.json");
   const envPath = join(directory, "cli.env");
@@ -105,10 +128,10 @@ export async function evaluateStrategy(input: CreEvaluationInput) {
     await writeFile(configPath, JSON.stringify({
       schedule: "0 */5 * * * *", evaluationId: input.evaluationId, automationId: input.automationId,
       accountId: input.account.id, accountAddress: input.account.address, chainId: input.account.chainId,
-      chainName: "ethereum-testnet-sepolia", tokenAddress, tokenDecimals,
+      ...observationConfig,
       kind, venue: input.account.venue, amount: input.request?.amount, request: input.request,
       proposal: input.proposal, proposalId: input.evaluationId, requestId: input.requestId,
-      proposalUrl: input.proposalUrl, marketUrl: `https://api.coinbase.com/v2/prices/${asset}-USD/spot`,
+      proposalUrl: input.proposalUrl,
       condition: input.condition ?? { operator: "always", maxAgeSeconds: 60 },
       controlRevision: input.controlRevision, policyVersion: input.policyVersion, expiresAt: input.expiresAt,
     }), { mode: 0o600 });

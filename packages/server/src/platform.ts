@@ -18,7 +18,7 @@ import { safeAgentToolSteps } from "./agent-evidence";
 import { selectStoragePayer,assertStoragePayerAllowance,publicStoragePayerMetadata } from "./storage-payer";
 import { createSessionSponsorship } from "./sponsorship";
 import { agentRequestSchema,agentRequestRecordId,agentRequestLease,agentRequestView,chatRequestFingerprint,chatRequestReference,listAgentRequests,queuedAgentRequests,readAgentRequest,recoverInterruptedAgentRequests,safeAgentRequestError,storedAgentRequest } from "./agent-requests";
-import { ostiumAcknowledgement,ostiumAgentActions,ostiumAuthorization,validateOstiumExecution } from "./ostium-policy";
+import { assertOstiumAutomation,ostiumAcknowledgement,ostiumAgentActions,ostiumAuthorization,validateOstiumExecution } from "./ostium-policy";
 import { recordOstiumActionApproval,recordUnknownOstiumApproval,rejectOstiumActionApproval,startOstiumActionApproval } from "./ostium-allowances";
 
 export const accountSchema=z.object({venue:venueSchema,address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
@@ -619,7 +619,7 @@ export class Platform {
     const existing=this.store.get<StoredAutomation>(user.id,"automation",automationId);
     if(existing){if(existing.inputFingerprint!==fingerprint)throw new ApiError("IDEMPOTENCY_CONFLICT","This acceptance ID was already used for a different automation.",409);return existing;}
     const account=this.account(user,data.accountId),agent=this.agent(user);
-    if(account.venue==="ostium")throw new ApiError("OSTIUM_AUTOMATION_PENDING","Ostium trading is supported separately; its CRE observation and candidate binding are still being integrated. No other venue's workflow is substituted.",503);
+    assertOstiumAutomation(account,data.request,data.condition);
     if(agent.paused)throw new ApiError("AGENT_PAUSED","Resume the agent before enabling an automation.",409);
     const permission=this.store.list<StoredPermission>(user.id,"permission").find(item=>item.accountId===account.id&&item.status==="active"&&item.expiresAt>Date.now());
     if(data.kind==="trade"&&!permission)throw new ApiError("AGENT_NOT_AUTHORIZED","Authorize agent access before enabling an unattended trading strategy.",403);
@@ -633,7 +633,7 @@ export class Platform {
   updateAutomation(user:User,automationId:string,input:{status?:"active"|"paused";instruction?:string;intervalSeconds?:number}){
     if(input.instruction)rejectMemorySecrets(input.instruction,{allowPublicHashes:true,code:"CREDENTIAL_INPUT_REJECTED"});
     const automation=this.store.get<StoredAutomation>(user.id,"automation",automationId);if(!automation)throw new ApiError("NOT_FOUND","Automation not found.",404);
-    if(input.status==="active"&&this.account(user,automation.accountId).venue==="ostium")throw new ApiError("OSTIUM_AUTOMATION_PENDING","Ostium conditional workflows are awaiting their own verified CRE adapter. Manual and immediate authorized trading remain separate.",503);
+    if(input.status==="active")assertOstiumAutomation(this.account(user,automation.accountId),automation.request,automation.condition);
     if(input.status==="active"&&(this.agent(user).paused||automation.expiresAt<=Date.now()))throw new ApiError("AUTOMATION_UNAVAILABLE","Resume the agent and renew expired permissions before activating this strategy.",409);
     return this.store.update<StoredAutomation>(user.id,"automation",automationId,{...input,policyVersion:automation.policyVersion+1,nextRunAt:Date.now()});
   }
@@ -716,7 +716,7 @@ export class Platform {
         if(agent.paused||current.expiresAt<=Date.now()){this.store.update<StoredAutomation>(user.id,"automation",current.id,{status:current.expiresAt<=Date.now()?"expired":"paused"});continue;}
         if(this.store.get(user.id,"evaluation",evaluationId)){this.store.update<StoredAutomation>(user.id,"automation",current.id,{status:"failed",error:"This evaluation was already consumed. Review its existing action before resuming."});continue;}
         const account=this.account(user,current.accountId);
-        if(account.venue==="ostium")throw new ApiError("OSTIUM_AUTOMATION_PENDING","The Ostium CRE observation and candidate adapter is still being integrated. No other venue's workflow or paid proposal is substituted.",503);
+        assertOstiumAutomation(account,current.request,current.condition);
         if(account.controlRevision!==current.controlRevision)throw new ApiError("CONTROL_CHANGED","Account control changed. Review this strategy before resuming.",409);
         const alert=current.kind==="alert";
         if(!alert&&!this.store.list<StoredPermission>(user.id,"permission").some(permission=>permission.accountId===account.id&&permission.status==="active"&&permission.expiresAt>Date.now()&&permission.controlRevision===account.controlRevision))throw new ApiError("AGENT_NOT_AUTHORIZED","Renew agent authorization before running this strategy.",403);
@@ -734,6 +734,7 @@ export class Platform {
         const planned=alert?{proposal:undefined,requestId:undefined}:current.request?{proposal:current.request,requestId:undefined}:await this.proposal(user,current.instruction,account,evaluationId,"strategy");
         assertCurrent();
         const proposal=planned.proposal;
+        assertOstiumAutomation(account,proposal,current.condition);
         if(!proposal&&!alert){
           this.store.put("evaluation",{id:evaluationId,userId:user.id,automationId:current.id,accountId:account.id,decision:"no-action",source:"planner",reason:"No executable proposal was returned. CRE was not invoked and no trade was authorized.",requestId:planned.requestId,createdAt:Date.now(),updatedAt:Date.now()});
           results.push({automationId:current.id,evaluationId,decision:"no-action",source:"planner"});
