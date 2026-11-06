@@ -1,7 +1,7 @@
 import type { AgentRequest } from "@orcus/core";
 import { api, displayError, post } from "./api";
 
-export type AgentRequestDraft = { message: string; accountId?: string; autonomous: boolean };
+export type AgentRequestDraft = { message: string; accountId?: string; autonomous: boolean; modelId?: string };
 export type AgentRequestsState = { owner: string; requests: AgentRequest[]; loading: boolean; submitting: boolean; error: string | null };
 export const emptyAgentRequests = (owner = ""): AgentRequestsState => ({ owner, requests: [], loading: false, submitting: false, error: null });
 type RequestApi = { list(): Promise<{ requests: AgentRequest[] }>; create(input: AgentRequestDraft & { requestId: string }): Promise<{ request: AgentRequest }> };

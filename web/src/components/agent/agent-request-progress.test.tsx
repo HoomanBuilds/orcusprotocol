@@ -26,4 +26,7 @@ describe("durable agent progress", () => {
     expect(render(saved)).toContain("Saved response after return");
     expect(render(saved, ["answer"])).not.toContain("Saved response after return");
   });
+  it("shows the immutable model snapshot on a saved in-flight request", () => {
+    expect(render({ ...request("running"), modelId: "snapshot-model" })).toContain("Model: snapshot-model");
+  });
 });

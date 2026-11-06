@@ -3384,6 +3384,14 @@ td > small.negative {
 .agent-workspace-page .agent-panel .chat-compose textarea { min-height: 36px; max-height: 96px; padding: 5px 0; font-size: 13px; }
 .agent-workspace-page .agent-panel .chat-compose > div { padding: 0; }
 .agent-workspace-page .agent-panel .autonomous-toggle { padding: 12px 20px; flex-shrink: 0; }
+.agent-model-selector { flex: 0 0 auto; padding: 10px 20px; border-top: 1px solid var(--border-soft); font-size: 11px; }
+.agent-model-selector label { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.agent-model-selector select { width: auto; max-width: 240px; min-width: 0; min-height: 34px; padding: 6px 10px; font-size: 12px; background: transparent; }
+.model-details { color: var(--muted); margin-top: 5px; }
+.model-details summary { cursor: pointer; font-size: 10px; width: fit-content; }
+.model-details p { margin: 8px 0; line-height: 1.5; }
+.model-error { color: var(--negative); margin: 8px 0 0; }
+.message-model { display: block; color: var(--muted); font-size: 10px; margin-top: 8px; }
 @media (max-width: 760px) {
   .agent-workspace-page .agent-panel { min-height: 440px; height: calc(100dvh - 235px); max-height: 700px; }
   .agent-workspace-page .agent-panel .chat-scroll { padding: 18px; }
@@ -3393,4 +3401,6 @@ td > small.negative {
   .automation-policy-summary > div { grid-template-columns: 76px minmax(0, 1fr); gap: 12px; }
   .agent-response { font-size: 13px; }
   .agent-source-list a { min-height: 36px; }
+  .agent-model-selector { padding: 8px 14px; }
+  .agent-model-selector select { max-width: 210px; min-height: 40px; }
 }

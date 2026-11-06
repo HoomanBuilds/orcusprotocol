@@ -166,10 +166,12 @@ try {
     ];
     await evaluate(`(()=>{
       const original=window.fetch.bind(window); window.__orcusOriginalFetch=original;
-      const state=window.__orcusAgentFixture={enabled:true,posts:0,releases:[],bodies:[]};
+      const state=window.__orcusAgentFixture={enabled:true,posts:0,releases:[],bodies:[],modelUpdates:0,selectedModel:'fixture-configured'};
       window.fetch=async(input,options={})=>{
         const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;
         const method=options.method??'GET';
+        if(state.enabled&&path==='/api/agent/models')return new Response(JSON.stringify({data:{defaultModelId:'fixture-configured',selectedModelId:state.selectedModel,catalogAvailable:true,models:[{id:'fixture-configured',name:'Configured model (fixture)',available:true,compatibility:'configured',privacy:'unverified'},{id:'fixture-catalog',name:'Catalog model (fixture)',available:true,compatibility:'catalog',privacy:'catalog-tee',pricing:{promptPerMillionUsd:'0.1',completionPerMillionUsd:'0.2'}},{id:'fixture-unavailable',name:'Unavailable model (fixture)',available:false,compatibility:'catalog',privacy:'unverified'}]}}),{headers:{'Content-Type':'application/json'}});
+        if(state.enabled&&path==='/api/agent/control'&&method==='POST'&&JSON.parse(options.body).modelId){state.modelUpdates++;state.selectedModel=JSON.parse(options.body).modelId;return new Response(JSON.stringify({data:${JSON.stringify(agentData)}}),{headers:{'Content-Type':'application/json'}});}
         if(path==='/api/automations'&&method==='POST'){
           state.posts++;state.bodies.push(JSON.parse(options.body));
           return new Promise(resolve=>state.releases.push(ok=>resolve(new Response(JSON.stringify(ok?{data:{id:'fixture-automation'}}:{error:{code:'REVIEW_REQUIRED',message:'Fixture refusal. Review the rule before retrying.'}}),{status:ok?201:409,headers:{'Content-Type':'application/json'}}))));
@@ -180,6 +182,12 @@ try {
         return response;
       };
     })()`);
+    await navigate("Automations"); await navigate("Agent");
+    await until("document.querySelector('select[aria-label=\"Inference model\"]')?.value==='fixture-configured'", "Model catalog fixture did not render.");
+    assert.ok(await evaluate("document.querySelector('select[aria-label=\"Inference model\"] option[value=\"fixture-unavailable\"]').disabled"));
+    await evaluate("(()=>{const select=document.querySelector('select[aria-label=\"Inference model\"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'fixture-catalog');select.dispatchEvent(new Event('change',{bubbles:true}));})()");
+    await until("document.querySelector('select[aria-label=\"Inference model\"]').value==='fixture-catalog'", "Confirmed model preference did not update.");
+    assert.equal(await evaluate("window.__orcusAgentFixture.modelUpdates"), 1);
     await until("!document.querySelector('button[aria-label=\"Refresh accounts\"]').disabled", "Refresh did not finish before fixture setup.");
     await click("button[aria-label=\"Refresh accounts\"]");
     await until("!!document.querySelector('.automation-approval-card')", "Structured fixture proposal did not render.");
@@ -208,6 +216,7 @@ try {
     assert.equal(await evaluate("window.__orcusAgentFixture.posts"), 2);
     fixtureChecks.push("frontend fixture: research table and successful-source references render on desktop/mobile without overflow");
     fixtureChecks.push("frontend fixture: explicit approval sends unchanged proposal once under rapid clicks and displays refusal without claiming activation");
+    fixtureChecks.push("frontend fixture: catalog model choice saves once and unavailable models cannot be selected");
   }
   await evaluate("(()=>{const e=document.querySelector('textarea[aria-label=\"Message your agent\"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'private-owner-one-draft');e.dispatchEvent(new Event('input',{bubbles:true}))})()");
   await until("!document.querySelector('button[aria-label=\"Refresh accounts\"]').disabled", "An earlier refresh did not finish.");

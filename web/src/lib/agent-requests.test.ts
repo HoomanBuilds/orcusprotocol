@@ -54,6 +54,15 @@ describe("return-to-session agent requests", () => {
     await session.submit(draft); await session.submit({ ...draft, accountId: "other-account" }); await session.submit({ ...draft, autonomous: true });
     expect(new Set(create.mock.calls.map(([input]) => input.requestId)).size).toBe(3);
   });
+  it("binds the visible model to intake and treats changing it as a new instruction", async () => {
+    const create = vi.fn(async (_input: AgentRequestDraft & { requestId: string }): Promise<{ request: AgentRequest }> => { throw new Error("offline"); });
+    const session = new AgentRequestSession("owner-a", vi.fn(), async () => {}, { list: async () => ({ requests: [] }), create });
+    await session.submit({ ...draft, modelId: "configured-model" });
+    await session.submit({ ...draft, modelId: "catalog-model" });
+    expect(create.mock.calls[0][0].modelId).toBe("configured-model");
+    expect(create.mock.calls[1][0].modelId).toBe("catalog-model");
+    expect(create.mock.calls[0][0].requestId).not.toBe(create.mock.calls[1][0].requestId);
+  });
   it("ignores a late old-owner list response after switching wallets", async () => {
     const gate = deferred<{ requests: AgentRequest[] }>(), state = vi.fn(), refresh = vi.fn(async () => {}), create = vi.fn();
     const old = new AgentRequestSession("owner-a", state, refresh, { list: () => gate.promise, create });

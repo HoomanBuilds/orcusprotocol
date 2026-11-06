@@ -14,6 +14,7 @@ export function AgentRequestProgress({ requests, conversationIds }: { requests: 
       {!conversationIds.includes(request.userMessageId) && <p>{request.message}</p>}
       {request.status === "queued" && <p className="fine-print">Saved, not yet running. The background worker must be online. This instruction expires at {new Date(request.expiresAt).toLocaleTimeString()}.</p>}
       {request.status === "running" && <span className="agent-thinking"><Spinner />{request.modelCalls} model calls / {request.toolCalls} tool calls</span>}
+      {request.modelId && <small className="message-model">Model: {request.modelId}</small>}
       {request.status === "running" && (request.heartbeatAt ?? request.updatedAt) < Date.now() - 180_000 && <p className="warning-note">The worker heartbeat is stale. Wait for recovery and review billing or activity; do not resubmit this request.</p>}
       {request.error && <p className="warning-note">{request.error}</p>}
       {request.actionId && <p className="fine-print">An action is recorded. Check Activity for its actual settlement or reconciliation status.</p>}

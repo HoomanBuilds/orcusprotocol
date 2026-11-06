@@ -3,9 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
-  Bot,
   BrainCircuit,
-  Check,
   ChevronRight,
   CirclePause,
   Play,
@@ -19,6 +17,7 @@ import { useAgentRequests } from "@/lib/use-agent-requests";
 import { AgentRequestProgress } from "./agent-request-progress";
 import { AgentResponse, AgentToolActivity } from "./agent-response";
 import { AutomationSuggestion } from "./automation-review-card";
+import { AgentModelSelector } from "./agent-model-selector";
 import { Address, Badge, InlineError, Spinner } from "../trading/primitives";
 
 export function AgentPanel({
@@ -36,6 +35,8 @@ export function AgentPanel({
   const [error, setError] = useState<string | null>(null);
   const [autonomous, setAutonomous] = useState(false);
   const [changingMode, setChangingMode] = useState(false);
+  const [modelId, setModelId] = useState<string | undefined>();
+  const [changingModel, setChangingModel] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const agent = w.agentData?.agent ?? w.session.agent;
   const messages = w.agentData?.messages ?? [];
@@ -43,7 +44,7 @@ export function AgentPanel({
   const sending = requests.submitting;
   const owner = w.session.user?.address.toLowerCase() ?? "";
   const currentOwner = useRef(owner); currentOwner.current = owner;
-  useEffect(() => { setInput(""); setError(null); setChangingMode(false); }, [owner]);
+  useEffect(() => { setInput(""); setError(null); setChangingMode(false); setChangingModel(false); setModelId(undefined); }, [owner]);
   useEffect(() => {
     setAutonomous(agent?.mode === "autonomous");
   }, [agent?.mode]);
@@ -52,11 +53,11 @@ export function AgentPanel({
   }, [messages.length, sending]);
 
   async function send() {
-    if (!input.trim() || sending) return;
+    if (!input.trim() || sending || changingModel) return;
     if (!w.session.user) return;
     const message = input.trim();
     setError(null);
-    if (await requests.submit({ message, accountId: w.account?.id, autonomous }) && currentOwner.current === owner) setInput(current => current.trim() === message ? "" : current);
+    if (await requests.submit({ message, accountId: w.account?.id, autonomous, ...(modelId ? { modelId } : {}) }) && currentOwner.current === owner) setInput(current => current.trim() === message ? "" : current);
   }
 
   return (
@@ -127,22 +128,15 @@ export function AgentPanel({
         {messages.map((message) => (
           <div key={message.id} className={`chat-message ${message.role}`}>
             <span className="message-role">
-              {message.role === "assistant" ? (
-                <>
-                  <Bot size={12} />
-                  ORCUS
-                </>
-              ) : (
-                "YOU"
-              )}
+              {message.role === "assistant" ? "ORCUS" : "YOU"}
             </span>
             {message.role === "assistant" ? <><AgentToolActivity steps={message.toolSteps}/><AgentResponse content={message.content}/></> : <p>{message.content}</p>}
             {message.requestId && (
               <div className="request-evidence" title={message.requestId}>
-                <Check size={10} />
                 0G request {message.requestId.slice(0, 14)}...
               </div>
             )}
+            {message.modelId && <small className="message-model">Model: {message.modelId}</small>}
             {message.privacy && message.privacy !== "unverified" && <details className="technical-limits"><summary>{message.privacy === "independently-attested-private" ? "Private inference, independently attested" : "Private tier, gateway-reported assurance"}</summary><pre>{JSON.stringify(message.privacyEvidence, null, 2)}</pre></details>}
             {message.proposedAction && (
               <div className="proposal">
@@ -179,6 +173,7 @@ export function AgentPanel({
       </div>
       <InlineError message={error} onDismiss={() => setError(null)} />
       <InlineError message={requests.error} />
+      <AgentModelSelector key={owner} owner={owner} disabled={sending || changingMode} onChange={setModelId} onBusy={setChangingModel} refresh={w.refresh}/>
       <div className="chat-compose">
         <textarea
           aria-label="Message your agent"
@@ -206,7 +201,7 @@ export function AgentPanel({
           <button
             type="button"
             aria-label="Send message"
-            disabled={!w.session.user || sending || !input.trim()}
+            disabled={!w.session.user || sending || changingModel || !input.trim()}
             onClick={() => void send()}
           >
             {sending ? <Spinner /> : <ArrowUp size={17} />}
