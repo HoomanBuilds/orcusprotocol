@@ -1,6 +1,6 @@
 # Hackathon Product Checklist
 
-Updated: 2026-11-05
+Updated: 2026-11-06
 
 Implementation checklist for this repository. IDs link to the [implementation plan](../plans/implementation-plan.md). All core user and agent capabilities are retained; the six former EF/Anon-RPC requirements in section 9 are replaced by CRE requirements in this revision. The current count remains 57. Source provenance is recorded separately in the [reuse inventory](../research/reuse-inventory.md).
 
@@ -9,6 +9,8 @@ Build a personal-agent trading platform where users can research, trade and mana
 Sponsor targets: **0G + Uniswap + Chainlink CRE**. Hyperliquid is an additional trading integration, not a fourth sponsor target. Target the CRE workflow bounty; CCIP and Anon-RPC are not required integrations.
 
 This is the product acceptance checklist in build order. Unchecked means not yet verified end to end against this checklist, not necessarily missing from the existing code.
+
+Current local verification: the application builds, shared packages typecheck, signed HTTP login and scoped memory APIs work, and real public Hyperliquid/Uniswap reads succeed. Account funding, memory controls, owner-reviewed schedules and grant-free alerts are wired into the application. Real funded execution, credited 0G inference/storage round trips and authenticated CRE allow/reject simulation still need the respective credentials and owner actions. No acceptance box below is marked complete merely because code compiles or a mock-backed test passes. Automatic compute replenishment and earned-funding are not implemented.
 
 ## 1. Wallet connection and personal agent
 

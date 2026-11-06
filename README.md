@@ -40,15 +40,29 @@ Set `ORCUS_MASTER_KEY` before starting in production. Development creates an own
 
 | Integration | Configuration and user action |
 | --- | --- |
-| 0G inference | Exact chat-completions URL, API key and model from your credited account; authorize an operating expense cap in settings |
+| 0G inference | Exact chat-completions URL, API key and model from your credited account; authorize an operating expense cap in settings. Router balance additionally needs a management key scoped to `account:read` |
 | Uniswap | Public Sepolia RPC, server-side `ZERODEV_RPC_URL`, owner-created smart account, explicitly transferred test tokens and gas; delegation requires a bounded owner-signed session grant |
 | Hyperliquid | Owner wallet and funded Hyperliquid testnet account; approve the separate agent address only if autonomous trading is wanted |
-| 0G memory | Enable storage and explicitly fund the separate operating address with Galileo test tokens before requesting an encrypted upload |
+| 0G memory | Enable storage and explicitly fund the separate operating address with Galileo test tokens using the owner-signed funding control before requesting an encrypted upload |
 | Chainlink CRE | Official CLI, its required build toolchain, authenticated CLI access and the workflow directory; see the workflow's own setup instructions |
 
 Wallet connection is not trading authorization. Users retain their owner wallet; the application never asks for its seed phrase or private key. Agent and owner actions target the same supported account state, including existing Hyperliquid positions. Operating funds and trading capital are separate.
 
 Uniswap execution uses a Kernel account with bounded call, expiry and gas policies. The backend's per-trade risk checks are additional controls. Hyperliquid's native agent grant is trading authority; our custom asset and notional limits are application-enforced, not falsely advertised as venue-native restrictions.
+
+## Personal agent and automation
+
+The agent uses LangGraph with bounded reasoning and registered tools for real market reads, portfolio inspection, indicators and typed trade/schedule proposals. Signing remains outside the model. Approval-required chat proposals use the owner signing path; autonomous actions require the current account grant. Interactive chat and unattended strategies have separate tool profiles, enforced before exposing tools and again before invocation.
+
+Per-user SQLite memory supports full-text retrieval, explicit preferences, execution episodes, forgetting and durable checkpoints. Encrypted 0G backups include this state; old encrypted backups are not erased when a local note is forgotten. Checkpoints and request IDs prevent a retry from silently repeating a possibly billable model call.
+
+The automation screen supports agent-planned strategies, exact recurring trade requests and read-only price alerts. Chat can propose a schedule, but the owner must review and activate it. Alerts require no trading grant, never create trades and notify on a new threshold crossing instead of every evaluation. Actual CRE CLI evaluation remains required; there is no simulated-success fallback.
+
+An operating-wallet transfer is not a compute deposit. The funding control only sends explicitly signed testnet 0G to the separate wallet for expenses such as memory-storage gas. Router balances are reported in exact neuron amounts and formatted 0G, not USD. Model calls with unavailable billing retain their expense reservation. Automatic compute replenishment and earned funding remain unimplemented until the real credited account and payment interface are verified.
+
+## Reusing existing products
+
+Six shallow upstream product clones live in the ignored `inspiration/` directory. They are also excluded from server output traces. Imported modules must live in this repository, preserve applicable license notices and never depend on a local ignored checkout at runtime. See the reuse inventory for source revisions, candidate modules and adaptation constraints.
 
 ## Verification
 
