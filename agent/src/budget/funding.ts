@@ -14,7 +14,7 @@ const address = z.string().regex(/^0x[\da-fA-F]{40}$/);
 const atoms = z.string().regex(/^[1-9]\d{0,79}$/);
 const intentSchema = z.object({ id: z.string().min(1).max(100), userId: z.string().min(1).max(100), ownerAddress: address, payerAddress: address, computeAccountAddress: address, chainId: z.literal(16602), currency: z.literal("0g"), amountWei: atoms, maxGasWei: atoms, to: address, data: z.string().regex(/^0x[\da-fA-F]+$/), expiresAt: z.number().int().positive(), policyRevision: z.number().int().positive(), createdAt: z.number().int().positive() });
 export type ComputeFundingIntent = z.infer<typeof intentSchema>;
-export type ComputeFundingResult = { status: "confirmed" | "failed" | "submitted-unknown"; transactionHash: string; amountWei?: string; gasPaidWei?: string; beneficiary?: string; chainId: 16602; blockNumber?: string; creditStatus: "awaiting-router-sync" | "unconfirmed"; message?: string };
+export type ComputeFundingResult = { status: "confirmed" | "failed" | "submitted-unknown"; transactionHash: string; amountWei?: string; gasPaidWei?: string; beneficiary?: string; chainId: 16602; blockNumber?: string; creditStatus: "awaiting-router-sync" | "router-balance-observed" | "unconfirmed"; message?: string };
 
 export function nativeAmount(value: string): bigint {
   if (!/^(?:0|[1-9]\d{0,7})(?:\.\d{1,18})?$/.test(value)) throw new EngineError("INVALID_FUNDING_AMOUNT", "Use an exact positive 0G amount with at most 18 decimals.");
@@ -35,7 +35,8 @@ export function validateComputeFunding(value: unknown): ComputeFundingIntent {
   const intent = intentSchema.parse(value);
   if (!isAddressEqual(getAddress(intent.to), computePaymentVault) || isAddressEqual(getAddress(intent.payerAddress), getAddress(intent.ownerAddress))) throw new EngineError("FUNDING_DESTINATION_MISMATCH", "Compute deposits must use the fixed Galileo vault and separate operating payer.");
   const decoded = decodeFunctionData({ abi: computePaymentVaultAbi, data: intent.data as Hex });
-  if (decoded.functionName !== "depositFor" || !isAddressEqual(decoded.args[0], getAddress(intent.computeAccountAddress))) throw new EngineError("FUNDING_ACCOUNT_MISMATCH", "The deposit calldata does not match the approved compute account.");
+  const expected = encodeFunctionData({ abi: computePaymentVaultAbi, functionName: "depositFor", args: [getAddress(intent.computeAccountAddress)] });
+  if (decoded.functionName !== "depositFor" || !isAddressEqual(decoded.args[0], getAddress(intent.computeAccountAddress)) || intent.data.toLowerCase() !== expected.toLowerCase()) throw new EngineError("FUNDING_ACCOUNT_MISMATCH", "The deposit calldata does not match the approved compute account.");
   return intent;
 }
 

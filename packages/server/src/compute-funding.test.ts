@@ -5,7 +5,7 @@ import { Store } from "./store";
 
 const operatingAddress = `0x${"2".repeat(40)}`, computeAccountAddress = `0x${"3".repeat(40)}`, transactionHash = `0x${"4".repeat(64)}`;
 const policy = () => ({ enabled: true, chainId: 16602, currency: "0g", computeAccountAddress, topUp0G: "0.1", maximumTotal0G: "0.22", lowBalance0G: "0.02", maxGas0G: "0.01", expiresAt: Date.now() + 600_000 });
-const context = () => ({ operatingAddress, providerBalance: { status: "verified", currency: "0g", accountAddress: computeAccountAddress, balanceNeurons: "0", observedAt: Date.now() } });
+const context = () => ({ operatingAddress, providerBalance: { status: "verified", currency: "0g", accountAddress: computeAccountAddress, balanceNeurons: "0", observedAt: Date.now() }, paymentVaultBalance: { source: "payment-vault", chainId: 16602, currency: "0g", accountAddress: computeAccountAddress, balanceNeurons: "0", observedAt: Date.now() } });
 function setup() { const store = new Store(":memory:"); const user = store.ensureUser(`0x${"1".repeat(40)}`); return { store, user }; }
 
 describe("owner-authorized compute replenishment", () => {
@@ -45,6 +45,15 @@ describe("owner-authorized compute replenishment", () => {
       expect(getComputeFundingPolicy(store, user).intents).toHaveLength(0);
     } finally { store.db.close(); }
   });
+  it("requires the real vault balance and does not duplicate funds waiting in the payment layer", () => {
+    const { store, user } = setup();
+    try {
+      configureComputeFunding(store, user, policy(), context());
+      const current = context();
+      expect(() => prepareComputeFunding(store, user, "no-vault", { ...current, paymentVaultBalance: undefined })).toThrow(/PaymentVault account/);
+      expect(prepareComputeFunding(store, user, "unspent-vault", { ...current, paymentVaultBalance: { ...current.paymentVaultBalance, balanceNeurons: parseEther("0.1").toString() } })).toMatchObject({ status: "no-action", reason: expect.stringMatching(/unspent PaymentVault/) });
+    } finally { store.db.close(); }
+  });
   it("revokes authority on disable and policy changes and never releases an uncertain broadcast", () => {
     const { store, user } = setup();
     try {
@@ -73,6 +82,10 @@ describe("owner-authorized compute replenishment", () => {
       expect(getComputeFundingPolicy(store, user)).toMatchObject({ reserved0G: "0", spent0G: "0.101", available0G: "0.119" });
       expect(() => configureComputeFunding(store, user, { ...policy(), topUp0G: "0.01", maximumTotal0G: "0.1" }, context())).toThrow(/already spent/);
       expect(getComputeFundingPolicy(store, user).intents[0].evidence?.creditStatus).toBe("awaiting-router-sync");
+      expect(prepareComputeFunding(store, user, "wait-for-sync", context())).toMatchObject({ status: "no-action", reason: expect.stringMatching(/awaiting a later Router balance/) });
+      const credited = context();
+      expect(prepareComputeFunding(store, user, "observe-credit", { ...credited, providerBalance: { ...credited.providerBalance, balanceNeurons: parseEther("0.1").toString() } })).toMatchObject({ status: "no-action" });
+      expect(getComputeFundingPolicy(store, user).intents[0].evidence?.creditStatus).toBe("router-balance-observed");
     } finally { store.db.close(); }
   });
   it("uses only actual gas for a reverted deposit and enforces cumulative caps", () => {
