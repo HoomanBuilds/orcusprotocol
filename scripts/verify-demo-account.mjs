@@ -67,12 +67,14 @@ try {
   demoActive = true;
   await click("button[aria-label='Explore demo account']");
   await until("document.body.innerText.includes('Demo account')&&document.body.innerText.includes('$23,340.20')");
+  await until("document.querySelectorAll('.overview-market-cards > button').length>0");
   await screenshot("desktop-overview");
   await evaluate("document.getElementById('overview-accounts').scrollIntoView({block:'start'})"); await screenshot("desktop-accounts");
   await rpc("Page.reload"); await until("document.body.innerText.includes('$23,340.20')&&document.body.innerText.includes('Demo account')");
   const routes = [["trade", "/trade"], ["agent", "/agent"], ["automations", "/automations"], ["activity", "/activity"], ["settings", "/settings"]];
   for (const [name, path] of routes) {
     await navigate(path);
+    if (name === "trade") await until("document.querySelector('.market-price strong')?.textContent.startsWith('$')&&!document.querySelector('.chart-loading')");
     if (name === "agent") {
       await until("document.body.innerText.includes('fixed demo values')");
       await click("button[aria-label='Pause agent']");
