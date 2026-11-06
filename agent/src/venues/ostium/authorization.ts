@@ -9,6 +9,7 @@ import { assertOstiumAccount } from "./data";
 const same = (a: string, b: string) => isAddressEqual(getAddress(a), getAddress(b));
 
 export async function getOstiumApprovalTransaction(account: TradingAccount, amountUsd: string) {
+  try {
   assertOstiumAccount(account);
   const amount = decimalToAtoms(amountUsd, 6);
   if (amount <= 0n || amount > 2_000_000_000_000n) throw new EngineError("INVALID_AMOUNT", "Approve an exact positive USDC allowance no larger than the supported collateral cap.");
@@ -17,9 +18,11 @@ export async function getOstiumApprovalTransaction(account: TradingAccount, amou
   if (built.kind !== "eoa" || built.value !== 0n || !same(built.from, account.ownerAddress) || !same(built.to, OSTIUM_TESTNET.usdc) || built.data !== encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [OSTIUM_TESTNET.storage, amount] })) throw new EngineError("OSTIUM_CALL_MISMATCH", "The allowance request does not match the reviewed exact testnet approval.");
   const balances = await boundedOstiumRead(() => client.getBalances(getAddress(account.address)));
   return { trader: account.address, chainId: 421614 as const, token: OSTIUM_TESTNET.usdc, spender: OSTIUM_TESTNET.storage, amountUsd, amountRaw: amount.toString(), transaction: { to: built.to, data: built.data, value: "0", chainId: 421614, label: `Approve exactly ${amountUsd} Ostium testnet USDC` }, previousAllowanceUsd: balances.allowance, minimumBlock, expiresAt: Date.now() + 120_000 };
+  } catch (error) { throw error instanceof EngineError ? error : new EngineError("OSTIUM_ALLOWANCE_UNAVAILABLE", "The exact native USDC allowance could not be prepared safely.", 503); }
 }
 
 export async function reconcileOstiumApproval(input: { transactionHash: string; account: TradingAccount; amountUsd: string; notBefore?: number; minimumBlock?: string; expectedTransaction?: EvmTransaction }) {
+  try {
   assertOstiumAccount(input.account);
   if (!/^0x[0-9a-fA-F]{64}$/.test(input.transactionHash)) throw new EngineError("INVALID_TRANSACTION", "A valid transaction hash is required.");
   const rpc = await verifiedOstiumRpc(); let amount = decimalToAtoms(input.amountUsd, 6); const hash = input.transactionHash as Hex;
@@ -44,9 +47,11 @@ export async function reconcileOstiumApproval(input: { transactionHash: string; 
   });
   if (events.length !== 1) throw new EngineError("APPROVAL_NOT_VERIFIED", "The receipt does not uniquely prove this exact USDC allowance.");
   return { status: "confirmed" as const, transactionHash: hash, evidence: { blockNumber: receipt.blockNumber.toString(), blockTimestamp, amountRaw: amount.toString(), owner: input.account.ownerAddress, spender: OSTIUM_TESTNET.storage, token: OSTIUM_TESTNET.usdc } };
+  } catch (error) { throw error instanceof EngineError ? error : new EngineError("OSTIUM_ALLOWANCE_UNVERIFIED", "The recorded native allowance receipt could not be verified. Do not repeat it.", 503); }
 }
 
 export async function getOstiumDelegationTransactions(account: TradingAccount, delegate: string | null) {
+  try {
   assertOstiumAccount(account);
   const target = delegate === null ? zeroAddress : getAddress(delegate);
   if (delegate !== null && same(target, zeroAddress)) throw new EngineError("INVALID_AGENT", "Choose a nonzero delegate address.");
@@ -60,4 +65,5 @@ export async function getOstiumDelegationTransactions(account: TradingAccount, d
     transactions.push({ to: built.to, data: built.data, value: "0", chainId: 421614, label: delegate === null ? "Revoke the native Ostium delegate" : "Register the reviewed native Ostium delegate" });
   }
   return { trader: account.address, delegate: target, chainId: 421614 as const, contractAddress: OSTIUM_TESTNET.trading, currentDelegate: current.delegate, implementation: current.implementation, transactions, expiresAt: Date.now() + 120_000, alreadyActive };
+  } catch (error) { throw error instanceof EngineError ? error : new EngineError("OSTIUM_AUTHORIZATION_UNAVAILABLE", "The native owner permission change could not be prepared safely.", 503); }
 }

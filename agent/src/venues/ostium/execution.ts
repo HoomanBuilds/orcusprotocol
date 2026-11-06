@@ -21,6 +21,7 @@ const asTransaction = (value: OstiumBuiltTx, owner: string, label: string, sende
 };
 
 export async function prepareOstiumAction(input: TradeRequest, account: TradingAccount): Promise<OstiumPreparedAction> {
+  try {
   let action = tradeRequestSchema.parse(input);
   assertOstiumAccount(account);
   if (action.accountId !== account.id || String(action.venue) !== "ostium") throw new EngineError("ACCOUNT_MISMATCH", "The action belongs to a different venue account.");
@@ -64,7 +65,7 @@ export async function prepareOstiumAction(input: TradeRequest, account: TradingA
     if (pending && String(action.type) === "cancel") {
       const orders = await boundedOstiumRead(() => client.getOrders({ user: trader, orderIds: [pending[2]], limit: 2 }));
       const own = orders.filter(order => same(order.trader, trader) && order.isPending && order.pairId === pair.pairId && order.oid === pending[2]);
-      if (own.length !== 1 || pending[1] === "open" && own[0].action !== "Open" || pending[1] === "close" && own[0].action === "Open" || BigInt(pending[2]) > BigInt(Number.MAX_SAFE_INTEGER)) throw new EngineError("ORDER_NOT_FOUND", "The pending order could not be uniquely verified for this account.");
+      if (own.length !== 1 || pending[1] === "open" && own[0].action !== "Open" || pending[1] === "close" && own[0].action !== "Close" || BigInt(pending[2]) > BigInt(Number.MAX_SAFE_INTEGER)) throw new EngineError("ORDER_NOT_FOUND", "The pending order could not be uniquely verified for this account.");
       native = client.getCancelOrderTx(pending[1] === "open" ? { type: CancelOrderType.PendingOpen, orderId: Number(pending[2]) } : { type: CancelOrderType.PendingClose, orderId: Number(pending[2]), retry: false });
     } else {
       const orders = await boundedOstiumRead(() => client.getOpenOrders({ user: trader }));
@@ -127,6 +128,7 @@ export async function prepareOstiumAction(input: TradeRequest, account: TradingA
   const prepared: OstiumPreparedAction = { id: randomUUID(), request: action, account, kind: "evm", transactions: [...transactions, transaction], ostium: scope, expiresAt: Date.now() + 60_000, controlRevision: account.controlRevision, warnings: ["Arbitrum Sepolia testnet only. These positions provide leveraged price exposure, not ownership of the underlying asset.", agent ? "The agent EOA pays Arbitrum Sepolia gas. The Uniswap Sepolia paymaster does not sponsor this transaction." : "Your owner EOA pays Arbitrum Sepolia gas; approvals and the trade are separate transactions, not an atomic batch.", "Quote expiry is checked before signing and broadcast. Ostium's native call does not include a transaction deadline.", ...(agent ? ["Native delegation has no onchain expiry or per-asset/notional caps. Orcus enforces its limits before signing; the raw delegate has broader collateral and fee authority."] : [])] };
   inspectPreparedOstiumAction(prepared, agent ? "agent" : "owner");
   return prepared;
+  } catch (error) { throw error instanceof EngineError ? error : new EngineError("OSTIUM_PREPARATION_FAILED", "The native action could not be prepared safely. No signature or transaction was submitted.", 503); }
 }
 
 export async function submitOstiumAgentAction(prepared: PreparedAction, account: TradingAccount, privateKey: string, options?: { assertAuthority?: (fresh?: PreparedAction) => void | Promise<void>; onSubmitted?: (evidence: { transactionHash: string; step?: "trade" }) => Promise<void> }): Promise<SubmissionResult> {
@@ -164,7 +166,8 @@ export async function submitOstiumAgentAction(prepared: PreparedAction, account:
   } catch { return { status: "submitted-unknown", txHash: hash, evidence: { broadcast: "unknown", neverReplay: true } }; }
   return { status: "pending", txHash: hash, evidence: { broadcast: "acknowledged", settlement: "oracle-callback-pending" } };
   } catch (error) {
-    if (!journalAttempted) throw Object.assign(error instanceof Error ? error : new EngineError("OSTIUM_PREFLIGHT_FAILED", "The native action could not be validated. Nothing was submitted."), { phase: "not-submitted" as const });
-    throw error;
+    const failure = error instanceof EngineError ? error : new EngineError("OSTIUM_EXECUTION_UNAVAILABLE", "The native action could not be completed. Check its recorded activity before retrying.", 503);
+    if (!journalAttempted) throw Object.assign(failure, { phase: "not-submitted" as const });
+    throw failure;
   }
 }

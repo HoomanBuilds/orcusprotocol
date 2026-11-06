@@ -33,7 +33,7 @@ export async function getOstiumPortfolio(account: TradingAccount): Promise<Accou
   assertOstiumAccount(account);
   const client = await ostiumSdk(account.address), user = getAddress(account.address);
   await verifiedOstiumRpc();
-  const [balances, positions, orders] = await Promise.allSettled([boundedOstiumRead(() => client.getBalances(user)), boundedOstiumRead(() => client.getOpenPositions({ user, limit: 200 })), boundedOstiumRead(() => client.getOpenOrders({ user }))]);
+  const [balances, positions, orders, pending] = await Promise.allSettled([boundedOstiumRead(() => client.getBalances(user)), boundedOstiumRead(() => client.getOpenPositions({ user, limit: 200 })), boundedOstiumRead(() => client.getOpenOrders({ user })), boundedOstiumRead(() => client.getOrders({ user, isPending: true, limit: 100 }))]);
   const errors: string[] = [];
   const result: AccountPortfolio = { accountId: account.id, balances: [], positions: [], orders: [], observedAt: Date.now() };
   if (balances.status === "fulfilled") result.balances = [{ symbol: "USDC", tokenAddress: OSTIUM_TESTNET.usdc, decimals: 6, accountId: account.id, amount: balances.value.usdc }, { symbol: "ETH", decimals: 18, accountId: account.id, amount: balances.value.eth }]; else errors.push("Ostium account balances are unavailable.");
@@ -45,6 +45,7 @@ export async function getOstiumPortfolio(account: TradingAccount): Promise<Accou
     });
   } else errors.push("Ostium positions are unavailable.");
   if (orders.status === "fulfilled") result.orders = orders.value.flatMap(order => !isAddressEqual(getAddress(order.trader), user) ? [] : [{ id: orderKey(order.pairId, order.idx), accountId: account.id, venue: "ostium" as Market["venue"], symbol: `${order.pairFrom}/${order.pairTo}`, side: order.side === "B" ? "buy" as const : "sell" as const, type: order.orderType.toLowerCase(), size: order.szi, price: order.limitPx, reduceOnly: false, createdAt: order.timestamp, collateralUsd: order.collateralUsed, leverage: Number(order.leverage), takeProfit: order.tpPx, stopLoss: order.slPx, pairId: Number(order.pairId), orderIndex: order.idx }]); else errors.push("Ostium orders are unavailable.");
+  if (pending.status === "fulfilled") result.orders.push(...pending.value.flatMap(order => !isAddressEqual(getAddress(order.trader), user) || !order.isPending || order.isCancelled ? [] : [{ id: order.action === "Open" ? `pending-open:${order.oid}` : order.action === "Close" ? `pending-close:${order.oid}` : `ostium-pending:${order.oid}`, accountId: account.id, venue: "ostium" as Market["venue"], symbol: `${order.pairFrom}/${order.pairTo}`, side: order.side === "B" ? "buy" as const : "sell" as const, type: `pending-${order.action.toLowerCase()}`, size: order.szi, price: order.px, reduceOnly: order.action === "Close", createdAt: order.initiatedTime, collateralUsd: order.collateralUsed, notionalUsd: order.ntl }])); else errors.push("Ostium pending oracle orders are unavailable.");
   if (errors.length) result.errors = errors;
   return result;
 }

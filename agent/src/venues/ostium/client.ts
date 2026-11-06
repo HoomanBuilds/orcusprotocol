@@ -20,10 +20,12 @@ export async function boundedOstiumRead<T>(work: () => Promise<T>): Promise<T> {
   const operation = Promise.resolve().then(work).finally(() => { active--; });
   try {
     return await Promise.race([operation, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new EngineError("OSTIUM_UNAVAILABLE", "Ostium did not respond in time. Check existing activity before retrying.", 503)), 15_000); timer.unref(); })]);
-  } finally { if (timer) clearTimeout(timer); }
+  } catch (error) { throw error instanceof EngineError ? error : new EngineError("OSTIUM_UNAVAILABLE", "The native venue read failed. Refresh its actual state before retrying.", 503); }
+  finally { if (timer) clearTimeout(timer); }
 }
 
 export async function verifiedOstiumRpc() {
+  try {
   const rpc = ostiumRpc();
   if (await rpc.getChainId() !== OSTIUM_TESTNET.chainId) throw new EngineError("WRONG_NETWORK", "Ostium is restricted to Arbitrum Sepolia.");
   const implementation = await rpc.getStorageAt({ address: OSTIUM_TESTNET.trading, slot: implementationSlot });
@@ -40,20 +42,25 @@ export async function verifiedOstiumRpc() {
   const matches = (value: string | undefined, expected: Address) => value !== undefined && isAddressEqual(getAddress(`0x${value.slice(-40)}`), expected);
   if (!isAddressEqual(storage, OSTIUM_TESTNET.storage) || !isAddressEqual(callbacks, OSTIUM_TESTNET.callbacks) || !matches(storageImplementation, OSTIUM_TESTNET.storageImplementation) || !matches(callbacksImplementation, OSTIUM_TESTNET.callbacksImplementation)) throw new EngineError("OSTIUM_DEPLOYMENT_CHANGED", "Ostium's collateral or payout implementation changed. Review the integration before trading.", 503);
   return rpc;
+  } catch (error) { throw error instanceof EngineError ? error : new EngineError("OSTIUM_RPC_UNAVAILABLE", "The native testnet deployment could not be verified. Nothing was signed.", 503); }
 }
 
-export function ostiumSdk(trader?: string, delegate?: string) {
+export async function ostiumSdk(trader?: string, delegate?: string) {
+  try {
   const shared = { testnet: true, rpcUrl: ostiumRpcUrl(), subgraphUrl: "https://builder.prod.bedrock.ostium.io/v1/subgraph/gn?chainId=421614", builderApiUrl: "https://builder.prod.bedrock.ostium.io" };
-  if (!trader) return OstiumClient.createReadOnly(shared);
-  if (delegate) return OstiumClient.createDelegatedAndSelf({ ...shared, traderAddress: getAddress(trader), delegateAddress: getAddress(delegate) });
-  return OstiumClient.createSelfAndSelf({ ...shared, traderAddress: getAddress(trader) });
+  if (!trader) return await OstiumClient.createReadOnly(shared);
+  if (delegate) return await OstiumClient.createDelegatedAndSelf({ ...shared, traderAddress: getAddress(trader), delegateAddress: getAddress(delegate) });
+  return await OstiumClient.createSelfAndSelf({ ...shared, traderAddress: getAddress(trader) });
+  } catch { throw new EngineError("OSTIUM_SDK_UNAVAILABLE", "The native testnet client could not be initialized safely.", 503); }
 }
 
 export async function getOstiumAuthorization(input: { trader: string; chainId: number }) {
+  try {
   if (input.chainId !== OSTIUM_TESTNET.chainId) throw new EngineError("WRONG_NETWORK", "Ostium authorization requires Arbitrum Sepolia.");
   const trader = getAddress(input.trader), rpc = await verifiedOstiumRpc();
   const [delegate, blockNumber] = await Promise.all([rpc.readContract({ address: OSTIUM_TESTNET.trading, abi: ostiumTradingAbi, functionName: "delegations", args: [trader] }), rpc.getBlockNumber()]);
   return { trader, delegate, chainId: 421614 as const, contractAddress: OSTIUM_TESTNET.trading, implementation: OSTIUM_TESTNET.implementation, observedAt: Date.now(), blockNumber: blockNumber.toString() };
+  } catch (error) { throw error instanceof EngineError ? error : new EngineError("OSTIUM_AUTHORIZATION_UNAVAILABLE", "The native delegate could not be verified. Keep automation disabled.", 503); }
 }
 
 export interface OstiumPriceTick { symbol: string; rawSymbol: string; bid: string; ask: string; mid: string; observedAt: number; isMarketOpen: boolean; isDayTradingClosed: boolean; schedule?: unknown }
@@ -81,7 +88,7 @@ export async function getOstiumPrices(): Promise<OstiumPriceTick[]> {
       return [{ symbol: tick.pair.replace("-", "/"), rawSymbol: `${tick.from}/${tick.to}`, bid: plain(tick.bid), ask: plain(tick.ask), mid: plain(tick.mid), observedAt, isMarketOpen: tick.isMarketOpen, isDayTradingClosed: tick.isDayTradingClosed, schedule: tick.schedule }];
     });
     prices = { expiresAt: Date.now() + 3_000, value }; return value;
-  })().finally(() => { pricesPending = undefined; });
+  })().catch(error => { throw error instanceof EngineError ? error : new EngineError("OSTIUM_PRICES_UNAVAILABLE", "Native market prices could not be verified.", 503); }).finally(() => { pricesPending = undefined; });
   return pricesPending;
 }
 

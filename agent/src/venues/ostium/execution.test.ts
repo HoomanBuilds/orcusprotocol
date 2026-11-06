@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OstiumClient } from "@ostium/builder-sdk";
 import { decodeFunctionData, encodeFunctionData, erc20Abi, zeroAddress, type Hex } from "viem";
 import type { TradeRequest, TradingAccount } from "@orcus/core";
@@ -6,6 +6,7 @@ import { OSTIUM_TESTNET, ostiumTradingAbi } from "@orcus/wallets/ostium";
 import { prepareOstiumAction } from "./execution";
 import { reconcileOstiumAction } from "./reconciliation";
 import { getOstiumApprovalTransaction, reconcileOstiumApproval } from "./authorization";
+import { getOstiumPortfolio } from "./data";
 
 const state = vi.hoisted(() => ({ client: null as any, delegateClient: null as any, delegate: "0x2222222222222222222222222222222222222222", maxLeverage: 100, open: true, rpc: { readContract: vi.fn(), getBlockNumber: vi.fn(), getTransactionReceipt: vi.fn(), getTransaction: vi.fn(), getBlock: vi.fn() } }));
 vi.mock("./client", async importOriginal => ({
@@ -21,26 +22,28 @@ const account: TradingAccount = { id: "ostium", userId: "owner", venue: "ostium"
 const request = (patch: Partial<TradeRequest> = {}): TradeRequest => ({ accountId: account.id, venue: "ostium", type: "market", symbol: "XAU/USD", side: "buy", amount: "10", amountUnit: "collateral-usdc", leverage: 2, slippageBps: 50, reduceOnly: false, mode: "manual", ...patch });
 const position = { trader: owner, pairId: "7", pairFrom: "XAU", pairTo: "USD", pid: "42", idx: 3, szi: "1", side: "B", collateralUsed: "100", ntl: "2000", leverage: "20", maxWithdrawable: "5.000000000000000001" };
 
-beforeEach(() => {
+beforeEach(async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("Unexpected network request in native adapter unit test."); }));
   state.maxLeverage = 100; state.open = true; state.delegate = account.agentAddress!;
   state.rpc.readContract.mockReset().mockResolvedValue(false);
   state.rpc.getBlockNumber.mockReset().mockResolvedValue(100n);
   state.rpc.getBlock.mockReset().mockResolvedValue({ timestamp: 1_800_000_001n });
   state.rpc.getTransactionReceipt.mockReset().mockResolvedValue({ status: "success", blockNumber: 101n, logs: [] });
   state.rpc.getTransaction.mockReset();
-  const sdk = OstiumClient.createSelfAndSelf({ testnet: true, traderAddress: owner, rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc" });
+  const sdk = await OstiumClient.createSelfAndSelf({ testnet: true, traderAddress: owner, rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc" });
   const reads = {
     getPairs: vi.fn(async () => ({ pairs: [{ pairId: "7", pairFrom: "XAU", pairTo: "USD", minLeverage: 1, maxLeverage: state.maxLeverage, overnightMaxLeverage: 100, oracleFee: "0.01" }] })),
     getBalances: vi.fn(async () => ({ usdc: "1000", eth: "0.01", allowance: "1000" })),
     getOpenPositions: vi.fn(async () => ({ pairPositions: [{ position }], time: Date.now() })),
-    getOpenOrders: vi.fn(async () => [{ trader: owner, pairId: "7", idx: 4, collateralUsed: "10", ntl: "20", leverage: "2", limitPx: "2000" }]),
+    getOpenOrders: vi.fn(async () => [{ trader: owner, pairId: "7", pairFrom: "XAU", pairTo: "USD", idx: 4, collateralUsed: "10", ntl: "20", leverage: "2", limitPx: "2000", orderType: "Limit", side: "B", szi: "0.01", timestamp: Date.now() }]),
     previewOpenTrade: vi.fn(async () => ({ isValid: true, withinExposureLimit: true, entryPx: "2001", fees: { oracleFee: "0.01", total: "0.02" } })),
     previewCloseTrade: vi.fn(async () => ({ exitPx: "1999", sizeClosing: "0.25" })),
     getOrders: vi.fn(async () => []), getLimitOrderHistory: vi.fn(async () => []),
   };
   state.client = Object.assign(sdk, reads);
-  state.delegateClient = Object.assign(OstiumClient.createDelegatedAndSelf({ testnet: true, traderAddress: owner, delegateAddress: account.agentAddress as Hex, rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc" }), reads);
+  state.delegateClient = Object.assign(await OstiumClient.createDelegatedAndSelf({ testnet: true, traderAddress: owner, delegateAddress: account.agentAddress as Hex, rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc" }), reads);
 });
+afterEach(() => vi.unstubAllGlobals());
 
 describe("Ostium official SDK build-only preparation", () => {
   it("uses actual SDK calldata and separates USDC collateral, exposure and native gas", async () => {
@@ -49,7 +52,7 @@ describe("Ostium official SDK build-only preparation", () => {
     expect(decoded.functionName).toBe("openTrade");
     expect(prepared.ostium).toMatchObject({ collateralUsd: "10", notionalUsd: "20", leverage: 2, builderFeeBps: 0, minimumBlock: "100" });
     expect(prepared.request.price).toBe("2001");
-    expect(prepared.warnings.join(" ")).toContain("owner EOA pays Arbitrum Sepolia gas");
+    expect(prepared.warnings?.join(" ")).toContain("owner EOA pays Arbitrum Sepolia gas");
   });
   it.each(["limit", "stop"] as const)("builds a real %s entry instead of a fake market order", async type => {
     const prepared = await prepareOstiumAction(request({ type, price: "1900" }), account);
@@ -94,6 +97,15 @@ describe("Ostium official SDK build-only preparation", () => {
     await expect(prepareOstiumAction(request({ type: "remove-collateral", positionId: "ostium-position:7:42", amount: "1", mode: "agent" }), account)).rejects.toMatchObject({ code: "OWNER_ONLY" });
     state.client.getBalances.mockResolvedValue({ usdc: "1000", allowance: "0", eth: "0.01" });
     await expect(prepareOstiumAction(request({ type: "add-collateral", positionId: "ostium-position:7:42", amount: "1" }), account)).rejects.toMatchObject({ code: "OSTIUM_ALLOWANCE_REQUIRED" });
+  });
+  it("does not persist raw RPC diagnostics in owner activity", async () => {
+    state.rpc.readContract.mockRejectedValue(new Error("private-rpc-token and request body must not escape"));
+    await expect(prepareOstiumAction(request(), account)).rejects.toMatchObject({ code: "OSTIUM_PREPARATION_FAILED", message: "The native action could not be prepared safely. No signature or transaction was submitted." });
+  });
+  it("returns actual pending oracle orders with separate cancelable native identities", async () => {
+    state.client.getOrders.mockResolvedValue([{ trader: owner, pairId: "7", pairFrom: "XAU", pairTo: "USD", oid: "88", action: "Open", isPending: true, isCancelled: false, side: "B", szi: "0.1", px: "2000", initiatedTime: Date.now(), collateralUsed: "10", ntl: "200" }]);
+    const portfolio = await getOstiumPortfolio(account);
+    expect(portfolio.orders).toEqual(expect.arrayContaining([expect.objectContaining({ id: "pending-open:88", type: "pending-open" })]));
   });
 });
 

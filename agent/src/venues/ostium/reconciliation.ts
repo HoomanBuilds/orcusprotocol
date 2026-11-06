@@ -9,6 +9,7 @@ import { assertOstiumAccount, orderKey } from "./data";
 const same = (a: string, b: string) => isAddressEqual(getAddress(a), getAddress(b));
 
 export async function reconcileOstiumAction(action: { transactionHash?: string; txHash?: string; orderId?: string; prepared?: PreparedAction }, account: TradingAccount): Promise<SubmissionResult> {
+  try {
   assertOstiumAccount(account);
   const hash = action.transactionHash ?? action.txHash;
   if (!hash || !/^0x[0-9a-fA-F]{64}$/.test(hash)) return { status: "submitted-unknown" };
@@ -48,4 +49,5 @@ export async function reconcileOstiumAction(action: { transactionHash?: string; 
   if (order.isCancelled) return { status: "cancelled", txHash: hash, orderId: order.oid, evidence: { ...evidence, reason: order.cancelReason, tradeFillClaimed: false } };
   if (!/^0x[0-9a-fA-F]{64}$/.test(order.hash)) return { status: "pending", txHash: hash, orderId: order.oid, evidence: { ...evidence, settlement: "execution-evidence-pending" } };
   return { status: "confirmed", txHash: hash, orderId: order.oid, evidence: { ...evidence, executionHash: order.hash, fill: order } };
+  } catch (error) { throw error instanceof EngineError ? error : new EngineError("OSTIUM_SETTLEMENT_UNAVAILABLE", "The recorded native action could not be reconciled safely. Do not repeat it.", 503); }
 }
