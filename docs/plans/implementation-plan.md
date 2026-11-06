@@ -363,7 +363,7 @@ Hackathon hosting scope: use the [single-EC2 plan](aws-hackathon-hosting.md) and
 
 | Gate | Consequence if unresolved |
 | --- | --- |
-| Current 0G availability and unknown billing | Earlier real inference passed; the latest first request returned 502 with an unknown reservation. Its temporary database was lost after reboot, not reconciled or proved free. Do not retry it or call earlier proof current availability |
+| Current 0G availability and unknown billing | A separately authorized capped evaluation recorded 13 settled model calls costing 0.002197 USD equivalent, with zero held reservation. Market reads, candles and funding/depth returned real observations; memory/draft final-answer grounding exposed a separate defect, so this was not a full acceptance pass. The older 502 and lost temporary ledger remain unresolved historical billing evidence, not proved free |
 | Provider-history recovery access | The API/UI path and exact-USD recovery guards are regression-tested. A matching management credential and original public API-key ID are required; native-only costs or missing historical identity remain reserved |
 | Independent private-inference evidence | The official verifier and no-downgrade path are implemented, but the matching raw manifest remains unavailable. Gateway-reported sealed inference is not strict independent attestation |
 | Matching Galileo compute account and Router management reads | Actual deployed-vault deposit/recovery is fork-proven with fixture management input. Keep ordinary replenishment disabled until the correct account and post-deposit credit sync are verified |
