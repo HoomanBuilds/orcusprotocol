@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Activity, Bot, ChevronRight, Database, GitBranch, ShieldCheck, Wallet } from "lucide-react";
 import { useWorkspace } from "@/lib/use-workspace";
 import { AutomationsView } from "../agent/automations-view";
@@ -16,10 +16,11 @@ const settingsSections = [
 
 export function SettingsPage() {
   const w = useWorkspace();
+  const router = useRouter();
   const params = useSearchParams();
   const value = params.get("section");
   const section: SettingsSection = settingsSections.find(item => item.id === value)?.id ?? "accounts";
-  return <div className="settings-workspace-page"><div className="workspace-page-header"><div><span className="workspace-eyebrow">YOUR WORKSPACE, YOUR LIMITS</span><h1>Settings</h1><p>Manage ownership, access and operating costs in one place.</p></div></div><nav className="settings-section-navigation" aria-label="Settings sections">{settingsSections.map(item => <Link key={item.id} href={`/settings?section=${item.id}`} aria-current={section === item.id ? "page" : undefined} className={section === item.id ? "selected" : ""}><item.icon size={17}/>{item.label}</Link>)}</nav><SettingsView key={w.session.user?.id ?? "disconnected"} workspace={w} section={section}/></div>;
+  return <div className="settings-workspace-page"><div className="workspace-page-header"><div><span className="workspace-eyebrow">YOUR WORKSPACE, YOUR LIMITS</span><h1>Settings</h1><p>Manage ownership, access and operating costs in one place.</p></div></div><label className="mobile-settings-selector"><span>Settings section</span><select value={section} onChange={event => router.push(`/settings?section=${event.target.value}`)}>{settingsSections.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><nav className="settings-section-navigation" aria-label="Settings sections">{settingsSections.map(item => <Link key={item.id} href={`/settings?section=${item.id}`} aria-current={section === item.id ? "page" : undefined} className={section === item.id ? "selected" : ""}><item.icon size={17}/>{item.label}</Link>)}</nav><SettingsView key={w.session.user?.id ?? "disconnected"} workspace={w} section={section}/></div>;
 }
 
 export function AutomationsPage() {

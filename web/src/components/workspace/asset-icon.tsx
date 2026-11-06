@@ -5,6 +5,10 @@ const assetFiles: Record<string, string> = Object.fromEntries(["ETH", "USDC", "B
 assetFiles.WETH = "/landing/tokens/WETH.png";
 assetFiles.HYPE = "/landing/brands/hyperliquid.svg";
 
+export function hasAssetIcon(symbol: string) {
+  return Boolean(assetFiles[symbol.split("/")[0].toUpperCase()]);
+}
+
 export function AssetIcon({ symbol, size = 32 }: { symbol: string; size?: number }) {
   const name = symbol.split("/")[0].toUpperCase();
   const source = assetFiles[name];

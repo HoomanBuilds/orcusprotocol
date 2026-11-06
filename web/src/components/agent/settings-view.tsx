@@ -694,7 +694,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
       <InlineError message={error} onDismiss={() => setError(null)} />
       {!w.session.user && section !== "services" ? (
         <Empty
-          title="Your wallet is the owner"
+          title="Sign in to manage your workspace"
           action={
             <button
               className="button primary"
@@ -707,7 +707,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
             </button>
           }
         >
-          Sign in to add your trading accounts and review delegated access. Normal trading does not require 0G or a separate compute deposit.
+          Connect your owner wallet to manage accounts, agent access and operating costs.
         </Empty>
       ) : w.session.user ? (
         <>

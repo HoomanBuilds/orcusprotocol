@@ -83,7 +83,7 @@ export function AgentPanel({
   }
 
   return (
-    <aside className="agent-panel">
+    <aside className={`agent-panel ${messages.length || requests.requests.length || sending ? "has-conversation" : "empty-conversation"}`}>
       <div className="agent-heading">
         <span className="agent-avatar">
           <BrainCircuit size={19} />

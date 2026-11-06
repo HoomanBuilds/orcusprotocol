@@ -3170,6 +3170,15 @@ td > small.negative {
 .trade-mobile-tabs { display: none; }
 .trade-ticket-column { grid-area: ticket; min-width: 0; }
 .trade-ticket-column > .order-ticket { border-radius: 6px; padding: 18px; }
+.mobile-settings-selector { display: none; }
+.product-workspace .empty-conversation .chat-scroll { overflow: visible; flex: 0 0 auto; min-height: 0; }
+.product-workspace .empty-conversation { height: auto; min-height: 0; }
+.product-workspace .empty-conversation .agent-welcome { padding: 5px 0 12px; }
+.product-workspace .empty-conversation .agent-welcome h3 { font-size: 32px; margin: 6px 0 14px; }
+.product-workspace .empty-conversation .welcome-icon { margin-bottom: 14px; }
+.product-workspace .empty-conversation .suggestions { margin-top: 18px; }
+.product-workspace .empty-conversation .chat-compose { margin-top: 5px; }
+.trade-depth-column table td { overflow: visible; text-overflow: clip; }
 @media (min-width: 1001px) {
   .workspace-sidebar { width: 184px; }
   .workspace-body { margin-left: 184px; }
@@ -3232,4 +3241,17 @@ td > small.negative {
   .trade-depth-column [aria-label="Current perpetual context"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .trade-depth-column [aria-label="Current perpetual context"] > div { display: block; }
   .trade-route .trade-portfolio-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-section-navigation { display: none; }
+  .mobile-settings-selector { display: grid; gap: 8px; margin-bottom: 24px; }
+  .mobile-settings-selector > span { font-size: 11px; color: var(--muted); }
+  .mobile-settings-selector select { min-height: 48px; border-color: #705566; background: #211b22; }
+  .product-workspace .empty-conversation { min-height: 0; height: auto; max-height: none; }
+  .product-workspace .empty-conversation .chat-scroll { overflow: visible; padding: 24px 18px 18px; }
+  .product-workspace .empty-conversation .agent-welcome { padding: 0; }
+  .product-workspace .empty-conversation .agent-welcome h3 { font-size: 30px; }
+  .product-workspace .empty-conversation .agent-welcome p { font-size: 12px; }
+  .product-workspace .empty-conversation .suggestions { margin-top: 18px; }
+  .product-workspace .empty-conversation .chat-compose { position: static; flex-shrink: 0; min-height: 104px; margin: 0 18px; padding: 10px 12px; }
+  .product-workspace .empty-conversation .chat-compose textarea { min-height: 44px; padding: 5px 0; font-size: 13px; }
+  .product-workspace .empty-conversation .chat-compose > div { padding: 0; }
 }

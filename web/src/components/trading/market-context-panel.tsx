@@ -55,38 +55,52 @@ export function MarketDepthView({ symbol, snapshot: current, loading, error, now
   const funding = current?.asset?.fundingRateHourly;
   const positive = funding !== undefined && Number(funding) > 0;
   const negative = funding !== undefined && Number(funding) < 0;
+  const asks = cumulativeLevels(current?.book?.asks.slice(0, 8) ?? []).reverse();
+  const bids = cumulativeLevels(current?.book?.bids.slice(0, 8) ?? []);
+  const bestAsk = current?.book?.asks[0]?.price, bestBid = current?.book?.bids[0]?.price;
+  const spread = bestAsk !== undefined && bestBid !== undefined ? Number(bestAsk) - Number(bestBid) : undefined;
+  const maxDepth = Math.max(1, ...asks.map(level => level.cumulative), ...bids.map(level => level.cumulative));
   return (
     <section className={styles.panel} aria-label="Market depth and funding">
       <header className={styles.heading}>
-        <div><img src="/landing/brands/hyperliquid.svg" alt="Hyperliquid" width="22" height="22" /><h3>Market depth</h3><span className={styles.network}>Testnet</span></div>
+        <div><img src="/landing/brands/hyperliquid.svg" alt="Hyperliquid" width="22" height="22" /><h3>Order book</h3><span className={styles.network}>Testnet</span></div>
         <button type="button" onClick={onRefresh} disabled={loading} aria-label="Refresh market context"><RefreshCw size={14} className={loading ? "spin" : ""} /></button>
       </header>
-      <dl className={styles.metrics} aria-label="Current perpetual context">
-        <div><dt>Funding / hour</dt><dd className={assetStale ? styles.muted : undefined}>{hourlyFundingLabel(funding)}</dd></div>
-        <div><dt>Open interest ({symbol})</dt><dd className={assetStale ? styles.muted : undefined}>{marketQuantity(current?.asset?.openInterestBase)}</dd></div>
-        <div><dt>Mark (USDC)</dt><dd className={assetStale ? styles.muted : undefined}>{marketQuantity(current?.asset?.markPrice)}</dd></div>
-      </dl>
-      <p className={styles.note}>{positive ? "Positive funding: longs pay shorts." : negative ? "Negative funding: shorts pay longs." : funding !== undefined ? "Current funding is zero." : "Funding is paid between positions, not to Orcus."} The current rate can change before hourly settlement.</p>
-      {current?.asset && <p className={styles.timestamp}>{assetStale || error ? "Context may be stale" : "Context observed"} {time(current.asset.observedAt)}</p>}
       {error && <p className={styles.warning} role="status">{error} {current ? "Showing the last received snapshot." : ""}</p>}
       {current?.warnings.map(warning => <p className={styles.warning} key={warning}>{warning}</p>)}
       {current?.book ? <>
         <div className={styles.bookStatus}><strong>{symbol} / USDC</strong><span className={bookStale || error ? styles.warningText : styles.muted}>{bookStale || error ? "Stale snapshot" : "Observed snapshot"} {time(current.book.observedAt)}</span></div>
-        <div className={styles.book}><BookSide side="Bid" symbol={symbol} levels={current.book.bids} /><BookSide side="Ask" symbol={symbol} levels={current.book.asks} /></div>
+        <div className={styles.ladderScroll}><table className={styles.ladder} aria-label={`${symbol} testnet order book`}>
+          <thead><tr><th scope="col">Price (USDC)</th><th scope="col">Size ({symbol})</th><th scope="col">Total ({symbol})</th></tr></thead>
+          <tbody aria-label="Asks">{asks.map(level => <DepthRow key={`ask:${level.price}`} level={level} side="ask" maxDepth={maxDepth}/>)}</tbody>
+          <tbody><tr className={styles.spread}><td colSpan={3}><span>Spread</span><strong>{marketQuantity(spread)}{spread === undefined ? "" : " USDC"}</strong></td></tr></tbody>
+          <tbody aria-label="Bids">{bids.map(level => <DepthRow key={`bid:${level.price}`} level={level} side="bid" maxDepth={maxDepth}/>)}</tbody>
+        </table></div>
         {!current.book.bids.length && !current.book.asks.length && <p className={styles.empty}>No resting orders in this snapshot.</p>}
       </> : <p className={styles.empty} role="status">{loading && !current ? "Loading testnet order book..." : "Order book unavailable. Refresh market data to try again."}</p>}
-      <p className={styles.note}>Top eight levels per side. Sizes and cumulative depth are in {symbol}. Displayed liquidity can change and is not a fill guarantee. Public market data does not grant trading access.</p>
+      <details className={styles.contextDisclosure}><summary>Funding &amp; market context<span>{hourlyFundingLabel(funding)} / h</span></summary>
+        <dl className={styles.metrics} aria-label="Current perpetual context">
+          <div><dt>Funding / hour</dt><dd className={assetStale ? styles.muted : undefined}>{hourlyFundingLabel(funding)}</dd></div>
+          <div><dt>Open interest ({symbol})</dt><dd className={assetStale ? styles.muted : undefined}>{marketQuantity(current?.asset?.openInterestBase)}</dd></div>
+          <div><dt>Mark (USDC)</dt><dd className={assetStale ? styles.muted : undefined}>{marketQuantity(current?.asset?.markPrice)}</dd></div>
+        </dl>
+        <p className={styles.note}>{positive ? "Positive funding: longs pay shorts." : negative ? "Negative funding: shorts pay longs." : funding !== undefined ? "Current funding is zero." : "Funding is paid between positions, not to Orcus."} The current rate can change before hourly settlement.</p>
+        {current?.asset && <p className={styles.timestamp}>{assetStale || error ? "Context may be stale" : "Context observed"} {time(current.asset.observedAt)}</p>}
+        <p className={styles.note}>Top eight levels per side. Sizes and cumulative depth are in {symbol}. Displayed liquidity can change and is not a fill guarantee.</p>
+      </details>
     </section>
   );
 }
 
-function BookSide({ side, symbol, levels }: { side: "Bid" | "Ask"; symbol: string; levels: BookLevel[] }) {
-  const rows = cumulativeLevels(levels.slice(0, 8)), max = rows.at(-1)?.cumulative ?? 1;
-  return <table className={styles.table}>
-    <caption>{side === "Bid" ? "Bids" : "Asks"}</caption>
-    <thead><tr><th scope="col">USDC</th><th scope="col">{symbol}</th><th scope="col">Total</th></tr></thead>
-    <tbody>{rows.map(level => <tr key={level.price} className={side === "Bid" ? styles.bid : styles.ask} style={{ backgroundSize: `${Math.min(100, level.cumulative / max * 100)}% 100%` }}><td title={level.price}>{marketQuantity(level.price)}</td><td title={level.size}>{marketQuantity(level.size)}</td><td>{marketQuantity(level.cumulative)}</td></tr>)}</tbody>
-  </table>;
+function depthQuantity(value: string) {
+  if (!/^\d+(?:\.\d+)?$/.test(value)) return "Unavailable";
+  const [whole, fraction] = value.split(".");
+  const decimal = fraction?.replace(/0+$/, "");
+  return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${decimal ? `.${decimal}` : ""}`;
+}
+
+function DepthRow({ level, side, maxDepth }: { level: BookLevel & { cumulative: number }; side: "bid" | "ask"; maxDepth: number }) {
+  return <tr className={side === "bid" ? styles.bid : styles.ask} style={{ backgroundSize: `${Math.min(100, level.cumulative / maxDepth * 100)}% 100%` }}><td>{depthQuantity(level.price)}</td><td>{depthQuantity(level.size)}</td><td>{marketQuantity(level.cumulative)}</td></tr>;
 }
 
 function SwapContext({ symbol, prepared, now }: { symbol: string; prepared?: PreparedAction | null; now: number }) {
