@@ -103,7 +103,8 @@ export class Store {
     return (this.db.prepare("SELECT body FROM records WHERE user_id=? AND kind=? ORDER BY created_at DESC LIMIT ?").all(userId,kind,Math.min(limit,500)) as { body: string }[]).map(row=>JSON.parse(row.body) as T);
   }
   put<T extends StoredRecord>(kind: string,value: T): T {
-    this.db.prepare("INSERT INTO records(id,user_id,kind,account_id,body,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body,updated_at=excluded.updated_at WHERE records.user_id=excluded.user_id AND records.kind=excluded.kind").run(value.id,value.userId,kind,value.accountId??null,JSON.stringify(value),value.createdAt,value.updatedAt);
+    const result=this.db.prepare("INSERT INTO records(id,user_id,kind,account_id,body,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body,updated_at=excluded.updated_at WHERE records.user_id=excluded.user_id AND records.kind=excluded.kind").run(value.id,value.userId,kind,value.accountId??null,JSON.stringify(value),value.createdAt,value.updatedAt);
+    if(result.changes!==1)throw new ApiError("RECORD_ID_CONFLICT","This record could not be persisted under the requested scope.",409);
     return value;
   }
   update<T extends StoredRecord>(userId: string,kind: string,recordId: string,patch: Partial<T>): T {
