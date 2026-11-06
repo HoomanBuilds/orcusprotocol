@@ -10,6 +10,8 @@ Review `story.mjs` before any paid generation. The capture directory must contai
 
 Use an absolute output directory outside the repository. Install Chromium, FFmpeg and ffprobe locally if absent. Existing repository dependencies cover the focused tests. Do not start another heavy render in parallel.
 
+Capture first signs into a fresh unfunded wallet locally, then visibly enters the browser-only Demo account for populated Overview, terminal, and swap inputs. Its native Demo account badge stays visible whenever sample balances, positions, or history are shown. Sample completed actions are not evidence of real execution. The capture visibly exits demo before restoring prior research, reviewing a strategy on the real unfunded account, and showing actual queued local work and owner controls. Full reloads isolate demo state; the research playback wrapper is installed only after the real session is restored. The capture manifest records both account-mode transitions and per-shot data provenance. Browser-level request interception separately blocks every local write while demo mode is active.
+
 ## Voice approval and cache
 
 One approved Sarah pass is capped at 4,000 total text characters. `generate-voice.mjs` uses the verified `eleven_v4` model and Sarah voice with the reference settings. It reads only `ELEVENLABS_API_KEY` from the explicitly supplied env file and never prints it. No voice request occurs without the paid flag.

@@ -7,10 +7,11 @@ export function captureOrigin(value) {
   return url;
 }
 
-export function allowedCaptureRequest(request, origin) {
+export function allowedCaptureRequest(request, origin, demoMode = false) {
   const url = new URL(request.url), method = request.method.toUpperCase();
   if (url.origin !== origin) return method === "GET" || method === "HEAD" || method === "OPTIONS" || method === "POST" && url.origin === "https://api.hyperliquid-testnet.xyz" && url.pathname === "/info";
   if (["GET", "HEAD", "OPTIONS"].includes(method)) return true;
+  if (demoMode) return false;
   if (method !== "POST") return false;
   let body;
   try { body = JSON.parse(request.postData ?? "{}"); } catch { return false; }
@@ -19,6 +20,15 @@ export function allowedCaptureRequest(request, origin) {
   if (url.pathname === "/api/agent/control") return ["pause", "resume", "take-over"].includes(body.command);
   if (url.pathname === "/api/agent/requests") return body.autonomous === false && body.message === "Review my account exposure. Research only; do not trade.";
   return false;
+}
+
+export function captureProvenance(id) {
+  if (id === "02-onboarding") return { accountData: "real-local-sign-in-then-browser-demo", sampleAccountData: true, sampleCompletedActionsAreExecutionEvidence: false };
+  if (["03-hyperliquid", "04-uniswap"].includes(id)) return { accountData: id === "04-uniswap" ? "browser-local-sample-then-real-wallet" : "browser-local-sample", sampleAccountData: true, marketData: "read-only-venue-data", sampleCompletedActionsAreExecutionEvidence: false };
+  if (id === "05-research") return { accountData: "real-unfunded-wallet", researchData: "previously-recorded-0g-response", newInference: false, sampleAccountData: false };
+  if (id === "06-strategy") return { accountData: "real-unfunded-wallet", strategyState: "review-only-not-activated", sampleAccountData: false };
+  if (id === "07-control-history") return { accountData: "real-unfunded-wallet", instructionState: "queued-not-completed", controls: "real-local-owner-pause", sampleAccountData: false };
+  return { accountData: "none", sampleAccountData: false };
 }
 
 export function recordedResearch(rows) {

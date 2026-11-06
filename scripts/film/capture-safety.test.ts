@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedCaptureRequest, captureOrigin, concatFrames, recordedResearch } from "./capture-safety.mjs";
+import { allowedCaptureRequest, captureOrigin, captureProvenance, concatFrames, recordedResearch } from "./capture-safety.mjs";
 
 describe("film capture safety", () => {
   const origin = "http://localhost:3134";
@@ -19,6 +19,20 @@ describe("film capture safety", () => {
     expect(allowedCaptureRequest({ url: "https://api.hyperliquid-testnet.xyz/info", method: "POST" }, origin)).toBe(true);
     expect(allowedCaptureRequest({ url: "https://api.hyperliquid-testnet.xyz/exchange", method: "POST" }, origin)).toBe(false);
     expect(allowedCaptureRequest({ url: "https://api.hyperliquid.xyz/info", method: "POST" }, origin)).toBe(false);
+  });
+  it("blocks all local writes during demo mode even when normally permitted", () => {
+    for (const path of ["/api/auth/verify", "/api/accounts", "/api/agent/control", "/api/agent/requests"]) {
+      expect(allowedCaptureRequest({ url: origin + path, method: "POST", postData: JSON.stringify({ venue: "hyperliquid", command: "pause", autonomous: false, message: "Review my account exposure. Research only; do not trade." }) }, origin, true)).toBe(false);
+    }
+    expect(allowedCaptureRequest({ url: origin + "/api/markets", method: "GET" }, origin, true)).toBe(true);
+    expect(allowedCaptureRequest({ url: "https://api.hyperliquid-testnet.xyz/info", method: "POST" }, origin, true)).toBe(true);
+  });
+  it("never promotes sample positions or completed actions to real execution evidence", () => {
+    for (const id of ["02-onboarding", "03-hyperliquid", "04-uniswap"]) expect(captureProvenance(id)).toMatchObject({ sampleAccountData: true, sampleCompletedActionsAreExecutionEvidence: false });
+    expect(captureProvenance("04-uniswap").accountData).toBe("browser-local-sample-then-real-wallet");
+    expect(captureProvenance("05-research")).toMatchObject({ sampleAccountData: false, newInference: false, researchData: "previously-recorded-0g-response" });
+    expect(captureProvenance("06-strategy").strategyState).toBe("review-only-not-activated");
+    expect(captureProvenance("07-control-history").instructionState).toBe("queued-not-completed");
   });
   it("keeps exact successful research and removes private fields", () => {
     const rows = ["read_markets", "analyze_market", "read_market_context"].flatMap((name, i) => [{ body: JSON.stringify({ id: `${i}:user`, role: "user", content: "Research only", userId: "private" }) }, { body: JSON.stringify({ id: `${i}:assistant`, role: "assistant", content: "Actual response", privateKey: "must-not-copy", toolSteps: [{ name, ok: true, sources: [{ id: "source", title: "Market", url: "https://example.com", retrievedAt: 1 }] }] }) }]);
