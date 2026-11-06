@@ -16,9 +16,9 @@ import { Badge, Field, InlineError, Spinner, Status } from "../trading/primitive
 
 type Kind = "strategy" | "dca" | "alert";
 const starters = [
-  { id: "alert", label: "Price alert", when: "A price meets your threshold", then: "Notify you. No trade.", description: "Monitor a market without granting execution authority." },
-  { id: "dca", label: "Scheduled trade", when: "Your chosen interval", then: "Submit your exact trade", description: "Repeat a bounded trade a finite number of times." },
-  { id: "strategy", label: "Conditional trade", when: "Your price condition is met", then: "Submit your approved action", description: "Choose the trigger, action and stopping rule yourself." },
+  { id: "alert", label: "Price alert", description: "Get notified when a market reaches your price." },
+  { id: "dca", label: "Scheduled trade", description: "Repeat a trade on your schedule, within set limits." },
+  { id: "strategy", label: "Conditional trade", description: "Run an approved trade when your price rule is met." },
 ] as const;
 
 export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
@@ -105,7 +105,7 @@ function AutomationWorkspace({ workspace: w }: { workspace: Workspace }) {
 
   return <section className="workspace-page">
     <div className="page-heading"><div><h1>Automations</h1><p>Clear rules. Bounded actions. Always under your control.</p></div><button className="button primary" type="button" disabled={!owner || !w.session.accounts.length || !!busy} onClick={() => creating ? setCreating(false) : begin("strategy")}><Plus size={15}/>New automation</button></div>
-    <div className="automation-runner-notice"><strong>CRE local runner</strong> / {w.health?.cre.ready ? "Configured for local evaluations." : "Unavailable. Configure the runner before activating an automation."} Not hosted DON execution.</div>
+    <div className="automation-runner-notice"><div><strong>{w.health?.cre.ready ? "Runner configured" : "Runner unavailable"}</strong>{!w.health?.cre.ready && <span>Configure the runner before activating an automation.</span>}</div><details><summary>Execution details</summary><p>CRE evaluates rules through the local runner, not hosted DON execution.</p></details></div>
     <InlineError message={error}/>
     {creating && <div className="automation-form">
       <div className="automation-form-heading"><div><span className="eyebrow">{draft ? "02 / REVIEW" : "01 / CONFIGURE"}</span><h2>{draft ? "Your exact execution policy" : "Build an explicit rule"}</h2></div><Badge>{draft ? "Not active yet" : "Testnet"}</Badge></div>
@@ -131,7 +131,7 @@ function AutomationWorkspace({ workspace: w }: { workspace: Workspace }) {
       <div className="form-actions"><button className="button secondary" type="button" disabled={!!busy} onClick={() => draft ? setDraft(null) : setCreating(false)}>{draft ? "Edit rule" : "Cancel"}</button><button className="button primary" type="button" disabled={!!busy || !owner || !selectedAccount || !name.trim() || (draft !== null && (!w.health?.cre.ready || kind !== "alert" && !grant))} onClick={() => draft ? void create() : review()}>{busy === "create" ? <Spinner/> : <ShieldCheck size={15}/>} {draft ? "Approve and activate" : "Review rule"}</button></div>
     </div>}
     {!!notifications.length && <div className="automation-list"><h2>Price notifications</h2>{notifications.slice(0, 20).map(item => <article className="automation-card" key={item.id}><p>{item.message}</p><small>{time(item.createdAt)}</small>{!item.readAt && <button className="button secondary small" type="button" disabled={!!busy} onClick={() => void mutate(item.id, `/api/notifications/${item.id}`, { read: true })}>Mark read</button>}</article>)}</div>}
-    {!w.automations.length ? <div className="automation-starters">{starters.map((item, index) => <button className={`automation-starter ${item.id}`} type="button" key={item.id} disabled={w.connecting || !!busy} onClick={() => { if (!owner) { void w.connect(); return; } if (!w.session.accounts.length) { router.push("/settings?section=accounts"); return; } begin(item.id); }}><div className="automation-starter-top"><span>0{index + 1}</span><strong>{item.label}</strong></div><div className="automation-rule-preview"><span>WHEN</span><p>{item.when}</p><i/><span>THEN</span><p>{item.then}</p></div><p>{item.description}</p><span className="automation-starter-action">{!owner ? "Connect to configure" : !w.session.accounts.length ? "Set up account" : "Configure automation"}<Plus size={16}/></span></button>)}</div> : <div className="automation-list">{w.automations.map(job => {
+    {!w.automations.length ? <div className="automation-starters">{starters.map(item => <button className={`automation-starter ${item.id}`} type="button" key={item.id} disabled={w.connecting || !!busy} onClick={() => { if (!owner) { void w.connect(); return; } if (!w.session.accounts.length) { router.push("/settings?section=accounts"); return; } begin(item.id); }}><div className="automation-starter-top"><strong>{item.label}</strong></div><p>{item.description}</p><span className="automation-starter-action">{!owner ? "Connect to configure" : !w.session.accounts.length ? "Set up account" : "Configure automation"}</span></button>)}</div> : <div className="automation-list">{w.automations.map(job => {
       const control = automationControl(job, !!w.agentData?.agent.paused);
       return <article className="automation-card" key={job.id} id={job.id}>
         <div className="automation-top"><span className="automation-icon"><GitBranch size={18}/></span><div><h2>{job.name}</h2><span><Clock3 size={12}/>Every {Math.round(job.intervalSeconds / 60)} min / {control.status === "active" ? `next ${time(job.nextRunAt)}` : "not scheduled"}</span></div><Status value={control.status}/><button className="icon-button" type="button" aria-label={control.label} title={control.detail} disabled={!!busy || control.disabled} onClick={() => void mutate(job.id, `/api/automations/${job.id}`, { status: job.status === "active" ? "paused" : "active" })}>{busy === job.id ? <Spinner/> : <Power size={15}/>}</button></div>
