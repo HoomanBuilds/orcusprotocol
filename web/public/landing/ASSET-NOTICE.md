@@ -164,7 +164,7 @@ existing Orcus icon. It does not modify the public landing's original assets.
 
 ## Tethra preview hero
 
-The active comparison hero is `tethra-hero-v1.mp4`, copied byte-for-byte at the
+The previous comparison hero, retained for rollback, is `tethra-hero-v1.mp4`, copied byte-for-byte at the
 user's request from the local Tethra project's `web/public/bg-hero.mp4`, referenced
 by its `web/components/landing/hero-section.tsx`. Only that media is reused, not
 Tethra's branding, text, interface or runtime code. The clip's original creator
@@ -177,5 +177,5 @@ Its existing AAC audio is retained unchanged, but playback is always muted.
 SHA-256: `1ab42316c6f6caf1c5e9a81a343ee8715a2938f4cc4f5e6051c7e9228109ac78`.
 `tethra-hero-v1-poster.webp` is its first frame, encoded at the original
 1920 x 1080 dimensions with libwebp quality 82 and compression level 6. No
-unprovided WebM alternative is implied. The garden exports and earlier reference
+unprovided WebM alternative is implied. The previous v1 garden and earlier reference
 media remain separate inactive rollback options with their own provenance above.
