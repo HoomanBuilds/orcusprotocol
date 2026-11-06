@@ -7,6 +7,13 @@ import { OSTIUM_TESTNET } from "@orcus/wallets/ostium";
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 describe("CRE runner trust boundary", () => {
+  it("rejects cross-market conditions before reading a non-native market", async () => {
+    const owner=`0x${"1".repeat(40)}`,account={id:"hl",userId:"owner",venue:"hyperliquid" as const,address:owner,ownerAddress:owner,chainId:421614,status:"connected" as const,controlRevision:0};
+    const request=tradeRequestSchema.parse({accountId:account.id,venue:"hyperliquid",type:"market",symbol:"BTC",side:"buy",amount:"0.001"});
+    const input:CreEvaluationInput={evaluationId:"mismatch",automationId:"job",account,request,proposal:request,controlRevision:0,policyVersion:1,expiresAt:Date.now()+60_000,condition:{symbol:"ETH",operator:"above",price:"2000"}};
+    await expect(strategyObservationConfig(input)).rejects.toMatchObject({code:"CONDITION_MARKET_MISMATCH"});
+    await expect(strategyObservationConfig({...input,request:{...request,symbol:"WETH/USDC"}})).resolves.toMatchObject({marketUrl:"https://api.coinbase.com/v2/prices/ETH-USD/spot"});
+  });
   it("selects native pair metadata and six-decimal collateral without a guessed Coinbase FX symbol", async () => {
     const getPair = vi.spyOn(native, "getOstiumPair").mockResolvedValue({ pairId: "12" } as Awaited<ReturnType<typeof native.getOstiumPair>>);
     const owner = `0x${"1".repeat(40)}`, account = { id: "native", userId: "owner", venue: "ostium" as const, address: owner, ownerAddress: owner, chainId: 421614, status: "connected" as const, controlRevision: 0 };

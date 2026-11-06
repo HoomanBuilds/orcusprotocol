@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { type TradeRequest, type TradingAccount } from "@orcus/core";
+import { automationMarketMatches, type TradeRequest, type TradingAccount } from "@orcus/core";
 import { engineConfig } from "../config";
 import { EngineError, requireConfigured } from "../errors";
 import { OSTIUM_TESTNET } from "@orcus/wallets/ostium";
@@ -95,6 +95,7 @@ export function parseCreOutput(stdout: string) {
 
 export async function strategyObservationConfig(input: CreEvaluationInput) {
   const kind = input.kind ?? "trade", symbol = kind === "alert" ? input.condition!.symbol! : input.request!.symbol;
+  if(kind === "trade" && input.condition?.symbol && !automationMarketMatches(input.account.venue,symbol,input.condition.symbol))throw new EngineError("CONDITION_MARKET_MISMATCH","The condition must name the same market as its reviewed trade. Cross-market triggers are not supported.");
   if (input.account.venue === "ostium") {
     assertOstiumAccount(input.account);
     if (input.request?.type === "remove-collateral") throw new EngineError("OWNER_ONLY", "Ostium collateral removal requires the owner's explicit signature, not an unattended strategy.", 403);
@@ -144,6 +145,10 @@ export async function evaluateStrategy(input: CreEvaluationInput) {
       throw creRunFailure(error);
     }
     const result = parseCreOutput(stdout);
+    const conditionSchema=z.object({operator:z.enum(["above","below","always"]),price:z.string().optional(),symbol:z.string().optional(),maxAgeSeconds:z.number().int().min(5).max(120).default(60)}).strict();
+    const expectedCondition=conditionSchema.parse(input.condition??{operator:"always",maxAgeSeconds:60});
+    const returnedCondition=conditionSchema.safeParse(result.condition);
+    if(!returnedCondition.success||JSON.stringify(returnedCondition.data)!==JSON.stringify(expectedCondition))throw new EngineError("CRE_BINDING_MISMATCH","The evaluation does not match the reviewed price condition.",422);
     if ((result.kind ?? "trade") !== kind || result.evaluationId !== input.evaluationId || result.automationId !== input.automationId || result.accountId !== input.account.id || result.chainId !== input.account.chainId || result.controlRevision !== input.controlRevision || result.policyVersion !== input.policyVersion || result.expiresAt !== input.expiresAt || result.expiresAt <= Date.now() || result.observedAt > Date.now() + 5_000 || Date.now() - result.observedAt > 120_000 || (result.requestId || undefined) !== input.requestId) throw new EngineError("CRE_BINDING_MISMATCH", "The evaluation does not match the approved account, policy, request or validity window.", 422);
     return { ...result, id: result.evaluationId, workflowEvidence: { cli: "cre workflow simulate", mode: "local-simulation", hasRealObservations: Boolean(result.observations) } };
   } finally { await rm(directory, { recursive: true, force: true }); }

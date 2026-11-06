@@ -63,7 +63,7 @@ export function onCron(runtime: Runtime<Config>): string {
   }
   const observations: Record<string, string | number> = {};
   const finish = (decision: "allow" | "reject" | "no-action", reason: string) => {
-    const output = { kind: config.kind, evaluationId: config.evaluationId, automationId: config.automationId, accountId: config.accountId, chainId: config.chainId, decision, reason, source: "local-simulation" as const, observedAt: now, expiresAt: config.expiresAt, controlRevision: config.controlRevision, policyVersion: config.policyVersion, requestId: config.requestId ?? "", proposalId: config.proposalId, observations };
+    const output = { kind: config.kind, evaluationId: config.evaluationId, automationId: config.automationId, accountId: config.accountId, chainId: config.chainId, decision, reason, source: "local-simulation" as const, observedAt: now, expiresAt: config.expiresAt, controlRevision: config.controlRevision, policyVersion: config.policyVersion, requestId: config.requestId ?? "", proposalId: config.proposalId, condition: config.condition, observations };
     const serialized = JSON.stringify(output), bytes = new TextEncoder().encode(serialized), count = Math.ceil(bytes.length / 512);
     if (count > 64) throw new Error("The evaluation evidence exceeds its bounded result size.");
     for (let index = 0; index < count; index++) runtime.log(`ORCUS_CRE_RESULT_PART=${index + 1}/${count}:${bytesToBase64(bytes.slice(index * 512, (index + 1) * 512))}`);
@@ -83,6 +83,8 @@ export function onCron(runtime: Runtime<Config>): string {
   }
   if (config.kind === "trade") {
     if (!proposal || !request) return finish("no-action", "No executable proposal was supplied.");
+    const market = (value: string) => { const base = value.toUpperCase().split(/[\/-]/)[0].replace(/USDC$|USD$/, ""); return base === "WETH" ? "ETH" : base; };
+    if (config.venue !== "ostium" && config.condition.symbol && market(config.condition.symbol) !== market(request.symbol)) return finish("reject", "The condition names a different market than the approved trade.");
     if ((proposal.nativeInput ?? false) !== (request.nativeInput ?? false)) return finish("reject", "The proposal changes the approved input asset.");
     if (!sameRequest(proposal, request)) return finish("reject", "The proposal differs from the approved candidate.");
   } else if (config.condition.operator === "always") return finish("reject", "Alerts require an explicit price threshold.");

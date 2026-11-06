@@ -88,7 +88,8 @@ async function harness(afterDecision?: (value: Record<string, unknown>) => void)
   const user = store.ensureUser("0x1111111111111111111111111111111111111111"), platform = new Platform(store);
   const account = platform.createAccount(user, { venue: "hyperliquid" });
   const request = tradeRequestSchema.parse({ accountId: account.id, venue: "hyperliquid", type: "market", symbol: "ETH", side: "buy", amount: "0.01", slippageBps: 50, mode: "agent" });
-  const decisions = [{ type: "tool", name: "propose_action", arguments: { request } }, { type: "final", message: "Fixture proposal is ready for permission checks.", requiresClarification: false }];
+  const automation = { kind: "trade", accountId: account.id, name: "Joined fixture strategy", request, condition: { symbol: "ETH", operator: "below", price: "2100" }, executionMode: "once", maxExecutions: 1, intervalSeconds: 60 };
+  const decisions = [{ type: "tool", name: "propose_automation", arguments: { automation } }, { type: "final", message: "Review this once-only ETH strategy before enabling it.", requiresClarification: false }];
   let modelCalls = 0;
   const provider = vi.fn(async (url: string | URL | Request) => {
     expect(String(url)).toBe(computeUrl);
@@ -101,7 +102,6 @@ async function harness(afterDecision?: (value: Record<string, unknown>) => void)
   const grant = await platform.permission(user, { accountId: account.id, action: "prepare", allowedActions: ["market"], allowedSymbols: ["ETH"], maxTradeUsd: "100" });
   await platform.permission(user, { accountId: account.id, action: "activate", permissionId: grant.permission!.id });
   setBudget(store, user.id, "1", "0", false);
-  const job = platform.createAutomation(user, { kind: "trade", accountId: account.id, name: "Joined fixture strategy", instruction: "Propose buying 0.01 ETH on this account. Keep the approved action unchanged." });
   const submit = vi.fn(async (prepared: PreparedAction, _account: unknown, _key: unknown, options: { assertAuthority: () => void }) => {
     options.assertAuthority();
     expect(prepared.request).toEqual(request);
@@ -115,8 +115,9 @@ async function harness(afterDecision?: (value: Record<string, unknown>) => void)
     if (config.mode !== "strategy") throw new Error("The joined fixture expects the real strategy configuration");
     const lines: string[] = [];
     const result = JSON.parse(onCron({ config, now: () => new Date(), log: (line: string) => lines.push(line) } as Parameters<typeof onCron>[0]));
+    const originalResult = JSON.stringify(result);
     afterDecision?.(result);
-    if (result.requestId !== config.requestId) return { stdout: `ORCUS_CRE_RESULT=${JSON.stringify(result)}`, stderr: "" };
+    if (JSON.stringify(result) !== originalResult) return { stdout: `ORCUS_CRE_RESULT=${JSON.stringify(result)}`, stderr: "" };
     return { stdout: lines.join("\n"), stderr: "" };
   });
   fixtures.simulate = cli;
@@ -130,11 +131,16 @@ async function harness(afterDecision?: (value: Record<string, unknown>) => void)
     if (name === "reconcileAction") return { status: "confirmed", orderId: "fixture-order", evidence: { fixture: true } };
     throw new Error(`Unexpected joined fixture boundary: ${name}`);
   });
+  const draft = await platform.chat(user, { requestId: "fixture-owner-review", accountId: account.id, message: "Prepare buying 0.01 ETH once when ETH is below 2100. Ask me to review before enabling it." });
+  expect(draft.automationProposal).toMatchObject(automation);
+  expect(store.list(user.id, "automation")).toHaveLength(0);
+  expect(store.list(user.id, "action")).toHaveLength(0);
+  const job = platform.createAutomation(user, draft.automationProposal, `chat-automation:${draft.message.id}`);
   return { store, user, platform, account, request, grant, job, provider, cli, engine, submit };
 }
 
 describe("joined planning, workflow and execution wiring with external fixtures", () => {
-  it("binds one typed proposal and provider identity through CRE to the same permissioned account", async () => {
+  it("binds an owner-accepted typed draft through CRE without replanning or repeating its trade", async () => {
     const h = await harness();
     await h.platform.tick();
     const evaluation = h.store.list<{ id: string; requestId: string }>(h.user.id, "evaluation")[0];
@@ -144,6 +150,7 @@ describe("joined planning, workflow and execution wiring with external fixtures"
     expect(h.provider).toHaveBeenCalledTimes(2);
     expect(h.cli).toHaveBeenCalledOnce();
     expect(h.submit).toHaveBeenCalledOnce();
+    expect(h.store.get(h.user.id, "automation", h.job.id)).toMatchObject({ status: "completed", executionCount: 1 });
     await h.platform.tick();
     expect(h.submit).toHaveBeenCalledOnce();
     expect(h.provider).toHaveBeenCalledTimes(2);
@@ -176,6 +183,14 @@ describe("joined planning, workflow and execution wiring with external fixtures"
     expect(h.store.list(h.user.id, "evaluation")).toHaveLength(0);
     expect(h.store.get<StoredAutomation>(h.user.id, "automation", h.job.id)).toMatchObject({ status: "failed", error: expect.stringContaining("does not match") });
     expect(h.store.list(h.user.id, "action")).toHaveLength(0);
+    expect(h.submit).not.toHaveBeenCalled();
+  });
+
+  it("rejects a CRE result evaluating a different threshold than the owner accepted", async () => {
+    const h = await harness(result => { result.condition = { symbol: "ETH", operator: "below", price: "9999", maxAgeSeconds: 60 }; });
+    await h.platform.tick();
+    expect(h.store.list(h.user.id, "evaluation")).toHaveLength(0);
+    expect(h.store.get<StoredAutomation>(h.user.id, "automation", h.job.id)).toMatchObject({ status: "failed", error: expect.stringContaining("condition") });
     expect(h.submit).not.toHaveBeenCalled();
   });
 });
