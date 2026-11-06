@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { AgentModelCatalog } from "@orcus/core";
 import { api, displayError, post } from "@/lib/api";
 
-type Model = { id: string; name: string; available: boolean; compatibility: "configured" | "catalog"; privacy: "catalog-tee" | "unverified"; pricing?: { promptPerMillionUsd: string; completionPerMillionUsd: string }; reason?: string };
-type ModelCatalog = { defaultModelId: string; selectedModelId: string; catalogAvailable: boolean; checkedAt?: number; warning?: string; models: Model[] };
-
 export function AgentModelSelector({ owner, disabled, onChange, onBusy, refresh }: { owner: string; disabled: boolean; onChange: (id: string | undefined) => void; onBusy: (busy: boolean) => void; refresh: () => Promise<void> }) {
-  const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
+  const [catalog, setCatalog] = useState<AgentModelCatalog | null>(null);
   const [selected, setSelected] = useState(""), [loading, setLoading] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState<string | null>(null);
   const ownerRef = useRef(owner), inFlight = useRef(false); ownerRef.current = owner;
   useEffect(() => {
@@ -15,7 +13,7 @@ export function AgentModelSelector({ owner, disabled, onChange, onBusy, refresh 
     setCatalog(null); setSelected(""); setError(null); onChange(undefined);
     if (!owner) return;
     setLoading(true);
-    void api<ModelCatalog>("/api/agent/models").then(result => {
+    void api<AgentModelCatalog>("/api/agent/models").then(result => {
       if (!active) return;
       setCatalog(result); setSelected(result.selectedModelId); onChange(result.selectedModelId);
     }).catch(cause => { if (active) setError(displayError(cause)); }).finally(() => { if (active) setLoading(false); });
