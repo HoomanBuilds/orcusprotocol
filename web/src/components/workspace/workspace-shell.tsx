@@ -25,7 +25,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const page = workspacePages.find(item => item.href === pathname) ?? workspacePages[0];
   const pending = w.session.user ? activityEntries({ actions: w.actions, requests: w.requests, budget: w.budget, payments: w.payments, funding: w.funding, deposits: w.tradingDeposits }).filter(item => item.pending).length : 0;
-  const readyServices = w.health ? [w.health.compute, w.health.storage, w.health.uniswap, w.health.hyperliquid, w.health.cre].filter(service => service.ready).length : undefined;
+  const readyServices = w.health ? [w.health.compute, w.health.storage, w.health.uniswap, w.health.hyperliquid, w.health.cre].filter(service => service.configured).length : undefined;
 
   useEffect(() => { setMenuOpen(false); }, [pathname]);
   useEffect(() => {
@@ -36,10 +36,10 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   const navigation = <>{workspacePages.map(item => <Link key={item.href} href={item.href} prefetch={false} className={pathname === item.href ? "selected" : ""} aria-current={pathname === item.href ? "page" : undefined} onClick={() => setMenuOpen(false)}><item.icon size={19}/><span>{item.title}</span>{item.href === "/activity" && pending > 0 && <span className="nav-count">{pending}</span>}</Link>)}</>;
 
-  return <div className="product-workspace">
+  return <div className={`product-workspace ${pathname === "/trade" ? "trade-route" : ""}`}>
     <a className="workspace-skip" href="#workspace-content">Skip to content</a>
     <aside className="workspace-sidebar">
-      <Link className="workspace-brand" href="/" prefetch={false} aria-label="Orcus overview"><img src="/icon.svg" width="31" height="31" alt=""/><span>orcus<span>.</span></span></Link>
+      <Link className="workspace-brand" href="/" prefetch={false} aria-label="Orcus overview"><img src="/workspace/orcus.svg" width="31" height="31" alt=""/><span>orcus<span>.</span></span></Link>
       <span className="sidebar-label">YOUR WORKSPACE</span>
       <nav className="primary-nav" aria-label="Main navigation">{navigation}</nav>
       <div className="sidebar-bottom"><div className="sidebar-environment"><ShieldCheck size={18}/><div><strong>Testnet workspace</strong><small>No mainnet trading</small></div></div><Link href="/landing" prefetch={false}><CircleHelp size={16}/>About Orcus<ArrowUpRight size={13}/></Link></div>

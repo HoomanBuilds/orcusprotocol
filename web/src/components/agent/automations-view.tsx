@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { tradeRequestSchema } from "@orcus/core";
 import { Clock3, GitBranch, Plus, Power, ShieldCheck } from "lucide-react";
 import type { Workspace } from "@/lib/use-workspace";
@@ -17,6 +18,7 @@ import {
 } from "../trading/primitives";
 
 export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
+  const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [instruction, setInstruction] = useState("");
@@ -113,11 +115,9 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
     <section className="workspace-page">
       <div className="page-heading">
         <div>
-          <span className="eyebrow">CONDITIONS, NOT GUESSWORK</span>
-          <h1>Strategy automations</h1>
+          <h1>Automations</h1>
           <p>
-            Owner-approved strategies evaluated by Chainlink CRE, executed
-            within your permissions.
+            Conditions you choose. Authority you control.
           </p>
         </div>
         <button
@@ -130,12 +130,9 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
           New automation
         </button>
       </div>
-      <div className="info-banner">
-        <GitBranch size={17} />
+      <div className="automation-runner-notice">
         <span>
-          <strong>CRE local simulation</strong> / the durable worker schedules
-          evaluations. This is not hosted DON execution. Stopping the runner
-          pauses conditional strategies, not owner controls.
+          <strong>CRE local runner</strong> / {w.health?.cre.ready ? "Configured for local evaluations." : "Unavailable. Conditional strategies cannot evaluate until the runner is configured."} Not hosted DON execution.
         </span>
       </div>
       <InlineError message={error} />
@@ -235,24 +232,7 @@ export function AutomationsView({ workspace: w }: { workspace: Workspace }) {
         </article>)}
       </div>}
       {!w.automations.length ? (
-        <Empty
-          title="Let your strategy do the waiting"
-          action={
-            w.session.user ? undefined : (
-              <button
-                className="button secondary small"
-                type="button"
-                onClick={() => void w.connect()}
-              >
-                Connect wallet
-              </button>
-            )
-          }
-        >
-          Create a bounded strategy after adding your trading account and
-          granting permissions. The worker keeps the schedule when your browser
-          closes.
-        </Empty>
+        <div className="automation-starters">{([{ id: "alert", label: "Price alert", when: "Price crosses your threshold", then: "Notify you. No trade.", description: "Watch a price without granting execution authority." }, { id: "dca", label: "Recurring trade", when: "Your chosen interval", then: "Prepare a bounded purchase or sale", description: "Repeat one exact trade within your active permissions." }, { id: "strategy", label: "Agent strategy", when: "Your conditions are met", then: "Evaluate an agent proposal", description: "0G plans. CRE evaluates. Account permissions apply." }] as const).map((item, index) => <button className={`automation-starter ${item.id}`} type="button" key={item.id} disabled={w.connecting || !!busy} onClick={() => { if (!w.session.user) { void w.connect(); return; } if (!w.session.accounts.length) { router.push("/settings?section=accounts"); return; } setKind(item.id); setRequestKey(null); setCreating(true); }}><div className="automation-starter-top"><span>0{index + 1}</span><strong>{item.label}</strong></div><div className="automation-rule-preview"><span>WHEN</span><p>{item.when}</p><i/><span>THEN</span><p>{item.then}</p></div><p>{item.description}</p><span className="automation-starter-action">{!w.session.user ? "Connect to configure" : !w.session.accounts.length ? "Set up account" : "Configure automation"}<Plus size={16}/></span></button>)}</div>
       ) : (
         <div className="automation-list">
           {w.automations.map((job) => (

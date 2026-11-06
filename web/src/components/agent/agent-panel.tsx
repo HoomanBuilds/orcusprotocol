@@ -47,9 +47,13 @@ function AutomationSuggestion({ proposal, messageId, onCreated }: { proposal: un
 export function AgentPanel({
   workspace: w,
   onSettings,
+  onBudget = onSettings,
+  showBudget = true,
 }: {
   workspace: Workspace;
   onSettings: () => void;
+  onBudget?: () => void;
+  showBudget?: boolean;
 }) {
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +71,7 @@ export function AgentPanel({
     setAutonomous(agent?.mode === "autonomous");
   }, [agent?.mode]);
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (messages.length || sending) end.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
   }, [messages.length, sending]);
 
   async function send() {
@@ -122,12 +126,11 @@ export function AgentPanel({
             </span>
             <span className="eyebrow">A SECOND PAIR OF EYES</span>
             <h3>
-              Your strategy.
-              <br />A little more leverage.
+              What are we
+              <br />working on?
             </h3>
             <p>
-              Research a market, make a trade, or ask me to manage a position.
-              We use the same accounts. You keep the final say.
+              Ask about your accounts, plan a trade, or review a position.
             </p>
             <div className="suggestions">
               {[
@@ -262,10 +265,10 @@ export function AgentPanel({
           Review permissions
         </button>
       </div>
-      <div className="agent-budget">
+      {showBudget && <div className="agent-budget">
         <div>
           <span className="eyebrow">OPERATING BUDGET</span>
-          <button className="text-button" type="button" onClick={onSettings}>
+          <button className="text-button" type="button" onClick={onBudget}>
             Manage
           </button>
         </div>
@@ -294,7 +297,7 @@ export function AgentPanel({
           Separate from trading capital{" "}
           <Address value={agent?.operatingAddress} />
         </p>
-      </div>
+      </div>}
     </aside>
   );
 }

@@ -6,7 +6,7 @@ const account: TradingAccount = { id: "account", userId: "owner", address: `0x${
 const request = { accountId: account.id, venue: "hyperliquid" as const, symbol: "ETH", type: "market" as const, side: "buy" as const, amount: "0.1", slippageBps: 50, reduceOnly: false, mode: "manual" as const };
 const action: ActionRecord = { id: "action", userId: "owner", accountId: account.id, request, status: "awaiting-approval", initiator: "manual", createdAt: 10, updatedAt: 10, prepared: { id: "action", request, account, kind: "hyperliquid", expiresAt: 2000, controlRevision: 2 } };
 const portfolio: Portfolio = { accounts: [account], balances: [], positions: [], orders: [], observedAt: 1000 };
-const agentRequest: AgentRequestSummary = { id: "request", requestId: "request", runId: "run-1", message: "Review ETH exposure", autonomous: false, status: "queued", createdAt: 20 };
+const agentRequest: AgentRequestSummary = { id: "request", requestId: "request", runId: "run-1", userMessageId: "message", message: "Review ETH exposure", autonomous: false, status: "queued", stage: "queued", modelCalls: 0, toolCalls: 0, createdAt: 20, updatedAt: 20, expiresAt: 1000 };
 const empty = { actions: [], requests: [], budget: null, payments: null, funding: null };
 
 describe("saved owner action review", () => {

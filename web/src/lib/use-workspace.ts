@@ -196,11 +196,17 @@ function useWorkspaceState() {
 
   useEffect(() => {
     let active = true;
+    let busy = false;
+    setMarkets([]);
+    setMarketError(null);
     async function load() {
+      if (busy) return;
+      busy = true;
       const results = await Promise.allSettled([
-        api<HealthStatus>("/api/health"),
-        api<{ markets: Market[] }>(`/api/markets?venue=${venue}`),
+        api<HealthStatus>("/api/health", { signal: AbortSignal.timeout(10_000) }),
+        api<{ markets: Market[] }>(`/api/markets?venue=${venue}`, { signal: AbortSignal.timeout(10_000) }),
       ]);
+      busy = false;
       if (!active) return;
       if (results[0].status === "fulfilled") setHealth(results[0].value);
       if (results[1].status === "fulfilled") {

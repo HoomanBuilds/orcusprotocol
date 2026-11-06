@@ -1,25 +1,7 @@
-import type { ActionRecord, ChatMessage, OperatingBudget, Portfolio, TradingAccount } from "@orcus/core";
+import type { ActionRecord, AgentRequest, OperatingBudget, Portfolio, TradingAccount } from "@orcus/core";
 import type { ServicePaymentQuote } from "@orcus/wallets/service-payment";
 
-export interface AgentRequestSummary {
-  id: string;
-  requestId: string;
-  runId: string;
-  message: string;
-  accountId?: string;
-  autonomous: boolean;
-  status: "queued" | "running" | "completed" | "failed" | "interrupted";
-  stage?: string;
-  tool?: string;
-  modelCalls?: number;
-  toolCalls?: number;
-  createdAt: number;
-  updatedAt?: number;
-  response?: ChatMessage;
-  actionId?: string;
-  errorCode?: string;
-  error?: string;
-}
+export type AgentRequestSummary = AgentRequest;
 
 export interface PaymentSnapshot {
   configured: boolean;
