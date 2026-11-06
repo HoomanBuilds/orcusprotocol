@@ -225,6 +225,8 @@ export interface Automation {
   nextRunAt: number;
   policyVersion: number;
   lastEvaluation?: CreEvaluation;
+  expiresAt?: number;
+  error?: string;
   createdAt: number;
 }
 
