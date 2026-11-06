@@ -251,8 +251,15 @@ export async function fundTradingAccount(input: { account: TradingAccount; asset
     if (balance < amount) throw new WalletActionError("INSUFFICIENT_FUNDS", `Your owner wallet does not have enough testnet ${input.asset}.`);
     const { request, result: success } = await kernel.publicClient.simulateContract({ account: wallet.account, address: token, abi: erc20Abi, functionName: "transfer", args: [recipient, amount] });
     if (!success) throw new WalletActionError("PREFLIGHT_FAILED", "The test token rejected this funding transfer.");
+    const data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [recipient, amount] });
+    const [gas, fees] = await Promise.all([
+      kernel.publicClient.estimateGas({ account: wallet.account, to: token, data }),
+      kernel.publicClient.estimateFeesPerGas(),
+    ]);
+    const gasLimit = (gas * 120n + 99n) / 100n;
+    if (await kernel.publicClient.getBalance({ address: ownerAddress }) < gasLimit * fees.maxFeePerGas) throw new WalletActionError("INSUFFICIENT_GAS", `Your owner wallet needs Sepolia ETH for this ${input.asset} deposit's network fee. Trading gas sponsorship does not cover external-wallet deposits.`);
     await ready();
-    try { hash = await wallet.writeContract(request); }
+    try { hash = await wallet.writeContract({ ...request, gas: gasLimit, ...fees }); }
     catch (error) { throw fundingSendError(error); }
   }
   let receipt;

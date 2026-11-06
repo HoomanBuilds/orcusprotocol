@@ -22,13 +22,15 @@ const mocks = vi.hoisted(() => ({
   estimateFees: vi.fn(),
   getBalance: vi.fn(),
   sendTransaction: vi.fn(),
+  writeContract: vi.fn(),
+  simulateContract: vi.fn(),
   waitTransaction: vi.fn(),
 }));
 
 vi.mock("viem", async importOriginal => ({
   ...await importOriginal<typeof import("viem")>(),
   createPublicClient: () => ({ getChainId: async () => mocks.rpcChainId, estimateGas: mocks.estimateGas, estimateFeesPerGas: mocks.estimateFees, getBalance: mocks.getBalance, waitForTransactionReceipt: mocks.waitTransaction }),
-  createWalletClient: () => ({ account: { address: mocks.currentAddress }, getChainId: async () => mocks.chainId, switchChain: async ({ id }: { id: number }) => { mocks.chainId = id; if (mocks.switchAccount) mocks.currentAddress = mocks.accountAddress; }, sendTransaction: mocks.sendTransaction }),
+  createWalletClient: () => ({ account: { address: mocks.currentAddress }, getChainId: async () => mocks.chainId, switchChain: async ({ id }: { id: number }) => { mocks.chainId = id; if (mocks.switchAccount) mocks.currentAddress = mocks.accountAddress; }, sendTransaction: mocks.sendTransaction, writeContract: mocks.writeContract }),
 }));
 
 vi.mock("./kernel", async importOriginal => ({
@@ -37,7 +39,7 @@ vi.mock("./kernel", async importOriginal => ({
   createOwnerKernel: async () => ({
     account: { address: mocks.accountAddress, encodeCalls: async () => "0x1234", signUserOperation: mocks.sign },
     client: { prepareUserOperation: mocks.prepare, request: mocks.send, waitForUserOperationReceipt: mocks.wait },
-    publicClient: { getCode: mocks.getCode, readContract: mocks.read, estimateGas: mocks.estimateGas, estimateFeesPerGas: mocks.estimateFees, getBalance: mocks.getBalance, waitForTransactionReceipt: mocks.waitTransaction },
+    publicClient: { getCode: mocks.getCode, readContract: mocks.read, simulateContract: mocks.simulateContract, estimateGas: mocks.estimateGas, estimateFeesPerGas: mocks.estimateFees, getBalance: mocks.getBalance, waitForTransactionReceipt: mocks.waitTransaction },
   }),
   createPermissionPlugin: async () => ({ getIdentifier: () => "0x12345678", getEnableData: async () => "0x" }),
 }));
@@ -69,9 +71,11 @@ beforeEach(() => {
   mocks.estimateFees.mockResolvedValue({ maxFeePerGas: 1n, maxPriorityFeePerGas: 1n });
   mocks.getBalance.mockResolvedValue(10n ** 20n);
   mocks.sendTransaction.mockResolvedValue(txHash);
+  mocks.writeContract.mockResolvedValue(txHash);
+  mocks.simulateContract.mockImplementation(async input => ({ request: input, result: true }));
   mocks.waitTransaction.mockResolvedValue({ status: "success", transactionHash: txHash });
   vi.stubGlobal("window", { location: { origin: "http://localhost:3000" }, ethereum: { request: async ({ method }: { method: string }) => method === "eth_accounts" ? [mocks.currentAddress] : `0x${mocks.chainId.toString(16)}` } });
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => ({ data: url === "/api/session" ? { user: { address: mocks.ownerAddress }, agent: { operatingAddress: mocks.operatingAddress }, accounts: [account] } : { smartAccountsConfigured: true, rpcUrl: "/api/rpc", bundlerUrl: "/api/bundler", chainId: 11155111 } }) })));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => ({ data: url === "/api/session" ? { user: { address: mocks.ownerAddress }, agent: { operatingAddress: mocks.operatingAddress }, accounts: [account] } : { smartAccountsConfigured: true, rpcUrl: "/api/rpc", bundlerUrl: "/api/bundler", chainId: 11155111, usdc: `0x${"4".repeat(40)}`, weth: `0x${"5".repeat(40)}` } }) })));
 });
 
 afterEach(() => { vi.unstubAllGlobals(); });
@@ -119,6 +123,26 @@ describe("native permission revocation", () => {
 });
 
 describe("owner-signed account funding", () => {
+  it("checks the external wallet's gas balance before requesting a token funding signature", async () => {
+    mocks.read.mockResolvedValueOnce(6).mockResolvedValueOnce(1_000_000n);
+    mocks.getBalance.mockResolvedValue(0n);
+    await expect(fundTradingAccount({ account, asset: "USDC", amount: "1" })).rejects.toMatchObject({ code: "INSUFFICIENT_GAS", phase: "not-submitted" });
+    expect(mocks.writeContract).not.toHaveBeenCalled();
+    expect(mocks.sign).not.toHaveBeenCalled();
+  });
+  it("funds the derived account with exact tokens and bounded owner-paid gas", async () => {
+    mocks.read.mockResolvedValueOnce(6).mockResolvedValueOnce(1_000_000n);
+    mocks.estimateGas.mockResolvedValue(21_001n);
+    await expect(fundTradingAccount({ account, asset: "USDC", amount: "1" })).resolves.toMatchObject({ asset: "USDC", amount: "1", recipient: mocks.accountAddress, transactionHash: txHash });
+    expect(mocks.writeContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: "transfer", args: [mocks.accountAddress, 1_000_000n], gas: 25_202n, maxFeePerGas: 1n }));
+    expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+  it("does not request a funding signature when the token simulation rejects", async () => {
+    mocks.read.mockResolvedValueOnce(18).mockResolvedValueOnce(10n ** 18n);
+    mocks.simulateContract.mockResolvedValueOnce({ request: {}, result: false });
+    await expect(fundTradingAccount({ account, asset: "WETH", amount: "1" })).rejects.toMatchObject({ code: "PREFLIGHT_FAILED" });
+    expect(mocks.writeContract).not.toHaveBeenCalled();
+  });
   it("refuses mainnet funding", async () => {
     await expect(fundTradingAccount({ account: { ...account, chainId: 1 }, asset: "ETH", amount: "1" })).rejects.toMatchObject({ code: "UNSUPPORTED_NETWORK" });
     expect(mocks.sendTransaction).not.toHaveBeenCalled();
