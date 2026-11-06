@@ -1,9 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { creChildEnvironment, creRunFailure, parseCreOutput, withCreRunner } from "./cre";
+import { creChildEnvironment, creRunFailure, parseCreOutput, strategyObservationConfig, withCreRunner, type CreEvaluationInput } from "./cre";
+import * as native from "../venues/ostium/data";
+import { tradeRequestSchema } from "@orcus/core";
+import { OSTIUM_TESTNET } from "@orcus/wallets/ostium";
 
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 describe("CRE runner trust boundary", () => {
+  it("selects native pair metadata and six-decimal collateral without a guessed Coinbase FX symbol", async () => {
+    const getPair = vi.spyOn(native, "getOstiumPair").mockResolvedValue({ pairId: "12" } as Awaited<ReturnType<typeof native.getOstiumPair>>);
+    const owner = `0x${"1".repeat(40)}`, account = { id: "native", userId: "owner", venue: "ostium" as const, address: owner, ownerAddress: owner, chainId: 421614, status: "connected" as const, controlRevision: 0 };
+    const request = tradeRequestSchema.parse({ accountId: account.id, venue: "ostium", type: "market", symbol: "US100/USD", side: "buy", amount: "10", amountUnit: "collateral-usdc", leverage: 10 });
+    const input: CreEvaluationInput = { evaluationId: "native-test", automationId: "job", account, request, proposal: request, controlRevision: 0, policyVersion: 1, expiresAt: Date.now() + 60_000 };
+    await expect(strategyObservationConfig(input)).resolves.toMatchObject({ chainName: "ethereum-testnet-sepolia-arbitrum-1", tokenAddress: OSTIUM_TESTNET.usdc, tokenDecimals: 6, marketUrl: "https://builder.prod.bedrock.ostium.io/v1/prices", ostium: { pairId: 12, symbol: "US100/USD" } });
+    expect(getPair).toHaveBeenCalledWith("US100/USD");
+    await expect(strategyObservationConfig({ ...input, request: { ...request, type: "remove-collateral", positionId: "native-position" } })).rejects.toMatchObject({ code: "OWNER_ONLY" });
+    await expect(strategyObservationConfig({ ...input, condition: { symbol: "USD/JPY", operator: "above", price: "150" } })).rejects.toMatchObject({ code: "CONDITION_MARKET_MISMATCH" });
+    const spot = { ...input, account: { ...account, venue: "uniswap" as const, chainId: 11155111 }, request: tradeRequestSchema.parse({ accountId: account.id, venue: "uniswap", type: "swap", symbol: "WETH/USDC", side: "sell", amount: "0.01" }), proposal: undefined };
+    await expect(strategyObservationConfig(spot)).resolves.toMatchObject({ chainName: "ethereum-testnet-sepolia", marketUrl: "https://api.coinbase.com/v2/prices/ETH-USD/spot" });
+  });
   it("keeps signing and compute secrets outside the CLI child", () => {
     vi.stubEnv("ORCUS_MASTER_KEY", "must-not-inherit");
     vi.stubEnv("ZEROG_COMPUTE_API_KEY", "must-not-inherit");
@@ -18,6 +33,13 @@ describe("CRE runner trust boundary", () => {
     expect(parseCreOutput(`runner: ORCUS_CRE_RESULT=${JSON.stringify(output)}`).decision).toBe("allow");
     expect(() => parseCreOutput("no workflow result")).toThrow("no authenticated evaluation");
     expect(() => parseCreOutput(`ORCUS_CRE_RESULT=${JSON.stringify({ ...output, source: "hosted" })}`)).toThrow("malformed or unsupported");
+  });
+  it("reassembles bounded CRE log parts and rejects truncated, reordered or mixed results", () => {
+    const output = { evaluationId: "evaluation", automationId: "job", accountId: "account", chainId: 421614, decision: "allow", reason: "condition met", source: "local-simulation", observedAt: 1, expiresAt: 2, controlRevision: 1, policyVersion: 1, observations: { source: "public observation".repeat(80) } };
+    const payload = JSON.stringify(output), bytes = Buffer.from(payload), chunks = Array.from({ length: Math.ceil(bytes.length / 512) }, (_, index) => bytes.subarray(index * 512, (index + 1) * 512).toString("base64")), lines = chunks.map((part, index) => `runner: ORCUS_CRE_RESULT_PART=${index + 1}/${chunks.length}:${part}`);
+    expect(parseCreOutput(lines.join("\n"))).toEqual(output);
+    for (const invalid of [lines.slice(1), [...lines].reverse(), [...lines, lines[0]], [...lines, ...lines], [...lines, `ORCUS_CRE_RESULT=${payload}`], ["ORCUS_CRE_RESULT_PART=1/1:" + "x".repeat(685)], ["ORCUS_CRE_RESULT_PART=1/1:/w=="]]) expect(() => parseCreOutput(invalid.join("\n"))).toThrow("malformed or unsupported");
+    expect(() => parseCreOutput(lines.join("\n").slice(0, -1))).toThrow("malformed or unsupported");
   });
   it("normalizes an absent preset-strategy inference ID before backend binding", () => {
     const output = { evaluationId: "evaluation", automationId: "job", accountId: "account", chainId: 11155111, decision: "allow", reason: "condition met", source: "local-simulation", observedAt: 1, expiresAt: 2, controlRevision: 1, policyVersion: 1 };

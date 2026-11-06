@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeAbiParameters, hexToBytes } from "viem";
 
-const mocks = vi.hoisted(() => ({ balanceAt: vi.fn(), callContract: vi.fn(), now: 1_800_000_000_000 }));
+const mocks = vi.hoisted(() => ({ balanceAt: vi.fn(), callContract: vi.fn(), now: 1_800_000_000_000, native: {} as Record<string, unknown> }));
 vi.mock("@chainlink/cre-sdk", () => ({
   ConsensusAggregationByFields: () => ({}),
   LATEST_BLOCK_NUMBER: "latest",
@@ -11,13 +11,14 @@ vi.mock("@chainlink/cre-sdk", () => ({
   consensusMedianAggregation: () => ({}),
   getNetwork: () => ({ chainSelector: { selector: 1n } }),
   median: () => 0,
+  identical: () => 0,
   encodeCallMsg: (value: unknown) => value,
   ok: () => true,
   text: () => "{}",
   blockNumber: (value: bigint) => value,
   protoBigIntToBigint: (value: bigint) => value,
   cre: { capabilities: {
-    HTTPClient: class { sendRequest() { return () => ({ result: () => ({ price: 2000n * 100_000_000n, observedAt: mocks.now }) }); } },
+    HTTPClient: class { sendRequest(_runtime: unknown, reader: { name: string }) { return () => ({ result: () => reader.name === "readOstiumMarket" ? mocks.native : ({ price: 2000n * 100_000_000n, observedAt: mocks.now }) }); } },
     EVMClient: class {
       static SUPPORTED_CHAIN_SELECTORS = { "ethereum-testnet-sepolia": "test-fixture-selector" };
       headerByNumber() { return { result: () => ({ header: { blockNumber: 10n, timestamp: BigInt(mocks.now / 1000) } }) }; }
@@ -29,6 +30,8 @@ vi.mock("@chainlink/cre-sdk", () => ({
 
 import { configSchema, onCron } from "./workflow";
 import { decimalAtoms, parsePositiveDecimalE8, sameRequest } from "./values";
+import { tradeRequestSchema } from "../../../packages/core/src/index";
+import { OSTIUM_TESTNET } from "../../../packages/wallets/src/ostium-deployment";
 
 function runtime(nativeInput = true, proposalNativeInput = nativeInput) {
   const request = { accountId: "account", venue: "uniswap", type: "swap", symbol: "WETH/USDC", side: "sell", amount: "0.01", nativeInput };
@@ -41,6 +44,43 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.balanceAt.mockReturnValue({ result: () => ({ balance: 10n ** 18n }) });
   mocks.callContract.mockReturnValue({ result: () => ({ data: hexToBytes(encodeAbiParameters([{ type: "uint256" }], [10n ** 18n])) }) });
+  mocks.native = { price: 4000n * 10n ** 18n, observedAt: mocks.now, pairId: "8", symbol: "XAU/USD", quoteAsset: "USD", feedId: `0x${"a".repeat(64)}`, marketOpen: true, dayTradingClosed: false, maxLeverage: 10000n, minLeverage: 100n, overnightMaxLeverage: 2000n, oracleFee: 500000n };
+});
+
+function nativeRuntime(type = "market", amount = "10", symbol = "XAU/USD") {
+  const request = tradeRequestSchema.parse({ accountId: "account", venue: "ostium", type, symbol, side: "buy", amount, amountUnit: ["close", "reduce"].includes(type) ? "base" : "collateral-usdc", leverage: 10, ...(["close", "reduce", "add-collateral", "remove-collateral"].includes(type) ? { positionId: "ostium-position:8:42" } : {}) });
+  const config = configSchema.parse({ schedule: "0 */5 * * * *", evaluationId: "evaluation", automationId: "automation", accountId: "account", accountAddress: `0x${"1".repeat(40)}`, chainId: 421614, chainName: "ethereum-testnet-sepolia-arbitrum-1", tokenAddress: OSTIUM_TESTNET.usdc, tokenDecimals: 6, venue: "ostium", ostium: { pairId: 8, symbol }, amount: request.amount, request, proposal: request, proposalId: "proposal", marketUrl: "https://builder.prod.bedrock.ostium.io/v1/prices", condition: { operator: "always" }, controlRevision: 0, policyVersion: 1, expiresAt: mocks.now + 60_000 });
+  return { config, now: () => new Date(mocks.now), log: vi.fn() } as unknown as Parameters<typeof onCron>[0];
+}
+
+describe("CRE native Ostium account observations", () => {
+  it("binds collateral USDC, entry leverage, oracle-fee exits and the native chain separately", () => {
+    mocks.callContract.mockReturnValue({ result: () => ({ data: hexToBytes(encodeAbiParameters([{ type: "uint256" }], [10000000n])) }) });
+    expect(evaluate(nativeRuntime())).toMatchObject({ decision: "allow", observations: { collateralBalanceUsdc: "10", requiredUsdcDebitAtoms: "10000000", marketPriceE18: (4000n * 10n ** 18n).toString() } });
+    mocks.callContract.mockReturnValue({ result: () => ({ data: hexToBytes(encodeAbiParameters([{ type: "uint256" }], [500000n])) }) });
+    expect(evaluate(nativeRuntime()).decision).toBe("reject");
+    expect(evaluate(nativeRuntime("close", "10000"))).toMatchObject({ decision: "allow", observations: { requiredUsdcDebitAtoms: "500000" } });
+    mocks.native.marketOpen = false;
+    expect(evaluate(nativeRuntime()).decision).toBe("reject");
+    expect(evaluate(nativeRuntime("reduce", "10000")).decision).toBe("allow");
+    expect(evaluate(nativeRuntime("remove-collateral"))).toMatchObject({ decision: "reject", reason: expect.stringContaining("owner's explicit signature") });
+    const wrong = nativeRuntime();
+    Object.assign(wrong.config, { chainId: 11155111 });
+    expect(evaluate(wrong).decision).toBe("reject");
+  });
+  it("compares FX quote-currency thresholds without calling them USD prices or using Coinbase", () => {
+    const value = nativeRuntime("market", "10", "USD/JPY");
+    mocks.native = { ...mocks.native, symbol: "USD/JPY", quoteAsset: "JPY", price: 153123456789123456789n };
+    Object.assign(value.config, { condition: { symbol: "USD/JPY", operator: "above", price: "153.123456789123456788", maxAgeSeconds: 60 } });
+    expect(evaluate(value)).toMatchObject({ decision: "allow", observations: { marketPrice: "153.123456789123456789", marketQuoteAsset: "JPY" } });
+    expect(evaluate(value).observations.marketPriceUsd).toBeUndefined();
+    for (const price of ["0", "153.1234567891234567891"]) {
+      Object.assign(value.config, { condition: { symbol: "USD/JPY", operator: "above", price, maxAgeSeconds: 60 } });
+      expect(evaluate(value).decision).toBe("reject");
+    }
+    Object.assign(value.config, { marketUrl: "https://api.coinbase.com/v2/prices/JPY-USD/spot" });
+    expect(evaluate(value).decision).toBe("reject");
+  });
 });
 
 describe("CRE native input with explicit capability fixtures", () => {

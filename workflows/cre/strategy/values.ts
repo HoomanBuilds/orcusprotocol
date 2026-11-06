@@ -18,6 +18,15 @@ export function parsePositiveDecimalE8(value: string): bigint {
   return decimalAtoms(value, 8);
 }
 
+export function numericPrice(value: unknown): bigint {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Error("The price service returned an invalid numeric price.");
+  const raw = String(value), match = /^(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(raw);
+  if (!match) return decimalAtoms(raw, 18);
+  const digits = match[1] + (match[2] ?? ""), point = match[1].length + Number(match[3]);
+  const expanded = point <= 0 ? `0.${"0".repeat(-point)}${digits}` : point >= digits.length ? digits + "0".repeat(point - digits.length) : `${digits.slice(0, point)}.${digits.slice(point)}`;
+  return decimalAtoms(expanded, 18);
+}
+
 export function sameRequest(left: Record<string, unknown>, right: Record<string, unknown>): boolean {
   const normalized = (value: Record<string, unknown>) => Object.fromEntries(Object.entries({ ...value, nativeInput: value.nativeInput ?? false }).filter(([, field]) => field !== undefined).sort(([a], [b]) => a.localeCompare(b)));
   return JSON.stringify(normalized(left)) === JSON.stringify(normalized(right));

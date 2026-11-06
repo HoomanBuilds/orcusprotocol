@@ -1,6 +1,6 @@
 import { getAddress } from "viem";
 import { z } from "zod";
-import { addressSchema, decimalSchema, ostiumDelegationAcknowledgementSchema, type PreparedAction } from "@orcus/core";
+import { addressSchema, decimalSchema, ostiumDelegationAcknowledgementSchema, type PreparedAction, type TradeRequest } from "@orcus/core";
 import { callEngine } from "./engine";
 import { ApiError } from "./errors";
 import type { StoredAccount, StoredPermission } from "./types";
@@ -8,6 +8,12 @@ import type { StoredAccount, StoredPermission } from "./types";
 const nativeAuthorizationSchema=z.object({trader:addressSchema,delegate:addressSchema,chainId:z.literal(421614),contractAddress:addressSchema,implementation:addressSchema,observedAt:z.number().int().positive()}).passthrough();
 const executionSchema=z.object({trader:addressSchema,recipient:addressSchema,chainId:z.literal(421614),pairId:z.number().int().nonnegative(),symbol:z.string().min(1).max(50),amountUnit:z.enum(["base","collateral-usdc"]),requiredAllowanceUsd:decimalSchema,collateralUsd:decimalSchema,notionalUsd:decimalSchema,leverage:z.number().finite().min(1).max(1000),builderFeeBps:z.literal(0),marketObservedAt:z.number().int().positive(),minimumBlock:z.string().regex(/^\d+$/),functionName:z.string().min(1).max(100),expectedData:z.string().regex(/^0x(?:[\da-fA-F]{2}){4,}$/),positionId:z.string().optional(),delegate:addressSchema.optional(),ownerOnly:z.boolean().optional()}).passthrough();
 export const ostiumAgentActions=["market","limit","stop","cancel","reduce","close","stop-loss","take-profit","edit-order","add-collateral"]as const;
+
+export function assertOstiumAutomation(account:StoredAccount,request?:TradeRequest,condition?:{symbol?:string}){
+  if(account.venue!=="ostium")return;
+  if(request&&!ostiumAgentActions.some(action=>action===request.type))throw new ApiError("OWNER_SIGNATURE_REQUIRED","This native action requires the owner's wallet, not an unattended strategy.",403);
+  if(condition?.symbol&&(!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(condition.symbol)||request&&condition.symbol!==request.symbol))throw new ApiError("CONDITION_MARKET_MISMATCH","Select the exact native pair used by the approved strategy.");
+}
 
 function sameAddress(first:string,second:string){return getAddress(first)===getAddress(second);}
 function usdMicros(value:string){const[whole,fraction=""]=value.split(".");return BigInt(whole)*1_000_000n+BigInt(fraction.padEnd(6,"0").slice(0,6))+(fraction.slice(6).match(/[1-9]/)?1n:0n);}

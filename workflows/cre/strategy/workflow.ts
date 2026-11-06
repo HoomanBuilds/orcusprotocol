@@ -1,24 +1,28 @@
-import { ConsensusAggregationByFields, LATEST_BLOCK_NUMBER, blockNumber, bytesToBase64, bytesToHex, consensusIdenticalAggregation, consensusMedianAggregation, cre, encodeCallMsg, getNetwork, median, ok, protoBigIntToBigint, text, type HTTPSendRequester, type Runtime } from "@chainlink/cre-sdk";
+import { ConsensusAggregationByFields, LATEST_BLOCK_NUMBER, blockNumber, bytesToBase64, bytesToHex, consensusIdenticalAggregation, consensusMedianAggregation, cre, encodeCallMsg, getNetwork, identical, median, ok, protoBigIntToBigint, text, type HTTPSendRequester, type Runtime } from "@chainlink/cre-sdk";
 import { decodeFunctionResult, encodeFunctionData, erc20Abi, getAddress, hexToBytes, zeroAddress } from "viem";
 import { z } from "zod";
 import { tradeRequestSchema } from "../../../packages/core/src/index";
 import { decimalAtoms, decimalString, parsePositiveDecimalE8, sameRequest } from "./values";
+import { OSTIUM_TESTNET } from "../../../packages/wallets/src/ostium-deployment";
+import { ostiumPricesUrl, readOstiumMarket, type OstiumObservation } from "./ostium";
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const decimal = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d+)?$/);
 const schedule = z.string().regex(/^\S+(?:\s+\S+){5}$/);
-const marketUrl = z.string().regex(/^https:\/\/api\.coinbase\.com\/v2\/prices\/[A-Z0-9]{2,12}-USD\/spot$/);
+const coinbaseUrl = z.string().regex(/^https:\/\/api\.coinbase\.com\/v2\/prices\/[A-Z0-9]{2,12}-USD\/spot$/);
+const marketUrl = z.union([coinbaseUrl, z.literal(ostiumPricesUrl)]);
 const requestSchema = tradeRequestSchema;
 const strategyConfigSchema = z.object({
   mode: z.literal("strategy").default("strategy"),
   schedule, evaluationId: z.string().min(1), automationId: z.string().min(1), accountId: z.string().min(1), accountAddress: address,
-  chainId: z.number().int(), chainName: z.literal("ethereum-testnet-sepolia"), tokenAddress: address, tokenDecimals: z.number().int().min(0).max(36),
-  kind: z.enum(["trade", "alert"]).default("trade"), venue: z.enum(["uniswap", "hyperliquid"]), amount: decimal.optional(), request: requestSchema.optional(), proposal: requestSchema.optional(), proposalId: z.string(), requestId: z.string().optional(),
+  chainId: z.number().int(), chainName: z.enum(["ethereum-testnet-sepolia", "ethereum-testnet-sepolia-arbitrum-1"]), tokenAddress: address, tokenDecimals: z.number().int().min(0).max(36),
+  kind: z.enum(["trade", "alert"]).default("trade"), venue: z.enum(["uniswap", "hyperliquid", "ostium"]), amount: decimal.optional(), request: requestSchema.optional(), proposal: requestSchema.optional(), proposalId: z.string(), requestId: z.string().optional(),
+  ostium: z.object({ pairId: z.number().int().min(0).max(65535), symbol: z.string().max(50).regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/) }).strict().optional(),
   proposalUrl: z.string().max(2048).regex(/^https:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?(?:\/[A-Za-z0-9_~.!$&'()*+,;=:@%/?-]*)?$/).optional(), marketUrl,
   condition: z.object({ operator: z.enum(["above", "below", "always"]), price: decimal.optional(), maxAgeSeconds: z.number().int().min(5).max(120).default(60), symbol: z.string().optional() }),
   controlRevision: z.number().int().min(0), policyVersion: z.number().int().min(1), expiresAt: z.number().int().positive(),
 }).strict();
-export const configSchema = z.union([strategyConfigSchema, z.object({ mode: z.literal("local-simulation"), schedule, marketUrl, samplePreviousPrice: decimal }).strict()]);
+export const configSchema = z.union([strategyConfigSchema, z.object({ mode: z.literal("local-simulation"), schedule, marketUrl: coinbaseUrl, samplePreviousPrice: decimal }).strict()]);
 type Config = z.infer<typeof configSchema>;
 
 function readMarket(requester: HTTPSendRequester, url: string, now: number, maxAgeSeconds: number) {
@@ -60,8 +64,10 @@ export function onCron(runtime: Runtime<Config>): string {
   const observations: Record<string, string | number> = {};
   const finish = (decision: "allow" | "reject" | "no-action", reason: string) => {
     const output = { kind: config.kind, evaluationId: config.evaluationId, automationId: config.automationId, accountId: config.accountId, chainId: config.chainId, decision, reason, source: "local-simulation" as const, observedAt: now, expiresAt: config.expiresAt, controlRevision: config.controlRevision, policyVersion: config.policyVersion, requestId: config.requestId ?? "", proposalId: config.proposalId, observations };
-    runtime.log(`ORCUS_CRE_RESULT=${JSON.stringify(output)}`);
-    return JSON.stringify(output);
+    const serialized = JSON.stringify(output), bytes = new TextEncoder().encode(serialized), count = Math.ceil(bytes.length / 512);
+    if (count > 64) throw new Error("The evaluation evidence exceeds its bounded result size.");
+    for (let index = 0; index < count; index++) runtime.log(`ORCUS_CRE_RESULT_PART=${index + 1}/${count}:${bytesToBase64(bytes.slice(index * 512, (index + 1) * 512))}`);
+    return serialized;
   };
   if (config.expiresAt <= now) return finish("reject", "The approved evaluation expired.");
   const request = config.request;
@@ -80,18 +86,27 @@ export function onCron(runtime: Runtime<Config>): string {
     if ((proposal.nativeInput ?? false) !== (request.nativeInput ?? false)) return finish("reject", "The proposal changes the approved input asset.");
     if (!sameRequest(proposal, request)) return finish("reject", "The proposal differs from the approved candidate.");
   } else if (config.condition.operator === "always") return finish("reject", "Alerts require an explicit price threshold.");
-  const pendingMarket = http.sendRequest(runtime, readMarket, ConsensusAggregationByFields<{ price: bigint; observedAt: number }>({ price: median, observedAt: median }))(config.marketUrl, now, config.condition.maxAgeSeconds);
+  const native = config.venue === "ostium";
+  if (native) {
+    if (config.chainId !== OSTIUM_TESTNET.chainId || config.chainName !== "ethereum-testnet-sepolia-arbitrum-1" || getAddress(config.tokenAddress) !== getAddress(OSTIUM_TESTNET.usdc) || config.tokenDecimals !== 6 || config.marketUrl !== ostiumPricesUrl || !config.ostium || config.ostium.symbol !== (config.kind === "alert" ? config.condition.symbol : request?.symbol) || config.condition.symbol && config.condition.symbol !== config.ostium.symbol) return finish("reject", "The native strategy is not bound to its Arbitrum Sepolia pair and collateral.");
+    if (request?.type === "remove-collateral") return finish("reject", "Native collateral removal requires the owner's explicit signature, not an automation.");
+  } else if (config.marketUrl === ostiumPricesUrl || config.ostium) return finish("reject", "The market observation source belongs to a different venue.");
+  const pendingMarket = native ? http.sendRequest(runtime, readOstiumMarket, ConsensusAggregationByFields<OstiumObservation>({ price: median, observedAt: median, pairId: identical, symbol: identical, quoteAsset: identical, feedId: identical, marketOpen: identical, dayTradingClosed: identical, maxLeverage: identical, minLeverage: identical, overnightMaxLeverage: identical, oracleFee: identical }))(config.ostium!.pairId, config.ostium!.symbol, now, config.condition.maxAgeSeconds) : http.sendRequest(runtime, readMarket, ConsensusAggregationByFields<{ price: bigint; observedAt: number }>({ price: median, observedAt: median }))(config.marketUrl, now, config.condition.maxAgeSeconds);
   const network = getNetwork({ chainFamily: "evm", chainSelectorName: config.chainName });
   if (config.venue === "uniswap" && (!network || config.chainId !== 11155111)) return finish("reject", "The spot strategy is not bound to Ethereum Sepolia.");
-  const evm = config.venue === "uniswap" ? new cre.capabilities.EVMClient(network!.chainSelector.selector) : undefined;
+  if (native && !network) return finish("reject", "Arbitrum Sepolia is unavailable to this workflow.");
+  const evm = config.venue === "uniswap" || native ? new cre.capabilities.EVMClient(network!.chainSelector.selector) : undefined;
   const pendingHeader = evm?.headerByNumber(runtime, { blockNumber: LATEST_BLOCK_NUMBER });
   const pendingCollateral = config.venue === "hyperliquid" ? http.sendRequest(runtime, readHyperliquidBalance, consensusMedianAggregation<bigint>())(config.accountAddress) : undefined;
   const market = pendingMarket.result();
-  observations.marketPriceUsd = decimalString(market.price, 8);
-  observations.marketPriceE8 = market.price.toString();
+  const decimals = native ? 18 : 8, quoteAsset = native ? (market as OstiumObservation).quoteAsset : "USD";
+  observations.marketPrice = decimalString(market.price, decimals);
+  observations.marketQuoteAsset = quoteAsset;
+  if (quoteAsset === "USD") observations.marketPriceUsd = observations.marketPrice;
+  observations[native ? "marketPriceE18" : "marketPriceE8"] = market.price.toString();
   observations.marketObservedAt = market.observedAt;
   observations.marketSource = config.marketUrl;
-  if (config.venue === "uniswap") {
+  if (config.venue === "uniswap" || native) {
     const reply = pendingHeader!.result();
     const header = reply.header;
     if (!header?.blockNumber) return finish("reject", "The target chain returned no block evidence.");
@@ -111,7 +126,20 @@ export function onCron(runtime: Runtime<Config>): string {
     observations.blockObservedAt = blockTime;
     observations.inputBalanceAtoms = balance.toString();
     observations.inputToken = request?.nativeInput ? "ETH" : config.tokenAddress;
-    if (config.kind === "trade" && (!config.amount || balance < decimalAtoms(config.amount, request?.nativeInput ? 18 : config.tokenDecimals))) return finish("reject", "The account lacks the approved input asset balance.");
+    if (native) {
+      const tick = market as OstiumObservation, opening = ["market", "limit", "stop"].includes(request?.type ?? "");
+      Object.assign(observations, { pairId: tick.pairId, symbol: tick.symbol, feedId: tick.feedId, marketOpen: String(tick.marketOpen), dayTradingClosed: String(tick.dayTradingClosed), collateralBalanceUsdc: decimalString(balance, 6), oracleFeeUsdc: decimalString(tick.oracleFee, 6), venueSource: "Ostium Arbitrum Sepolia USDC balance via CRE EVM" });
+      if (config.kind === "trade" && request) {
+        if (opening && (!tick.marketOpen || tick.maxLeverage === 0n || request.isDayTrade && tick.dayTradingClosed)) return finish("reject", "The native market is not accepting this entry.");
+        if (opening) {
+          const leverage = decimalAtoms(String(request.leverage ?? 1), 2);
+          if (leverage < tick.minLeverage || leverage > tick.maxLeverage || tick.overnightMaxLeverage > 0n && leverage > tick.overnightMaxLeverage && !request.isDayTrade) return finish("reject", "The native candidate exceeds its current leverage or overnight limits.");
+        }
+        const debit = opening || request.type === "add-collateral" ? decimalAtoms(request.amount, 6) : ["close", "reduce"].includes(request.type) ? tick.oracleFee : 0n;
+        observations.requiredUsdcDebitAtoms = debit.toString();
+        if (balance < debit) return finish("reject", "The owner lacks native testnet USDC for this action's collateral or oracle fee.");
+      }
+    } else if (config.kind === "trade" && (!config.amount || balance < decimalAtoms(config.amount, request?.nativeInput ? 18 : config.tokenDecimals))) return finish("reject", "The account lacks the approved input asset balance.");
   } else {
     if (config.chainId !== 421614) return finish("reject", "The perpetual strategy is not bound to Hyperliquid testnet.");
     const collateral = pendingCollateral!.result();
@@ -121,7 +149,7 @@ export function onCron(runtime: Runtime<Config>): string {
   }
   let threshold = 0n;
   if (config.condition.operator !== "always") {
-    try { threshold = parsePositiveDecimalE8(config.condition.price ?? ""); }
+    try { threshold = decimalAtoms(config.condition.price ?? "", decimals); }
     catch { return finish("reject", "The approved condition has no valid threshold."); }
   }
   const matches = config.condition.operator === "always" || (config.condition.operator === "above" ? market.price > threshold : market.price < threshold);

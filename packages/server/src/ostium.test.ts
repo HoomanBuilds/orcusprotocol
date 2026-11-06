@@ -220,7 +220,22 @@ describe("Ostium owner approval and transaction recovery",()=>{
     expect((await h.http("ostium/allowances/submit",{intentId:prepared.body.data.intent.id})).body.data.intent.status).toBe("submitting");
     expect((await h.http("ostium/allowances/cancel",{intentId:prepared.body.data.intent.id,ownerRejected:true})).body.data.intent.status).toBe("rejected");
     expect((await h.http("orderbook?venue=ostium&symbol=XAU%2FUSD")).body.error.code).toBe("ORDER_BOOK_UNAVAILABLE");
-    expect((await h.http("automations",{accountId:h.account.id,name:"Native conditional",request:h.request()})).body.error.code).toBe("OSTIUM_AUTOMATION_PENDING");
+    expect((await h.http("automations",{accountId:h.account.id,name:"Native conditional",request:h.request()})).body.error.code).toBe("AGENT_NOT_AUTHORIZED");
     expect(h.engine.mock.calls.some(([name])=>name==="planWith0G"||name==="submitAgentAction")).toBe(false);
+  });
+  it("runs native alerts through their own CRE binding and keeps unattended removal owner-only",async()=>{
+    const h=harness(),condition={symbol:"XAU/USD",operator:"above",price:"4000"};
+    const alert=h.platform.createAutomation(h.user,{kind:"alert",accountId:h.account.id,name:"Gold watch",condition});
+    h.engine.mockImplementation(async(name,...args)=>{
+      expect(name).toBe("evaluateStrategy");
+      const input=args[0]as{evaluationId:string;automationId:string;account:typeof h.account;expiresAt:number;controlRevision:number;policyVersion:number};
+      expect(input.account).toMatchObject({venue:"ostium",chainId:421614});
+      return{id:input.evaluationId,automationId:input.automationId,accountId:input.account.id,chainId:421614,controlRevision:input.controlRevision,policyVersion:input.policyVersion,expiresAt:input.expiresAt,source:"local-simulation",observedAt:Date.now(),decision:"no-action",reason:"The native condition was not met"};
+    });
+    expect((await h.platform.tick()).results).toContainEqual(expect.objectContaining({automationId:alert.id,kind:"alert",decision:"no-action"}));
+    expect(h.store.list(h.user.id,"action")).toHaveLength(0);
+    expect(h.engine).toHaveBeenCalledOnce();
+    expect(()=>h.platform.createAutomation(h.user,{accountId:h.account.id,name:"Forbidden removal",request:h.request({type:"remove-collateral",positionId:"native-position"})})).toThrow(expect.objectContaining({code:"OWNER_SIGNATURE_REQUIRED"}));
+    expect(()=>h.platform.createAutomation(h.user,{accountId:h.account.id,name:"Wrong market",request:h.request(),condition:{...condition,symbol:"USD/JPY"}})).toThrow(expect.objectContaining({code:"CONDITION_MARKET_MISMATCH"}));
   });
 });
