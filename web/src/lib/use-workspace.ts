@@ -10,6 +10,7 @@ import type {
   HealthStatus,
   Market,
   OperatingBudget,
+  OstiumAllowanceIntent,
   Portfolio,
   PreparedAction,
   TradeRequest,
@@ -60,6 +61,7 @@ const emptyPortfolio: Portfolio = {
 
 function useWorkspaceState() {
   const [session, setSession] = useState<Session>(emptySession);
+  const [ostiumAllowances, setOstiumAllowances] = useState<OstiumAllowanceIntent[]>([]);
   const selectedSymbols = useRef<Partial<Record<Venue, string>>>({});
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [portfolio, setPortfolio] = useState<Portfolio>(emptyPortfolio);
@@ -77,6 +79,7 @@ function useWorkspaceState() {
   const [venue, setVenue] = useState<Venue>("hyperliquid");
   const [symbol, setSymbol] = useState("BTC");
   const selectSymbol = useCallback((value: string) => { selectedSymbols.current[venue] = value; setSymbol(value); }, [venue]);
+  const selectMarket = useCallback((nextVenue: Venue, nextSymbol: string) => { selectedSymbols.current[nextVenue] = nextSymbol; setVenue(nextVenue); setSymbol(nextSymbol); }, []);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -109,6 +112,7 @@ function useWorkspaceState() {
     setPayments(null);
     setFunding(null);
     setTradingDeposits([]);
+    setOstiumAllowances([]);
     setResourceErrors({});
     ownerRef.current = null;
     setWalletConfig(null);
@@ -139,6 +143,7 @@ function useWorkspaceState() {
           api<{ requests: AgentRequestSummary[] }>("/api/agent/requests"),
           api<PaymentSnapshot>("/api/budget/payments"),
           api<FundingSnapshot>("/api/budget/funding"),
+          api<{ intents: OstiumAllowanceIntent[] }>("/api/ostium/allowances"),
         ]);
         if (revision !== sessionRevision.current) return;
         if (!await selectedOwnerIs(current.user.address)) throw new ApiError("OWNER_CHANGED", "The selected wallet changed while loading this session.", 401);
@@ -162,7 +167,8 @@ function useWorkspaceState() {
         if (results[6].status === "fulfilled") setRequests((results[6].value as { requests: AgentRequestSummary[] }).requests ?? []);
         if (results[7].status === "fulfilled") setPayments(results[7].value as PaymentSnapshot);
         if (results[8].status === "fulfilled") setFunding(results[8].value as FundingSnapshot);
-        const keys = ["portfolio", "activity", "agent", "automations", "budget", "wallet", "requests", "payments", "funding"];
+        if (results[9].status === "fulfilled") setOstiumAllowances((results[9].value as { intents: OstiumAllowanceIntent[] }).intents ?? []);
+        const keys = ["portfolio", "activity", "agent", "automations", "budget", "wallet", "requests", "payments", "funding", "nativeAllowances"];
         setResourceErrors(Object.fromEntries(results.flatMap((result, index) => result.status === "rejected" ? [[keys[index], displayError(result.reason)]] : [])));
         const deposits: TradingDeposit[] = [];
         for (const account of current.accounts) {
@@ -350,7 +356,7 @@ function useWorkspaceState() {
     } catch (cause) {
       if (revision !== sessionRevision.current) return;
       const phase = cause && typeof cause === "object" && "phase" in cause ? cause.phase : undefined;
-      if (ownerResult || phase === "submitted-unknown" || phase === "reverted") { setPreview(null); await refresh(); }
+      if (preview.execution.request.venue === "ostium" || ownerResult || phase === "submitted-unknown" || phase === "reverted") { setPreview(null); await refresh(); }
       setError(displayError(cause));
     } finally {
       executingRef.current = false;
@@ -404,6 +410,7 @@ function useWorkspaceState() {
     payments,
     funding,
     tradingDeposits,
+    ostiumAllowances,
     resourceErrors,
     walletConfig,
     markets,
@@ -411,6 +418,7 @@ function useWorkspaceState() {
     setVenue,
     symbol,
     setSymbol: selectSymbol,
+    selectMarket,
     activeMarket,
     account,
     loading,

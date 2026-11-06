@@ -15,7 +15,7 @@ export function OverviewDashboard() {
   const router = useRouter();
   const connected = Boolean(w.session.user);
   const summary = portfolioSummary(w.portfolio, connected, Boolean(w.resourceErrors.portfolio));
-  const pending = connected ? activityEntries({ actions: w.actions, requests: w.requests, budget: w.budget, payments: w.payments, funding: w.funding, deposits: w.tradingDeposits }).filter(entry => entry.pending) : [];
+  const pending = connected ? activityEntries({ actions: w.actions, requests: w.requests, budget: w.budget, payments: w.payments, funding: w.funding, deposits: w.tradingDeposits, allowances: w.ostiumAllowances }).filter(entry => entry.pending) : [];
   const agent = w.agentData?.agent ?? w.session.agent;
   const mode = !agent ? "Connect to load" : agent.paused ? "Paused" : agent.mode === "autonomous" ? "Autonomous within limits" : "Approval required";
   const activeAutomations = w.automations.filter(item => item.status === "active").length;

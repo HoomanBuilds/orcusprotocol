@@ -6,6 +6,8 @@ import type { ActionRecord, Position, TradeRequest } from "@orcus/core";
 import type { Workspace } from "@/lib/use-workspace";
 import { assetAmount, number, time, usd } from "@/lib/format";
 import { AssetIcon } from "../workspace/asset-icon";
+import { OstiumOrderRow, OstiumPositionRow } from "./ostium-account-rows";
+import { OstiumHistory } from "./ostium-history";
 import { actionRecovery } from "@/lib/trade-ux";
 import { displayError } from "@/lib/api";
 import { Badge, Empty, InlineError, Spinner, Status } from "./primitives";
@@ -236,6 +238,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
             count: w.portfolio.balances.length,
           },
           { id: "activity", label: "Activity", count: w.actions.length },
+          ...(w.session.accounts.some(account => account.venue === "ostium") ? [{ id: "venue-history", label: "Native history", count: undefined }] : []),
         ].map((item) => (
           <button
             role="tab"
@@ -289,7 +292,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
               </thead>
               <tbody>
                 {positions.map((position) => (
-                  <PositionRow
+                  position.venue === "ostium" ? <OstiumPositionRow key={position.id} position={position} workspace={w}/> : <PositionRow
                     key={position.id}
                     position={position}
                     workspace={w}
@@ -321,7 +324,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
               </thead>
               <tbody>
                 {orders.map((order) => (
-                  <tr key={order.id}>
+                  order.venue === "ostium" ? <OstiumOrderRow key={order.id} order={order} workspace={w}/> : <tr key={order.id}>
                     <td>
                       <span className="table-asset-label"><AssetIcon symbol={order.symbol} size={25}/><strong>{order.symbol}</strong></span>
                     </td>
@@ -408,7 +411,7 @@ export function AccountTables({ workspace: w }: { workspace: Workspace }) {
             balances. Spot holdings are separate from perpetual positions.
           </Empty>
         )
-      ) : (
+      ) : tab === "venue-history" ? <OstiumHistory workspace={w}/> : (
         <ActivityTable actions={w.actions} onRefresh={w.refresh} />
       )}
     </section>

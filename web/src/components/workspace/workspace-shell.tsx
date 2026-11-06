@@ -24,7 +24,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const page = workspacePages.find(item => item.href === pathname) ?? workspacePages[0];
-  const pending = w.session.user ? activityEntries({ actions: w.actions, requests: w.requests, budget: w.budget, payments: w.payments, funding: w.funding, deposits: w.tradingDeposits }).filter(item => item.pending).length : 0;
+  const pending = w.session.user ? activityEntries({ actions: w.actions, requests: w.requests, budget: w.budget, payments: w.payments, funding: w.funding, deposits: w.tradingDeposits, allowances: w.ostiumAllowances }).filter(item => item.pending).length : 0;
   const readyServices = w.health ? [w.health.compute, w.health.storage, w.health.uniswap, w.health.hyperliquid, w.health.cre].filter(service => service.configured).length : undefined;
 
   useEffect(() => { setMenuOpen(false); }, [pathname]);

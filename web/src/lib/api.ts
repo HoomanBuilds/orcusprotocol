@@ -20,6 +20,22 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 export const post = <T>(path: string, body: unknown) => api<T>(path, { method: "POST", body: JSON.stringify(body) });
 
 const safeErrors: Record<string, string> = {
+  OSTIUM_ALLOWANCE_REQUIRED: "Approve the exact USDC allowance in account settings, wait for its receipt, then review this action again.",
+  OSTIUM_AUTOMATION_PENDING: "Native Ostium conditional strategies are not ready yet. Manual trading remains separate.",
+  OSTIUM_DELEGATE_EXISTS: "Another native delegate is active. Review it in your owner wallet; Orcus will not silently replace it.",
+  OSTIUM_AUTHORITY_UNVERIFIED: "Native agent authority could not be verified. Refresh; new agent access stays disabled.",
+  OSTIUM_DAY_TRADE_REQUIRED: "Review this pair's day-trade and overnight leverage limits before opening.",
+  OSTIUM_MARKET_DISABLED: "This market is not accepting new positions. Select another market or review an existing position.",
+  OSTIUM_TRADE_LIMIT: "Collateral or leverage is outside this pair's current venue limits. Review the inputs and pair details.",
+  OSTIUM_COLLATERAL_LIMIT: "This collateral change exceeds the venue's current safe limit. Refresh the position before reviewing again.",
+  OSTIUM_STALE_PRICES: "A fresh native price is unavailable. Refresh the selected pair before reviewing a trade.",
+  OSTIUM_PREVIEW_REJECTED: "The venue could not approve this order's current fees, exposure or limits. Review the inputs and refresh.",
+  ALLOWANCE_PENDING: "An existing allowance is still resolving. Recover its recorded transaction before starting another wallet request.",
+  ALLOWANCE_HASH_REQUIRED: "Find the existing approval transaction hash in your owner wallet. No approval is repeated automatically.",
+  ALLOWANCE_EXPIRED: "This unsigned allowance review expired. Cancel it explicitly and prepare a new exact amount.",
+  ALLOWANCE_UNVERIFIED: "The existing allowance receipt could not be verified. Keep its record and check again; do not repeat it.",
+  OWNER_SIGNATURE_REQUIRED: "This action requires your owner wallet. It cannot be executed by the agent.",
+  OWNER_ONLY: "This action requires your owner wallet. It cannot be executed by the agent.",
   OWNER_REJECTED: "Cancelled in your wallet. Nothing new was submitted.",
   OWNER_CHANGED: "Your owner wallet changed. Reconnect the account owner before signing.",
   ACCOUNT_CHANGED: "Your session or trading account changed. Refresh before signing.",

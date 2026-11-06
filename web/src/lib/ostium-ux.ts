@@ -38,7 +38,8 @@ export function ostiumPositionRequest(position: Position, type: "close" | "reduc
 export function ostiumOrderRequest(order: OpenOrder, edit?: { price: string; takeProfit: string; stopLoss: string }): TradeRequest {
   if (order.venue !== "ostium") throw new Error("Select an Ostium order.");
   if (edit && order.id.startsWith("pending-")) throw new Error("A pending oracle order cannot be edited as a resting entry.");
-  return tradeRequestSchema.parse({ accountId: order.accountId, venue: "ostium", type: edit ? "edit-order" : "cancel", symbol: order.symbol, orderId: order.id, side: order.side, amount: order.collateralUsd && Number(order.collateralUsd) > 0 ? order.collateralUsd : order.size, amountUnit: "collateral-usdc", slippageBps: 50, reduceOnly: false, mode: "manual", ...(edit ?? {}) });
+  if (edit && (!order.collateralUsd || Number(order.collateralUsd) <= 0)) throw new Error("The order's collateral amount is unavailable. Refresh before editing.");
+  return tradeRequestSchema.parse({ accountId: order.accountId, venue: "ostium", type: edit ? "edit-order" : "cancel", symbol: order.symbol, orderId: order.id, side: order.side, amount: edit ? order.collateralUsd! : order.size, amountUnit: edit ? "collateral-usdc" : "base", slippageBps: 50, reduceOnly: false, mode: "manual", ...(edit ?? {}) });
 }
 
 export function ostiumAcknowledgement(account: TradingAccount, agentAddress: string) {

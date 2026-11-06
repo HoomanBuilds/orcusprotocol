@@ -1,4 +1,4 @@
-import type { ActionRecord, AgentRequest, Market, OperatingBudget, Portfolio, TradingAccount, Venue } from "@orcus/core";
+import type { ActionRecord, AgentRequest, Market, OperatingBudget, OstiumAllowanceIntent, Portfolio, TradingAccount, Venue } from "@orcus/core";
 import type { ServicePaymentQuote } from "@orcus/wallets/service-payment";
 import { venueNetwork } from "./venue-presentation";
 
@@ -33,9 +33,10 @@ export function venueSymbol(venue: Venue, markets: Market[], current: string, sa
 export function actionReviewIssue(action: ActionRecord, userId: string | undefined, accounts: TradingAccount[], now = Date.now()): string | null {
   if (!userId || action.userId !== userId) return "Sign in as this action's owner before reviewing it.";
   if (!["prepared", "awaiting-approval"].includes(action.status)) return "This action was already submitted or closed. Check its existing record instead of submitting it again.";
-  if (!action.prepared || action.prepared.expiresAt <= now) return "The saved quote expired or is unavailable. Prepare a fresh quote on Trade; nothing has been resubmitted.";
+  if (!action.prepared || !Number.isFinite(action.prepared.expiresAt) || action.prepared.expiresAt <= now) return "The saved quote expired or is unavailable. Prepare a fresh quote on Trade; nothing has been resubmitted.";
+  if (action.approvals?.length) return "This review already has recorded approval steps. Check their existing outcome, then prepare a fresh quote. No wallet request is restored.";
   const account = accounts.find(item => item.id === action.accountId);
-  if (!account || account.userId !== userId || account.controlRevision !== action.prepared.controlRevision || account.ownerAddress.toLowerCase() !== action.prepared.account.ownerAddress.toLowerCase() || action.prepared.account.id !== action.accountId || action.prepared.request.accountId !== action.accountId || action.prepared.request.venue !== account.venue || action.request.venue !== account.venue) return "The account or its authorization changed. Refresh and prepare a new review on Trade.";
+  if (!account || account.userId !== userId || account.controlRevision !== action.prepared.controlRevision || account.ownerAddress.toLowerCase() !== action.prepared.account.ownerAddress.toLowerCase() || account.address.toLowerCase() !== action.prepared.account.address.toLowerCase() || account.chainId !== action.prepared.account.chainId || action.prepared.account.id !== action.accountId || action.prepared.account.venue !== account.venue || action.prepared.request.accountId !== action.accountId || action.prepared.request.venue !== account.venue || action.request.venue !== account.venue) return "The account or its authorization changed. Refresh and prepare a new review on Trade.";
   return null;
 }
 
@@ -71,18 +72,27 @@ export interface ActivityEntry {
   expense?: NonNullable<OperatingBudget["expenses"]>[number];
   nativeExpense?: NonNullable<OperatingBudget["nativeExpenses"]>[number];
   deposit?: TradingDeposit;
+  allowance?: OstiumAllowanceIntent;
 }
 
-export function activityEntries(input: { actions: ActionRecord[]; requests: AgentRequestSummary[]; budget: OperatingBudget | null; payments: PaymentSnapshot | null; funding: FundingSnapshot | null; deposits?: TradingDeposit[] }): ActivityEntry[] {
-  const actions = input.actions.map(action => ({ id: `action:${action.id}`, kind: "trade" as const, title: `${action.request.side === "buy" ? "Buy" : "Sell"} ${action.request.symbol}`, description: `${action.request.type} / ${venueNetwork(action.request.venue)}`, status: action.status, initiator: action.initiator, createdAt: action.createdAt, pending: pendingActionStatuses.has(action.status), action }));
+function actionTitle(action: ActionRecord) {
+  const labels: Partial<Record<ActionRecord["request"]["type"], string>> = { close: "Close", reduce: "Reduce", cancel: "Cancel order", "edit-order": "Edit order", "add-collateral": "Add collateral", "remove-collateral": "Remove collateral", "stop-loss": "Change stop-loss", "take-profit": "Change take-profit" };
+  return `${labels[action.request.type] ?? (action.request.side === "buy" ? "Buy" : "Sell")} ${action.request.symbol}`;
+}
+
+export function activityEntries(input: { actions: ActionRecord[]; requests: AgentRequestSummary[]; budget: OperatingBudget | null; payments: PaymentSnapshot | null; funding: FundingSnapshot | null; deposits?: TradingDeposit[]; allowances?: OstiumAllowanceIntent[] }): ActivityEntry[] {
+  const actions = input.actions.map(action => ({ id: `action:${action.id}`, kind: "trade" as const, title: actionTitle(action), description: `${action.request.type} / ${venueNetwork(action.request.venue)}`, status: action.status, initiator: action.initiator, createdAt: action.createdAt, pending: pendingActionStatuses.has(action.status), action }));
   const requests = input.requests.map(request => ({ id: `request:${request.id}`, kind: "agent" as const, title: "Agent instruction", description: request.message, status: request.status, initiator: "owner", createdAt: request.createdAt, pending: request.status === "queued" || request.status === "running", request }));
   const payments = (input.payments?.intents ?? []).map(payment => ({ id: `payment:${payment.id}`, kind: "funding" as const, title: "Testnet service payment", description: "Sepolia USDC / test-only service credits", status: payment.status, initiator: "owner", createdAt: payment.createdAt, pending: ["prepared", "awaiting-wallet", "submitted"].includes(payment.status), payment }));
   const funding = (input.funding?.intents ?? []).map(item => ({ id: `funding:${item.id}`, kind: "funding" as const, title: "Native compute deposit", description: "Galileo 0G / separate from trading capital", status: item.status === "confirmed" && !item.creditObservedAt ? "awaiting-provider-sync" : item.status, initiator: "agent", createdAt: item.createdAt, pending: ["prepared", "submitting", "submitted-unknown"].includes(item.status) || (item.status === "confirmed" && !item.creditObservedAt), funding: item }));
   const expenses = (input.budget?.expenses ?? []).map(expense => ({ id: `expense:${expense.id}`, kind: "expense" as const, title: "Compute operating expense", description: expense.reference, status: expense.status, initiator: "agent", createdAt: expense.created_at, pending: !["settled", "released"].includes(expense.status), expense }));
   const nativeExpenses = (input.budget?.nativeExpenses ?? []).map(expense => ({ id: `storage:${expense.id}`, kind: "expense" as const, title: "Encrypted memory backup cost", description: "Native Galileo gas and storage fees", status: expense.status, initiator: "agent", createdAt: 0, pending: expense.status === "submitted-unknown", nativeExpense: expense }));
   const deposits = (input.deposits ?? []).map(deposit => ({ id: `deposit:${deposit.accountId}`, kind: "funding" as const, title: "Trading-account deposit", description: "Saved in this browser / check the existing transfer", status: deposit.status, initiator: "owner", createdAt: 0, pending: deposit.status === "unknown", deposit }));
-  return [...actions, ...requests, ...payments, ...funding, ...expenses, ...nativeExpenses, ...deposits].sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id));
+  const allowances = (input.allowances ?? []).map(allowance => ({ id: `allowance:${allowance.id}`, kind: "funding" as const, title: "Native USDC allowance", description: `${allowance.amountUsd} USDC / Ostium Arbitrum Sepolia`, status: allowance.status, initiator: "owner", createdAt: allowance.createdAt, pending: ["submitting", "pending", "submitted-unknown"].includes(allowance.status) || allowance.status === "prepared" && allowance.expiresAt > Date.now(), allowance }));
+  return [...actions, ...requests, ...payments, ...funding, ...expenses, ...nativeExpenses, ...deposits, ...allowances].sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id));
 }
+
+export function activityInitiator(value: string) { return value === "owner" || value === "manual" ? "you" : value; }
 
 export function filterActivity(entries: ActivityEntry[], filter: { kind?: string; status?: string; initiator?: string; query?: string }) {
   const query = (filter.query ?? "").trim().toLowerCase();
