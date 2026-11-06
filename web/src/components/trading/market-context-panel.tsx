@@ -112,7 +112,7 @@ function SwapContext({ symbol, prepared, now }: { symbol: string; prepared?: Pre
   const expired = action ? now >= action.expiresAt : false;
   return <section className={styles.panel} aria-label="Swap execution details">
     <header className={styles.heading}><div><img src="/landing/brands/uniswap.svg" alt="Uniswap" width="22" height="22" /><h3>Swap details</h3><span className={styles.network}>Sepolia</span></div></header>
-    <p className={styles.note}>Uniswap V3 swaps against pool liquidity, not a resting order book. This build supports the reviewed WETH / USDC single-pool route.</p>
+    <dl className={styles.swapRoute}><div><dt>Route</dt><dd>WETH / USDC</dd></div><div><dt>Execution</dt><dd>Uniswap V3 pool</dd></div><div><dt>Quote</dt><dd>{action && quote ? expired ? "Expired" : "Ready for review" : "Awaiting review"}</dd></div></dl>
     {action && quote ? <>
       <dl className={styles.swapDetails}>
         <div><dt>Exact input</dt><dd>{marketQuantity(quote.amountIn)} {input}</dd></div>
@@ -122,8 +122,8 @@ function SwapContext({ symbol, prepared, now }: { symbol: string; prepared?: Pre
         <div><dt>Slippage cap</dt><dd>{number(action.request.slippageBps / 100)}%</dd></div>
         <div><dt>Quote validity</dt><dd className={expired ? styles.warningText : undefined}>{expired ? "Expired. Review a fresh quote." : `${Math.max(0, Math.ceil((action.expiresAt - now) / 1_000))} seconds`}</dd></div>
       </dl>
-      <p className={styles.note}>Pool fees are separate from network gas. Minimum output is a transaction bound, not a guaranteed fill. {action.request.nativeInput ? "Exact native ETH input wraps to WETH in the reviewed atomic smart-account operation." : action.request.side === "buy" ? "Output is WETH, not native ETH." : "WETH is swapped into USDC."}</p>
-    </> : <p className={styles.empty}>Review a swap to see its actual quoted output, minimum received, fee tier and expiry. No quote is requested or trade submitted by this panel.</p>}
-    <p className={styles.warning}>Sepolia assets have no monetary value. Testnet pool quotes are not live-market valuations. This panel does not claim private trades or MEV protection.</p>
+    </> : <p className={styles.note}>Review a swap to see quoted output, minimum received and expiry.</p>}
+    <details className={styles.contextDisclosure}><summary>How this swap works</summary><p className={styles.note}>Uniswap V3 swaps against pool liquidity, not a resting order book. This build supports the WETH / USDC single-pool route.</p><p className={styles.note}>Pool fees are separate from network gas. Minimum output is a transaction bound, not a guaranteed fill. {action?.request.nativeInput ? "Exact native ETH input wraps to WETH in the reviewed atomic smart-account operation." : action?.request.side === "sell" ? "WETH is swapped into USDC." : "Output is WETH, not native ETH."}</p><p className={styles.note}>Trades are public. This route does not provide MEV protection.</p></details>
+    <p className={styles.warning}>Sepolia test assets. Quotes are not live-market valuations.</p>
   </section>;
 }

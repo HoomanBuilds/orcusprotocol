@@ -33,6 +33,9 @@
 .swapDetails > div { display: flex; justify-content: space-between; gap: 16px; }
 .swapDetails dt { margin: 0; }
 .swapDetails dd { margin: 0; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+.swapRoute { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 16px; gap: 20px; border-bottom: 1px solid var(--border-soft); }
+.swapRoute dt { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.swapRoute dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 .ladderScroll { overflow-x: auto; scrollbar-width: thin; }
 .ladder { width: 100%; border-collapse: collapse; font: 10px/1.7 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 .ladder th { text-align: right; padding: 10px 8px; color: var(--muted); font: 9px/1.6 var(--sans); white-space: nowrap; border-bottom: 1px solid var(--border-soft); }
