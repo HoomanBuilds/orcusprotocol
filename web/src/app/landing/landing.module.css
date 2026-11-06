@@ -56,7 +56,7 @@
 .hero { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: calc(100svh - 32px); max-height: 900px; min-height: 560px; overflow: hidden; border-radius: 32px; background: #4b9be5 url("/landing/garden-hero-v2-poster.webp") center/cover; color: white; }
 .heroVideo, .heroShade { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
 .heroVideo[hidden] { display: none; }
-.heroShade { background: linear-gradient(180deg, rgb(0 0 0 / .2) 0%, rgb(0 0 0 / .12) 20%, rgb(0 0 0 / .32) 52%, rgb(0 0 0 / .2) 78%, rgb(0 0 0 / .12) 100%); }
+.heroShade { background: linear-gradient(180deg, rgb(0 0 0 / .36) 0%, rgb(0 0 0 / .12) 20%, rgb(0 0 0 / .28) 52%, rgb(0 0 0 / .2) 78%, rgb(0 0 0 / .08) 100%); }
 .header { position: fixed; top: 32px; left: 54px; right: 54px; height: 64px; z-index: 50; display: flex; justify-content: space-between; align-items: center; transition: background .2s, top .2s, left .2s, right .2s, transform .25s; border: 1px solid transparent; border-radius: 22px; color: white; }
 .brand { display: block; font: 700 46px/.9 var(--landing-sans); letter-spacing: -3.8px; }
 .brandDot { color: #ff99d6; }
@@ -451,8 +451,8 @@
 
 @media (max-width: 767px) {
   .heroShell { padding: 0; }
-  .hero { height: 100svh; max-height: none; border-radius: 0; background-position: 75% center; }
-  .heroVideo { object-position: 75% center; }
+  .hero { height: 100svh; max-height: none; border-radius: 0; background-position: 30% center; }
+  .heroVideo { object-position: 30% center; }
   .header { top: max(16px, env(safe-area-inset-top)); left: 20px; right: 20px; height: 60px; }
   .brand { font-size: 34px; letter-spacing: -2.8px; }
   .headerRight { gap: 10px; }
