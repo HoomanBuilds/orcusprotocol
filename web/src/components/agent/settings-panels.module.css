@@ -1,4 +1,4 @@
-.page { gap: 24px; }
+.page { display: flex; flex-direction: column; gap: 24px; }
 .page :global(.settings-content-heading) { padding-bottom: 0; border-bottom: 0; margin-bottom: 0; }
 .page :global(.settings-content-heading p) { max-width: 640px; }
 .layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; align-items: start; }

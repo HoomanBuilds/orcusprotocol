@@ -845,7 +845,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
                   <h2>How your agent works</h2>
                   <p>Preferences stay within your account permissions.</p>
                 </div>
-                <Badge tone={!agent || agent.paused ? "neutral" : "good"}>{!agent ? "Unavailable" : agent.paused ? "Paused" : "Running"}</Badge>
+                <Badge tone={!agent || agent.paused ? "neutral" : "good"}>{!agent ? "Checking" : agent.paused ? "Paused" : "Enabled"}</Badge>
               </div>
               <fieldset className={panels.modeGrid}><legend>Execution mode</legend>
                 <label className={panels.mode}><input type="radio" name="agent-mode" value="approval-required" checked={mode === "approval-required"} disabled={!!busy} onChange={() => setMode("approval-required")}/><span><strong>Ask me first</strong><small>Review each proposed action.</small></span></label>
@@ -910,9 +910,9 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
               <h2>Memory backups</h2>
               <p>Encrypted preferences and conversation context on 0G Storage.</p>
             </div>
-            <Badge tone={w.budget?.storagePayer?.enabled ? "good" : "neutral"}>{w.budget?.storagePayer?.enabled ? "Available" : "Not enabled"}</Badge>
+            <Badge tone={w.budget?.storagePayer?.enabled ? "good" : "neutral"}>{!w.budget?.storagePayer ? "Checking" : w.budget.storagePayer.enabled ? "Available" : "Not enabled"}</Badge>
           </div>
-          {w.budget?.storagePayer?.enabled === false ? <p className={panels.quietNotice}>Cloud backups are disabled. Saved notes and preferences remain available in your workspace.</p> : <p className={panels.hint}>Each backup can spend up to {storageGasCap} 0G in gas and {storageFeeCap} 0G in storage fees, separate from your inference allowance. Wallet signing credentials are not included.</p>}
+          {!w.budget?.storagePayer ? <p className={panels.hint} role="status">Waiting for backup configuration. Saved memory remains available.</p> : !w.budget.storagePayer.enabled ? <p className={panels.quietNotice}>Cloud backups are disabled. Saved notes and preferences remain available in your workspace.</p> : <p className={panels.hint}>Each backup can spend up to {storageGasCap} 0G in gas and {storageFeeCap} 0G in storage fees, separate from your inference allowance. Wallet signing credentials are not included.</p>}
           <details className={panels.disclosure}><summary>Storage payer & fee limits</summary>
           {w.budget?.storagePayer && <p>{w.budget.storagePayer.message}{w.budget.storagePayer.dailyCap0G ? ` Shared daily limit: ${w.budget.storagePayer.dailyCap0G} 0G.` : ""}</p>}
           {w.budget?.storagePayer?.payerAddress && <p>Fee payer: <Address value={w.budget.storagePayer.payerAddress} explorer="https://chainscan-galileo.0g.ai" /></p>}
@@ -924,7 +924,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
             <button
               className="button secondary small"
               type="button"
-              disabled={!!busy || w.budget?.storagePayer?.enabled === false}
+              disabled={!!busy || w.budget?.storagePayer?.enabled !== true}
               onClick={() => void memory("backup")}
             >
               {busy === "backup" && <Spinner />}Back up memory
@@ -932,7 +932,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
             <button
               className="button secondary small"
               type="button"
-              disabled={!!busy || w.budget?.storagePayer?.enabled === false}
+              disabled={!!busy || w.budget?.storagePayer?.enabled !== true}
               onClick={() => void memory("restore")}
             >
               {busy === "restore" && <Spinner />}Restore latest backup

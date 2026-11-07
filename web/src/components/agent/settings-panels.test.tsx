@@ -50,6 +50,15 @@ describe("focused settings panels", () => {
     expect(html).toMatch(/<details[^>]*><summary>View details/);
   });
 
+  it("keeps backup actions disabled until configuration is known", () => {
+    const loading = { ...workspace, budget: { ...workspace.budget, storagePayer: undefined } } as Workspace;
+    const html = renderToStaticMarkup(<SettingsView workspace={loading} section="agent"/>);
+    expect(html).toContain("Waiting for backup configuration");
+    expect(html).toMatch(/disabled=""[^>]*>Back up memory/);
+    expect(html).toMatch(/disabled=""[^>]*>Restore latest backup/);
+    expect(html).not.toContain("Each backup can spend");
+  });
+
   it("does not offer checkout before loading its configuration", () => {
     const html = renderToStaticMarkup(<ServicePaymentPanel owner={workspace.session.user!.address} onRefresh={workspace.refresh}/>);
     expect(html).toContain("Loading payment configuration");
