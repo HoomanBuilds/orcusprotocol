@@ -20,6 +20,7 @@ const workspace = {
       expiresAt: Date.now() + 60_000,
       account: { address: trading, smartAccountAddress: trading, ownerAddress: owner, agentAddress: agent, venue: "uniswap", chainId: 11155111 },
       request: { venue: "uniswap", type: "swap", side: "buy", symbol: "WETH/USDC", amount: "10", mode: "manual", slippageBps: 50 },
+      quote: { amountIn: "10", amountOut: "0.003", minimumOut: "0.002985", observedAt: Date.now() },
     },
   },
   executing: false,
@@ -63,6 +64,24 @@ describe("focused Uniswap review", () => {
     const markup = render({ quote: undefined });
     expect(markup).toMatch(/You receive, estimated<\/span><strong>Unavailable/);
     expect(markup).toMatch(/Minimum received<\/dt><dd>Unavailable/);
+    expect(markup).toMatch(/disabled=""[^>]*>Quote unavailable/);
+  });
+
+  it.each([
+    ["0", "0"], ["0.000", "0.000"], ["1", undefined],
+    ["1", "0"], ["1", "-1"], ["NaN", "1"], ["1", "Infinity"],
+    ["1e-3", "0.0009"], ["1", ""], ["1", "1.000000000000000001"],
+    ["0.000000000000000001", "0.000000000000000002"],
+  ])("blocks unusable swap output %s and minimum %s", (amountOut, minimumOut) => {
+    const markup = render({ quote: { amountIn: "10", amountOut: amountOut!, minimumOut, observedAt: Date.now() } });
+    expect(markup).toMatch(/disabled=""[^>]*>Quote unavailable/);
+    expect(markup).toContain("get a new quote");
+  });
+
+  it("accepts positive equal outputs without rounding precision away", () => {
+    const markup = render({ quote: { amountIn: "10", amountOut: "0.000000000000000001", minimumOut: "0.0000000000000000010", observedAt: Date.now() } });
+    expect(markup).not.toContain("Quote unavailable");
+    expect(markup).toMatch(/class="button primary">Sign and execute/);
   });
 
   it("keeps errors and execution warnings outside the collapsed details", () => {
