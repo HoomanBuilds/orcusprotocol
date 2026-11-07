@@ -7,7 +7,7 @@ import { ApiError } from "./errors";
 import { tokenHash, type Store } from "./store";
 import type { StoredAccount, StoredAction, StoredRecord } from "./types";
 
-type Intent=OstiumAllowanceIntent&StoredRecord&{fingerprint:string};
+type Intent=OstiumAllowanceIntent&StoredRecord&{fingerprint:string;submissionTokenHash?:string};
 const amountSchema=z.string().regex(/^(?:0|[1-9]\d{0,6})(?:\.\d{1,6})?$/).refine(value=>parseUnits(value,6)>0n&&parseUnits(value,6)<=2_000_000_000_000n,"Approve an exact positive USDC amount no greater than 2,000,000");
 const transactionSchema=z.object({to:addressSchema,data:z.string().regex(/^0x(?:[\da-fA-F]{2})+$/),value:z.literal("0"),chainId:z.literal(421614),label:z.string().optional()}).strict();
 const planSchema=z.object({trader:addressSchema,chainId:z.literal(421614),token:addressSchema,spender:addressSchema,amountUsd:z.string(),amountRaw:z.string().regex(/^\d+$/),transaction:transactionSchema,expiresAt:z.number().int().positive(),minimumBlock:z.string().regex(/^[1-9]\d*$/)}).passthrough();
@@ -20,7 +20,7 @@ function account(store:Store,user:User,accountId:string){
   return selected;
 }
 function read(store:Store,user:User,intentId:string){const intent=store.get<Intent>(user.id,"ostium-allowance",intentId);if(!intent)throw new ApiError("ALLOWANCE_NOT_FOUND","This allowance request does not belong to the signed-in wallet.",404);return intent;}
-function publicIntent({userId,fingerprint,...intent}:Intent):OstiumAllowanceIntent{return intent;}
+function publicIntent({userId,fingerprint,submissionTokenHash,...intent}:Intent):OstiumAllowanceIntent{return intent;}
 function parseApproval(transaction:EvmTransaction,token:string,spender:string,amountRaw:string){
   try{const decoded=decodeFunctionData({abi:erc20Abi,data:transaction.data as`0x${string}`});if(decoded.functionName!=="approve"||!same(transaction.to,token)||!same(String(decoded.args[0]),spender)||decoded.args[1]!==BigInt(amountRaw)||transaction.chainId!==421614||BigInt(transaction.value)!==0n)throw new Error();}
   catch{throw new ApiError("ALLOWANCE_PLAN_INVALID","The SDK did not provide the exact reviewed USDC approval.",503);}
@@ -48,7 +48,7 @@ export async function prepareOstiumAllowance(store:Store,user:User,input:unknown
     store.put("ostium-allowance",intent);return{intent:publicIntent(intent)};
   }).immediate();
 }
-export function submitOstiumAllowance(store:Store,user:User,intentId:string,transactionHash?:string){
+export function submitOstiumAllowance(store:Store,user:User,intentId:string,transactionHash?:string,submissionToken?:string){
   return store.db.transaction(()=>{
     const intent=read(store,user,intentId);account(store,user,intent.accountId);
     if(transactionHash)hashSchema.parse(transactionHash);
@@ -56,7 +56,7 @@ export function submitOstiumAllowance(store:Store,user:User,intentId:string,tran
     if(intent.status==="confirmed"||intent.status==="rejected")return{intent:publicIntent(intent)};
     if(!transactionHash&&intent.status!=="prepared")throw new ApiError("ALLOWANCE_PENDING","This wallet flow already started or was cancelled. Recover its evidence instead of opening it again.",409);
     if(!transactionHash&&intent.expiresAt<=Date.now())throw new ApiError("ALLOWANCE_EXPIRED","This unsigned approval quote expired. Do not open a new wallet flow from it.",409);
-    const updated=store.update<Intent>(user.id,"ostium-allowance",intent.id,{status:transactionHash?"pending":"submitting",transactionHash:transactionHash??intent.transactionHash,error:undefined});
+    const updated=store.update<Intent>(user.id,"ostium-allowance",intent.id,{status:transactionHash?"pending":"submitting",transactionHash:transactionHash??intent.transactionHash,...(!transactionHash&&submissionToken?{submissionTokenHash:tokenHash(submissionToken)}:{}),error:undefined});
     return{intent:publicIntent(updated)};
   }).immediate();
 }
@@ -78,10 +78,11 @@ export async function reconcileOstiumAllowance(store:Store,user:User,intentId:st
     return{intent:publicIntent(updated)};
   }).immediate();
 }
-export function cancelOstiumAllowance(store:Store,user:User,intentId:string,ownerRejected=false){
+export function cancelOstiumAllowance(store:Store,user:User,intentId:string,ownerRejected=false,preflightFailed=false,submissionToken?:string){
   return store.db.transaction(()=>{
     const intent=read(store,user,intentId);
-    if(ownerRejected&&intent.status==="submitting"&&!intent.transactionHash)return{intent:publicIntent(store.update<Intent>(user.id,"ostium-allowance",intent.id,{status:"rejected",error:"The owner declined the wallet request before signing."}))};
+    if((preflightFailed||ownerRejected&&intent.submissionTokenHash)&&(!submissionToken||!intent.submissionTokenHash||intent.submissionTokenHash!==tokenHash(submissionToken)))throw new ApiError("ALLOWANCE_CLAIM_MISMATCH","Only this wallet attempt can release its unsigned request.",409);
+    if((ownerRejected||preflightFailed)&&intent.status==="submitting"&&!intent.transactionHash)return{intent:publicIntent(store.update<Intent>(user.id,"ostium-allowance",intent.id,{status:"rejected",error:preflightFailed?"Wallet checks failed before a transaction was requested.":"The owner declined the wallet request before signing."}))};
     if(intent.status!=="prepared")throw new ApiError("ALLOWANCE_PENDING","A started approval must be reconciled, not silently cancelled or repeated.",409);
     return{intent:publicIntent(store.update<Intent>(user.id,"ostium-allowance",intent.id,{status:"cancelled"}))};
   }).immediate();

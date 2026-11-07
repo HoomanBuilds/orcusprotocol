@@ -223,6 +223,31 @@ describe("Ostium owner approval and transaction recovery",()=>{
     expect((await h.http("automations",{accountId:h.account.id,name:"Native conditional",intervalSeconds:300,request:h.request()})).body.error.code).toBe("AGENT_NOT_AUTHORIZED");
     expect(h.engine.mock.calls.some(([name])=>name==="planWith0G"||name==="submitAgentAction")).toBe(false);
   });
+  it("only releases a pre-send allowance claim with its private attempt token",async()=>{
+    const h=harness(),submissionToken=crypto.randomUUID(),otherToken=crypto.randomUUID();
+    const prepared=await h.http("ostium/allowances/prepare",{accountId:h.account.id,amountUsd:"100",requestId:"preflight"}),intentId=prepared.body.data.intent.id;
+    const claimed=await h.http("ostium/allowances/submit",{intentId,submissionToken});
+    expect(claimed.body.data.intent.status).toBe("submitting");
+    expect(JSON.stringify(claimed.body)).not.toContain(submissionToken);
+    expect(claimed.body.data.intent.submissionTokenHash).toBeUndefined();
+    expect((await h.http("ostium/allowances/cancel",{intentId,preflightFailed:true})).status).toBe(400);
+    expect((await h.http("ostium/allowances/cancel",{intentId,preflightFailed:true,submissionToken:otherToken})).body.error.code).toBe("ALLOWANCE_CLAIM_MISMATCH");
+    expect((await h.http("ostium/allowances/cancel",{intentId,ownerRejected:true})).body.error.code).toBe("ALLOWANCE_CLAIM_MISMATCH");
+    expect((await h.http("ostium/allowances/cancel",{intentId,ownerRejected:true,submissionToken:otherToken})).body.error.code).toBe("ALLOWANCE_CLAIM_MISMATCH");
+    expect((await h.http("ostium/allowances/submit",{intentId,submissionToken:otherToken})).body.error.code).toBe("ALLOWANCE_PENDING");
+    expect((await h.http("ostium/allowances/cancel",{intentId,preflightFailed:true,submissionToken})).body.data.intent).toMatchObject({status:"rejected",error:"Wallet checks failed before a transaction was requested."});
+  });
+  it("does not use a preflight token to clear old unknown or hash-bearing approvals",async()=>{
+    const h=harness(),submissionToken=crypto.randomUUID();
+    const old=await prepareOstiumAllowance(h.store,h.user,{accountId:h.account.id,amountUsd:"100",requestId:"old"});
+    submitOstiumAllowance(h.store,h.user,old.intent.id);
+    expect(()=>cancelOstiumAllowance(h.store,h.user,old.intent.id,false,true,submissionToken)).toThrow(expect.objectContaining({code:"ALLOWANCE_CLAIM_MISMATCH"}));
+    cancelOstiumAllowance(h.store,h.user,old.intent.id,true);
+    const next=await prepareOstiumAllowance(h.store,h.user,{accountId:h.account.id,amountUsd:"100",requestId:"next"});
+    submitOstiumAllowance(h.store,h.user,next.intent.id,undefined,submissionToken);
+    submitOstiumAllowance(h.store,h.user,next.intent.id,approvalHash);
+    expect(()=>cancelOstiumAllowance(h.store,h.user,next.intent.id,false,true,submissionToken)).toThrow(expect.objectContaining({code:"ALLOWANCE_PENDING"}));
+  });
   it("runs native alerts through their own CRE binding and keeps unattended removal owner-only",async()=>{
     const h=harness(),condition={symbol:"XAU/USD",operator:"above",price:"4000"};
     const alert=h.platform.createAutomation(h.user,{kind:"alert",accountId:h.account.id,name:"Gold watch",condition});
