@@ -3,14 +3,14 @@ import { encodeFunctionData, erc20Abi, zeroAddress } from "viem";
 import type { TradingAccount } from "@orcus/core";
 import { OSTIUM_TESTNET, ostiumTradingAbi, type OstiumAllowancePlan, type OstiumDelegationPlan } from "./ostium";
 
-const mocks = vi.hoisted(() => ({ read: vi.fn(), send: vi.fn(), wait: vi.fn(), deployment: vi.fn(), fetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ read: vi.fn(), estimate: vi.fn(), send: vi.fn(), wait: vi.fn(), deployment: vi.fn(), fetch: vi.fn() }));
 vi.mock("viem", async original => ({
   ...await original<typeof import("viem")>(),
-  createPublicClient: () => ({ readContract: mocks.read, waitForTransactionReceipt: mocks.wait }),
+  createPublicClient: () => ({ readContract: mocks.read, estimateGas: mocks.estimate, waitForTransactionReceipt: mocks.wait }),
   createWalletClient: ({ account }: { account: string }) => ({ account: { address: account }, getChainId: async () => 421614, sendTransaction: mocks.send }),
 }));
 vi.mock("./ostium-owner", async original => ({ ...await original<typeof import("./ostium-owner")>(), assertOstiumOwnerDeployment: mocks.deployment }));
-import { approveOstiumAllowance, grantOstiumPermission } from "./client";
+import { approveOstiumAllowance, grantOstiumPermission, revokeOstiumPermission } from "./client";
 
 const owner = `0x${"1".repeat(40)}` as const, agent = `0x${"2".repeat(40)}` as const, hash = `0x${"a".repeat(64)}` as const;
 const account: TradingAccount = { id: "ostium", userId: "user", venue: "ostium", address: owner, ownerAddress: owner, agentAddress: agent, chainId: 421614, status: "connected", controlRevision: 1 };
@@ -25,6 +25,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.deployment.mockResolvedValue(undefined);
   mocks.read.mockResolvedValueOnce(zeroAddress).mockResolvedValue(agent);
+  mocks.estimate.mockResolvedValue(21_001n);
   mocks.send.mockResolvedValue(hash);
   mocks.wait.mockResolvedValue({ status: "success" });
   mocks.fetch.mockImplementation(async (url: string) => ({ ok: true, json: async () => ({ data: url === "/api/session" ? { user: { address: owner }, accounts: [account] } : {} }) }));
@@ -34,6 +35,53 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Ostium wallet submission boundaries", () => {
+  it("estimates the exact owner grant and pads gas without overriding wallet fees", async () => {
+    await grantCall();
+    const call = { account: owner, to: OSTIUM_TESTNET.trading, data: grant().transactions[0].data, value: 0n };
+    expect(mocks.estimate).toHaveBeenCalledExactlyOnceWith(call);
+    expect(mocks.send).toHaveBeenCalledExactlyOnceWith({ to: call.to, data: call.data, value: 0n, gas: 25_202n });
+  });
+  it("estimates owner revocation before sending", async () => {
+    mocks.read.mockReset().mockResolvedValueOnce(agent).mockResolvedValue(zeroAddress);
+    const data = encodeFunctionData({ abi: ostiumTradingAbi, functionName: "removeDelegate" });
+    const plan = { ...grant(), delegate: zeroAddress, currentDelegate: agent, transactions: [{ ...grant().transactions[0], data }] };
+    await revokeOstiumPermission({ account, plan });
+    expect(mocks.estimate).toHaveBeenCalledExactlyOnceWith({ account: owner, to: OSTIUM_TESTNET.trading, data, value: 0n });
+    expect(mocks.send).toHaveBeenCalledExactlyOnceWith({ to: OSTIUM_TESTNET.trading, data, value: 0n, gas: 25_202n });
+  });
+  it("skips estimation and signing when the reviewed delegate is already active", async () => {
+    mocks.read.mockReset().mockResolvedValue(agent);
+    await expect(grantOstiumPermission({ account, acknowledgement, plan: { ...grant(), currentDelegate: agent, alreadyActive: true, transactions: [] } })).resolves.toEqual({ alreadyActive: true });
+    expect(mocks.estimate).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+  it.each([grantCall, approvalCall])("keeps gas estimation failures safely retryable before any send or claim", async call => {
+    mocks.estimate.mockRejectedValueOnce(new Error("gas required exceeds allowance"));
+    await expect(call()).rejects.toMatchObject({ code: "GAS_ESTIMATION_FAILED", phase: "not-submitted" });
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(requests()).toEqual([]);
+  });
+  it.each([0n, -1n])("rejects invalid gas estimates %s before submission", async estimate => {
+    mocks.estimate.mockResolvedValueOnce(estimate);
+    await expect(grantCall()).rejects.toMatchObject({ code: "GAS_ESTIMATION_FAILED", phase: "not-submitted" });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+  it("rechecks deployment after estimation and before the wallet send", async () => {
+    mocks.estimate.mockImplementationOnce(async () => {
+      mocks.deployment.mockRejectedValueOnce(new Error("deployment changed"));
+      return 21_001n;
+    });
+    await expect(grantCall()).rejects.toMatchObject({ phase: "not-submitted" });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+  it("estimates the exact allowance before claiming it and submits once", async () => {
+    await approvalCall();
+    const data = allowance().transaction.data;
+    expect(mocks.estimate).toHaveBeenCalledExactlyOnceWith({ account: owner, to: OSTIUM_TESTNET.usdc, data, value: 0n });
+    expect(mocks.send).toHaveBeenCalledExactlyOnceWith({ to: OSTIUM_TESTNET.usdc, data, value: 0n, gas: 25_202n });
+    expect(requests().filter(call => call.url.endsWith("/submit") && call.body.submissionToken)).toHaveLength(1);
+    expect(mocks.estimate.mock.invocationCallOrder[0]).toBeLessThan(mocks.fetch.mock.invocationCallOrder[mocks.fetch.mock.calls.findIndex(([url]) => url.endsWith("/submit"))]);
+  });
   it("classifies raw deployment and delegate read errors before sending as not submitted", async () => {
     mocks.deployment.mockRejectedValueOnce(new Error("RPC offline"));
     await expect(grantCall()).rejects.toMatchObject({ code: "PREFLIGHT_FAILED", phase: "not-submitted" });

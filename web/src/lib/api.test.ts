@@ -16,6 +16,7 @@ describe("safe actionable wallet and API errors", () => {
   });
   it.each([
     { code: "PREFLIGHT_FAILED", expected: "Wallet checks failed before sending. Check your connection and try again." },
+    { code: "GAS_ESTIMATION_FAILED", expected: "Gas estimation failed before submission. Check your Arbitrum Sepolia connection and balance, then try again." },
     { code: "ALLOWANCE_CLAIM_MISMATCH", expected: "Another wallet attempt owns this approval request. Check the existing request before retrying." },
   ])("explains $code without exposing diagnostics or overriding uncertain submission", ({ code, expected }) => {
     const error = new ApiError(code, "private provider credential 0xdeadbeef", 409);

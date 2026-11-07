@@ -77,6 +77,7 @@ const safeErrors: Record<string, string> = {
   NATIVE_INPUT_PAIR_UNSUPPORTED: "Native ETH input is supported only for the WETH/USDC sell route on Sepolia.",
   NATIVE_WRAP_NOT_AUTHORIZED: "The owner must explicitly approve a bounded native ETH wrapping grant before the agent uses ETH input.",
   PREFLIGHT_FAILED: "Wallet checks failed before sending. Check your connection and try again.",
+  GAS_ESTIMATION_FAILED: "Gas estimation failed before submission. Check your Arbitrum Sepolia connection and balance, then try again.",
   VENUE_PREFLIGHT_FAILED: "The venue could not validate this order. Refresh its balances and market data before retrying.",
   SIGNING_FAILED: "Your wallet could not sign this action. Nothing new was submitted.",
   SUBMISSION_UNKNOWN: "Submission is uncertain. Check the same action in activity; do not submit a replacement.",
