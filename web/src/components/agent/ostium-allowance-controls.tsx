@@ -6,8 +6,9 @@ import type { Workspace } from "../../lib/use-workspace";
 import { api, displayError, post } from "../../lib/api";
 import { assetAmount } from "../../lib/format";
 import { approveOstiumAllowance } from "../../lib/wallets";
-import { Address, Field, InlineError, Spinner, Status } from "../trading/primitives";
+import { Address, Field, InlineError, Spinner } from "../trading/primitives";
 import { ServicePaymentScope } from "./service-payment-scope";
+import styles from "./ostium-account-card.module.css";
 
 const hashPattern = /^0x[\da-fA-F]{64}$/;
 const unresolvedStatuses = new Set(["prepared", "submitting", "pending", "submitted-unknown"]);
@@ -23,7 +24,11 @@ export function validOstiumAllowanceAmount(value: string) {
   return atoms > 0n && atoms <= 2_000_000_000_000n;
 }
 
-export function OstiumAllowanceControls({ account, workspace: w, initialAmount = "" }: { account: TradingAccount; workspace: Workspace; initialAmount?: string }) {
+export function ostiumAllowanceStateLabel(intent: OstiumAllowanceIntent) {
+  return ({ prepared: "Ready to review", submitting: "Check wallet request", pending: "Awaiting confirmation", "submitted-unknown": "Check wallet request", confirmed: "Confirmed", rejected: "Not approved", cancelled: "Cancelled" })[intent.status];
+}
+
+export function OstiumAllowanceControls({ account, workspace: w, initialAmount = "", compact = false }: { account: TradingAccount; workspace: Workspace; initialAmount?: string; compact?: boolean }) {
   const owner = account.ownerAddress.toLowerCase(), scopeKey = `${w.session.user?.id ?? "signed-out"}:${owner}:${account.id}`;
   const scope = useRef(new ServicePaymentScope(scopeKey));
   scope.current.changeOwner(scopeKey);
@@ -31,6 +36,7 @@ export function OstiumAllowanceControls({ account, workspace: w, initialAmount =
   const [loadedScope, setLoadedScope] = useState<string | null>(null);
   const [amount, setAmount] = useState(initialAmount), [acknowledged, setAcknowledged] = useState(false), [recoveryHash, setRecoveryHash] = useState("");
   const [pending, setPending] = useState<"prepare" | "sign" | "check" | "cancel" | "refresh" | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null), [now, setNow] = useState(Date.now());
   const locked = useRef(false), requestId = useRef<string | null>(null);
   const ownIntents = loadedScope === scopeKey ? intents : null;
@@ -47,7 +53,7 @@ export function OstiumAllowanceControls({ account, workspace: w, initialAmount =
 
   useEffect(() => {
     scope.current.activate(); locked.current = false; requestId.current = null;
-    setIntents(null); setLoadedScope(null); setAmount(initialAmount); setAcknowledged(false); setRecoveryHash(""); setPending(null); setError(null); setNotice(null);
+    setIntents(null); setLoadedScope(null); setAmount(initialAmount); setAcknowledged(false); setRecoveryHash(""); setPending(null); setError(null); setNotice(null); setExpanded(false);
     const ticket = scope.current.capture();
     if (signedInOwner) load().catch(cause => { if (scope.current.isCurrent(ticket)) setError(displayError(cause)); });
     const timer = setInterval(() => setNow(Date.now()), 5_000);
@@ -80,15 +86,15 @@ export function OstiumAllowanceControls({ account, workspace: w, initialAmount =
         if (!ostiumAllowanceCanSign(intent, account, acknowledged)) return;
         const result = await approveOstiumAllowance({ account, intent });
         saveHash(result.transactionHash);
-        if (current()) setNotice("Exact allowance verified. This permits USDC spending; it does not open a trade or grant agent authority.");
+        if (current()) setNotice("USDC allowance confirmed. No trade was opened.");
       } else if (action === "check" && intent) {
         const hash = intent.transactionHash ?? recoveryHash;
         if (!hashPattern.test(hash)) return;
         const result = await post<{ intent: OstiumAllowanceIntent }>("/api/ostium/allowances/reconcile", { intentId: intent.id, transactionHash: hash });
-        if (current()) setNotice(result.intent.status === "confirmed" ? "The existing exact allowance is verified. No new wallet request was made." : result.intent.status === "rejected" ? "The allowance reverted. No new approval was sent." : "The existing approval is still pending. Do not approve it again.");
+        if (current()) setNotice(result.intent.status === "confirmed" ? "USDC allowance confirmed." : result.intent.status === "rejected" ? "Approval reverted. You can review a new amount." : "Approval is still pending. No new request was sent.");
       } else if (action === "cancel" && intent?.status === "prepared") {
         await post("/api/ostium/allowances/cancel", { intentId: intent.id });
-        if (current()) setNotice("Unsigned allowance request dismissed. No token approval was revoked or repeated.");
+        if (current()) setNotice("Unsigned request cancelled. Existing allowances are unchanged.");
       }
       if (current()) { await load(); if (current()) await w.refresh(); }
     } catch (cause) {
@@ -101,19 +107,36 @@ export function OstiumAllowanceControls({ account, workspace: w, initialAmount =
   }
 
   if (account.venue !== "ostium") return null;
-  return <section className="ostium-allowance-controls" aria-label="Ostium USDC allowance">
-    <div className="card-heading"><div><h3>USDC trading allowance</h3><p>Approve an exact amount, separate from agent access.</p></div></div>
-    <p className="fine-print">Owner-paid Arbitrum Sepolia ETH. Fund the owner wallet on Arbitrum Sepolia before approving. This venue's test USDC has no monetary value.</p>
-    {!ownIntents && <p className="fine-print">{signedInOwner ? "Loading saved allowance requests..." : "Sign in with this account's owner wallet."}</p>}
-    <Field label="Exact allowance (USDC)" hint="Up to 2,000,000 USDC with six decimal places. No unlimited approval."><input inputMode="decimal" value={loadedScope === scopeKey ? amount : initialAmount} disabled={!!pending || unresolved} onChange={event => { setAmount(event.target.value.trim()); requestId.current = null; }}/></Field>
-    <button className="button secondary small" type="button" disabled={!signedInOwner || !!pending || !ownIntents || unresolved || !validOstiumAllowanceAmount(amount)} onClick={() => void perform("prepare")}>{pending === "prepare" && <Spinner/>}Review exact allowance</button>
-    {intent && <div className="evaluation"><div className="card-heading"><strong>{assetAmount(intent.amountUsd, "USDC")}</strong><Status value={intent.status}/></div>
-      {intent.status === "prepared" && <><p className="fine-print">{intent.expiresAt > now ? `New wallet requests stop at ${new Date(intent.expiresAt).toLocaleTimeString("en-US")}.` : "This unsigned quote expired. Dismiss it before reviewing a new amount."}</p><label className="check-label"><input type="checkbox" checked={acknowledged} disabled={!!pending} onChange={event => setAcknowledged(event.target.checked)}/>I reviewed this exact USDC amount and spender.</label><button className="button primary small" type="button" disabled={!!pending || !ostiumAllowanceCanSign(intent, account, acknowledged, now)} onClick={() => void perform("sign")}>{pending === "sign" && <Spinner/>}{pending === "sign" ? "Confirming owner approval..." : `Approve ${assetAmount(intent.amountUsd, "USDC")}`}</button><button className="button secondary small" type="button" disabled={!!pending} onClick={() => void perform("cancel")}>Dismiss unsigned request</button></>}
-      {["submitting", "pending", "submitted-unknown"].includes(intent.status) && <><p className="warning-note">A wallet flow already started. Recover its existing transaction; no approval is repeated on return.</p>{!intent.transactionHash && <Field label="Transaction hash from owner wallet history"><input value={recoveryHash} disabled={!!pending} onChange={event => setRecoveryHash(event.target.value.trim())} placeholder="0x..."/></Field>}<button className="button secondary small" type="button" disabled={!!pending || !hashPattern.test(intent.transactionHash ?? recoveryHash)} onClick={() => void perform("check")}>{pending === "check" && <Spinner/>}Check existing approval</button></>}
-      {(intent.transactionHash ?? recoveryHash) && hashPattern.test(intent.transactionHash ?? recoveryHash) && <a className="text-link" href={`https://sepolia.arbiscan.io/tx/${intent.transactionHash ?? recoveryHash}`} target="_blank" rel="noreferrer">View approval transaction</a>}
-      <details className="technical-limits"><summary>Allowance details</summary><dl className="account-addresses"><div><dt>USDC contract</dt><dd><Address value={intent.token} explorer="https://sepolia.arbiscan.io"/></dd></div><div><dt>Approved spender</dt><dd><Address value={intent.spender} explorer="https://sepolia.arbiscan.io"/></dd></div></dl></details>
+  const visible = !compact || expanded || unresolved || !!error;
+  return <section className={`ostium-allowance-controls ${styles.allowance}`} aria-label="Ostium USDC allowance">
+    <div className={styles.flowHeading}><h3>USDC allowance</h3>{compact && !unresolved && <button className="text-link" type="button" aria-expanded={visible} onClick={() => setExpanded(current => !current)}>{visible ? "Close" : "Manage"}</button>}</div>
+    {visible && <div className={styles.flow}>
+      <p className="fine-print">Allow Ostium to use a fixed amount of USDC for your trades. This is separate from agent access.</p>
+      {!ownIntents && <p className="fine-print" role="status">{signedInOwner ? "Checking previous requests..." : "Sign in with the owner wallet."}</p>}
+      {!unresolved && <>
+        <Field label="Allowance (USDC)" hint="No unlimited approval. Maximum 2,000,000 USDC."><input inputMode="decimal" value={loadedScope === scopeKey ? amount : initialAmount} disabled={!!pending || !ownIntents} onChange={event => { setAmount(event.target.value.trim()); requestId.current = null; }}/></Field>
+        <button className="button secondary" type="button" disabled={!signedInOwner || !!pending || !ownIntents || !validOstiumAllowanceAmount(amount)} onClick={() => void perform("prepare")}>{pending === "prepare" && <Spinner/>}{pending === "prepare" ? "Preparing review..." : "Review allowance"}</button>
+      </>}
+      {intent && <div className={styles.flow}>
+        <div className={styles.flowHeading}><strong>{assetAmount(intent.amountUsd, "USDC")}</strong><span className="fine-print">{ostiumAllowanceStateLabel(intent)}</span></div>
+        {intent.status === "prepared" && <>
+          <p className="fine-print">Your wallet pays the Arbitrum Sepolia ETH fee. No trade is opened.</p>
+          <div><span className="fine-print">Ostium spender</span><Address value={intent.spender} explorer="https://sepolia.arbiscan.io"/></div>
+          {intent.expiresAt <= now && <p className="warning-note">Review expired. Cancel it to choose a new amount.</p>}
+          <label className="check-label"><input type="checkbox" checked={acknowledged} disabled={!!pending} onChange={event => setAcknowledged(event.target.checked)}/>Allow this exact amount for the Ostium spender above.</label>
+          <button className="button primary" type="button" disabled={!!pending || !signedInOwner || !ostiumAllowanceCanSign(intent, account, acknowledged, now)} onClick={() => void perform("sign")}>{pending === "sign" && <Spinner/>}{pending === "sign" ? "Confirming approval..." : `Approve ${assetAmount(intent.amountUsd, "USDC")}`}</button>
+          <button className="text-link" type="button" disabled={!!pending} onClick={() => void perform("cancel")}>Cancel review</button>
+        </>}
+        {["submitting", "pending", "submitted-unknown"].includes(intent.status) && <>
+          <p className="fine-print">Finish the original approval in your wallet. We will not ask you to approve twice.</p>
+          {!intent.transactionHash && <Field label="Existing transaction hash" hint="Open your wallet's activity, find the USDC approval on Arbitrum Sepolia, and copy its transaction hash."><input value={recoveryHash} disabled={!!pending} onChange={event => setRecoveryHash(event.target.value.trim())} placeholder="0x..."/></Field>}
+          <button className="button secondary" type="button" disabled={!!pending || !signedInOwner || !hashPattern.test(intent.transactionHash ?? recoveryHash)} onClick={() => void perform("check")}>{pending === "check" && <Spinner/>}{pending === "check" ? "Checking approval..." : "Check approval"}</button>
+        </>}
+        {(intent.transactionHash ?? recoveryHash) && hashPattern.test(intent.transactionHash ?? recoveryHash) && <a className="text-link" href={`https://sepolia.arbiscan.io/tx/${intent.transactionHash ?? recoveryHash}`} target="_blank" rel="noreferrer">View approval transaction</a>}
+        <details className="technical-limits"><summary>Approval details</summary><dl className="account-addresses"><div><dt>USDC contract</dt><dd><Address value={intent.token} explorer="https://sepolia.arbiscan.io"/></dd></div><div><dt>Approved spender</dt><dd><Address value={intent.spender} explorer="https://sepolia.arbiscan.io"/></dd></div></dl></details>
+      </div>}
+      {loadedScope === scopeKey && notice && <p className="fine-print" role="status">{notice}</p>}<InlineError message={error}/>
+      <button className="text-link" type="button" disabled={!!pending || !signedInOwner} onClick={() => void perform("refresh")}>{pending === "refresh" && <Spinner/>}Refresh status</button>
     </div>}
-    {loadedScope === scopeKey && notice && <p className="fine-print" role="status">{notice}</p>}<InlineError message={error}/>
-    <button className="button secondary small" type="button" disabled={!!pending || !signedInOwner} onClick={() => void perform("refresh")}>{pending === "refresh" && <Spinner/>}Refresh saved requests</button>
   </section>;
 }

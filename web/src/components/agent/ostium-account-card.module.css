@@ -1,0 +1,24 @@
+.card { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.card > :global(.card-heading) { flex-wrap: wrap; gap: 12px; }
+.card > :global(.card-heading) > :global(.account-card-identity) { display: flex; align-items: center; gap: 12px; flex-basis: 100%; }
+.card > :global(.card-heading) h2 { font-size: 18px; }
+.card > :global(.card-heading) p { font-size: 12px; }
+.card :global(.fine-print) { font-size: 13px; line-height: 1.55; }
+.card button:focus-visible, .card summary:focus-visible, .card input:focus-visible, .card select:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.balances, .limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0; }
+.balances dt, .limits dt { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.balances dd, .limits dd { margin: 0; font-size: 18px; font-variant-numeric: tabular-nums; }
+.limits { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.limits dd { font-size: 15px; }
+.flow { display: grid; gap: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.flow h3 { margin: 0; font-size: 15px; }
+.flow > button { justify-self: start; }
+.flowHeading, .actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.actions { justify-content: flex-start; }
+.details { border-top: 1px solid var(--border); padding-top: 12px; }
+.allowance { border-top: 1px solid var(--border); padding-top: 12px; }
+.allowance h3 { font-size: 13px; font-weight: 500; }
+.allowance > .flow { border: 0; padding-top: 12px; }
+.history { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 12px; color: var(--muted); font-size: 12px; }
+.history small { width: 100%; }
+@media (max-width: 480px) { .balances dd { font-size: 16px; } .limits { grid-template-columns: 1fr; gap: 12px; } }
