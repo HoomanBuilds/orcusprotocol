@@ -56,6 +56,16 @@ describe("guarded Hyperliquid agent submission", () => {
     await expect(submitHyperliquidAgentAction(prepared, account, key, { assertAuthority: vi.fn() })).resolves.toMatchObject({ status: "submitted-unknown" });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it("records an explicit API minimum rejection observed by the server", async () => {
+    fetch.mockResolvedValue(new Response(JSON.stringify({ status: "ok", response: { type: "order", data: { statuses: [{ error: "Order must have minimum value of $10." }] } } }), { headers: { "Content-Type": "application/json" } }));
+    await expect(submitHyperliquidAgentAction(prepared, account, key)).resolves.toMatchObject({ status: "rejected", evidence: { error: expect.stringContaining("minimum value") } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("does not label a partially successful batch as wholly rejected", async () => {
+    prepared.hyperliquid!.params.orders = [prepared.hyperliquid!.params.orders as unknown[], prepared.hyperliquid!.params.orders as unknown[]].flat();
+    fetch.mockResolvedValue(new Response(JSON.stringify({ status: "ok", response: { type: "order", data: { statuses: [{ resting: { oid: 42 } }, { error: "Insufficient margin" }] } } }), { headers: { "Content-Type": "application/json" } }));
+    await expect(submitHyperliquidAgentAction(prepared, account, key)).resolves.toMatchObject({ status: "submitted-unknown" });
+  });
   it("marks expired or invalid preparation as not submitted", async () => {
     await expect(submitHyperliquidAgentAction({ ...prepared, expiresAt: Date.now() - 1 }, account, key)).rejects.toMatchObject({ code: "STALE_ACTION", phase: "not-submitted" });
     expect(fetch).not.toHaveBeenCalled();

@@ -1,4 +1,5 @@
 import { z } from "zod";
+export { checkHyperliquidOrderSize, type HyperliquidSizeCheck } from "./hyperliquid-order";
 
 export const venueSchema = z.enum(["uniswap", "hyperliquid", "ostium"]);
 export type Venue = z.infer<typeof venueSchema>;

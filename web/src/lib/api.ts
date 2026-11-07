@@ -62,6 +62,8 @@ const safeErrors: Record<string, string> = {
   STALE_ACTION: "This action is stale. Refresh the account and prepare a fresh quote.",
   INVALID_AMOUNT: "Enter a positive amount with the supported token precision.",
   INVALID_PRECISION: "The amount has too many decimal places for this asset.",
+  MINIMUM_NOTIONAL: "Hyperliquid requires at least 10 USDC of order value. Increase the amount and review again.",
+  MARKET_DATA_UNAVAILABLE: "A current market price is unavailable. Refresh market data before reviewing this order.",
   UNSUPPORTED_MARKET: "Choose a supported market before preparing this trade.",
   TOKEN_DIRECTION_MISMATCH: "Review the buy/sell direction and selected tokens before preparing this swap.",
   TRADE_LIMIT: "This trade exceeds the agent's approved limit; reduce its size or review permissions as the owner.",
