@@ -7,6 +7,7 @@ import type { Workspace } from "@/lib/use-workspace";
 import { displayError, post } from "@/lib/api";
 import { useChatScroll } from "@/lib/use-chat-scroll";
 import { shouldSubmitMessage } from "@/lib/chat-scroll";
+import { conversationTimeline } from "@/lib/conversation-timeline";
 import { actionReviewLabel } from "@/lib/trade-ux";
 import { useAgentRequests } from "@/lib/use-agent-requests";
 import { AgentRequestProgress } from "./agent-request-progress";
@@ -34,6 +35,8 @@ export function AgentPanel({
   const agent = w.agentData?.agent ?? w.session.agent;
   const messages = w.agentData?.messages ?? [];
   const requests = useAgentRequests(w.session.user?.address, w.refresh);
+  const timeline = conversationTimeline(messages, requests.requests);
+  const conversationIds = timeline.filter(entry => entry.kind === "message").map(entry => entry.id);
   const sending = requests.submitting;
   const owner = w.session.user?.address.toLowerCase() ?? "";
   const currentOwner = useRef(owner); currentOwner.current = owner;
@@ -62,7 +65,7 @@ export function AgentPanel({
   return (
     <section className="agent-chat" aria-label="Personal agent workspace">
       <header className="agent-chat-toolbar">
-        <div className="agent-chat-identity"><h1>{agent?.name ?? "Agent"}</h1><span>{agent?.paused ? "Paused" : autonomous ? "Within granted limits" : "Approval required"}</span></div>
+        <div className="agent-chat-identity"><h1>{agent?.name ?? "Agent"}</h1><span>{agent?.paused ? "Paused" : autonomous ? "Within granted limits" : "Review before execution"}</span></div>
         <div className="agent-chat-toolbar-actions">
         {!!pending && <Link className="text-link" href="/activity?kind=agent&status=pending">{pending} in progress</Link>}
         <button
@@ -80,7 +83,7 @@ export function AgentPanel({
       <div className="conversation-stage">
       <div ref={scroll.scrollRef} className="chat-scroll agent-conversation-scroll" role="region" aria-label="Conversation" tabIndex={0} onScroll={scroll.onScroll}>
       <div ref={scroll.contentRef} className="conversation-content">
-        {!messages.length && (
+        {!timeline.length && !requests.loading && (
           <div className="agent-welcome">
             <h3>
               What are we working on?
@@ -105,7 +108,10 @@ export function AgentPanel({
             </div>
           </div>
         )}
-        {messages.map((message) => (
+        {timeline.map(entry => {
+          if (entry.kind === "request") return <AgentRequestProgress key={entry.id} requests={[entry.request]} conversationIds={conversationIds} />;
+          const message = entry.message;
+          return (
           <div key={message.id} className={`chat-message ${message.role}`}>
             <span className="message-role">
               {message.role === "assistant" ? "ORCUS" : "YOU"}
@@ -141,8 +147,8 @@ export function AgentPanel({
             )}
             {message.automationProposal !== undefined && <AutomationSuggestion key={`${owner}:${message.id}`} proposal={message.automationProposal} messageId={message.id} automationId={message.automationId} workspace={w} />}
           </div>
-        ))}
-        <AgentRequestProgress requests={requests.requests} conversationIds={messages.map(message => message.id)} />
+          );
+        })}
         {requests.loading && !requests.requests.length && <span className="agent-thinking" role="status"><Spinner />Loading saved requests...</span>}
       </div>
       </div>
