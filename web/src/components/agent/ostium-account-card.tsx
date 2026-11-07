@@ -15,13 +15,13 @@ import { Address, Badge, Field, InlineError, Spinner } from "../trading/primitiv
 import { OstiumAllowanceControls } from "./ostium-allowance-controls";
 import { ServicePaymentScope } from "./service-payment-scope";
 import { VenueSymbolPicker } from "./venue-symbol-picker";
+import { archivedAccess, isArchivedAccess, nativeJournalKey, restartOstiumSetup, type AccessJournal, type ArchivedAccess, type DisableResult } from "./ostium-access-recovery";
+export { nativeJournalKey } from "./ostium-access-recovery";
 import styles from "./ostium-account-card.module.css";
 
 const nativeActions = ["market", "limit", "stop", "cancel", "reduce", "close", "stop-loss", "take-profit", "edit-order", "add-collateral"] as const;
 type GrantDraft = { maxTradeUsd: string; maxCollateralUsd: string; maxLeverage: string; hours: string; symbols: string; actions: TradeRequest["type"][] };
 type GrantReview = { permission: AgentPermission; agentAddress: string; ostium: OstiumDelegationPlan };
-type DisableResult = { account: TradingAccount; requiresOwnerRevocation: boolean; ostium?: OstiumDelegationPlan; nativeAuthority?: { delegate: string }; message?: string };
-type AccessJournal = { version: 1; purpose: "grant" | "revoke"; status: "review" | "started"; account: TradingAccount; plan: OstiumDelegationPlan; permission?: AgentPermission; transactionHash?: string };
 const defaultDraft: GrantDraft = { maxTradeUsd: "100", maxCollateralUsd: "25", maxLeverage: "3", hours: "24", symbols: "", actions: [...nativeActions] };
 const hashPattern = /^0x[\da-fA-F]{64}$/;
 class NativeAccessError extends Error {}
@@ -38,8 +38,6 @@ export function ostiumPermissionRequest(account: TradingAccount, draft: GrantDra
   return { accountId: account.id, action: "prepare", maxTradeUsd: draft.maxTradeUsd, maxCollateralUsd: draft.maxCollateralUsd, maxLeverage: leverage, allowedSymbols: symbols, allowedActions: draft.actions, expiresAt: now + hours * 3_600_000 };
 }
 
-export function nativeJournalKey(account: TradingAccount) { return `orcus:ostium-access:v1:${account.ownerAddress.toLowerCase()}:${account.id}`; }
-
 export function readNativeAccessJournal(raw: string | null, account: TradingAccount): AccessJournal | null {
   if (!raw) return null;
   const value = JSON.parse(raw) as AccessJournal;
@@ -55,6 +53,7 @@ export function OstiumAccountCard({ account, workspace: w }: { account: TradingA
   const [draft, setDraft] = useState(defaultDraft), [journalState, setJournalState] = useState<AccessJournal | null>(null), [loadedScope, setLoadedScope] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false), [pending, setPending] = useState<string | null>(null), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null), [now, setNow] = useState(Date.now());
   const [managing, setManaging] = useState(false);
+  const [restartConfirmed, setRestartConfirmed] = useState(false), [history, setHistory] = useState<ArchivedAccess[]>([]);
   const locked = useRef(false), key = nativeJournalKey(account), loaded = loadedScope === scopeKey;
   const journal = loaded ? journalState : null;
   const permissions = w.agentData?.permissions.filter(item => item.accountId === account.id) ?? [];
@@ -65,29 +64,51 @@ export function OstiumAccountCard({ account, workspace: w }: { account: TradingA
 
   useEffect(() => {
     scope.current.activate(); locked.current = false;
-    setLoadedScope(null); setJournalState(null); setAcknowledged(false); setPending(null); setError(null); setNotice(null); setManaging(false); setDraft({ ...defaultDraft, actions: [...nativeActions], symbols: selected });
-    try { setJournalState(readNativeAccessJournal(localStorage.getItem(key), account)); setLoadedScope(scopeKey); }
+    setLoadedScope(null); setJournalState(null); setAcknowledged(false); setRestartConfirmed(false); setHistory([]); setPending(null); setError(null); setNotice(null); setManaging(false); setDraft({ ...defaultDraft, actions: [...nativeActions], symbols: selected });
+    try { setJournalState(readNativeAccessJournal(localStorage.getItem(key), account)); setHistory(archivedAccess(localStorage, account)); setLoadedScope(scopeKey); }
     catch { setError("Saved permission recovery is unavailable. No new native grant will be signed; manual trading remains separate."); }
+    const sync = (event: StorageEvent) => {
+      if (event.key !== key && !event.key?.startsWith(`${key}:history:`)) return;
+      scope.current.activate(); locked.current = false; setPending(null); setRestartConfirmed(false);
+      try { setJournalState(readNativeAccessJournal(localStorage.getItem(key), account)); setHistory(archivedAccess(localStorage, account)); }
+      catch { setLoadedScope(null); setError("Saved setup history could not be read. Refresh before continuing."); }
+    };
+    window.addEventListener("storage", sync);
     const timer = setInterval(() => setNow(Date.now()), 5_000);
-    return () => { scope.current.stop(); clearInterval(timer); };
+    return () => { scope.current.stop(); clearInterval(timer); window.removeEventListener("storage", sync); };
   }, [scopeKey]);
   useEffect(() => { setAcknowledged(false); }, [journal?.permission?.id, journal?.purpose]);
 
   function save(next: AccessJournal | null) {
+    if (next?.purpose === "grant" && isArchivedAccess(localStorage, account, next)) throw new NativeAccessError("This setup was replaced. Refresh to use the current agent key.");
     try { if (next) localStorage.setItem(key, JSON.stringify(next)); else localStorage.removeItem(key); }
     catch { throw new NativeAccessError("Browser recovery storage is unavailable. Check native authority before requesting another signature."); }
     setJournalState(next);
   }
   const set = <Key extends keyof GrantDraft>(field: Key, value: GrantDraft[Key]) => setDraft(current => ({ ...current, [field]: value }));
 
-  async function perform(action: "prepare" | "grant" | "disable" | "rotate" | "review-revoke" | "revoke" | "recover" | "dismiss") {
+  async function perform(action: "prepare" | "grant" | "disable" | "rotate" | "review-revoke" | "revoke" | "recover" | "dismiss" | "restart") {
     if (locked.current || !signedInOwner || !loaded && action !== "disable") return;
-    const ticket = scope.current.capture(), current = () => scope.current.isCurrent(ticket);
+    const ticket = scope.current.capture(), current = () => scope.current.isCurrent(ticket) && (action === "restart" || !journal || !isArchivedAccess(localStorage, account, journal));
     if (!current()) return;
     locked.current = true; setPending(action); setError(null); setNotice(null);
     let attempted: AccessJournal | null = null;
     try {
-      if (action === "prepare") {
+      if (action === "restart" && journal?.purpose === "grant" && journal.status === "started" && restartConfirmed) {
+        let result: DisableResult;
+        try {
+          result = await restartOstiumSetup(localStorage, account, journal, input => post<DisableResult>("/api/permissions", input), () => { if (!current()) throw new NativeAccessError("Account changed. Refresh before continuing."); });
+        } catch (cause) {
+          throw new NativeAccessError(cause instanceof Error ? cause.message : "Setup could not restart. Check again before continuing.");
+        } finally {
+          if (current()) setHistory(archivedAccess(localStorage, account));
+        }
+        await w.refresh();
+        if (!current()) return;
+        save(result.requiresOwnerRevocation && result.ostium ? { version: 1, purpose: "revoke", status: "review", account: result.account, plan: result.ostium } : null);
+        setRestartConfirmed(false); setManaging(!result.requiresOwnerRevocation);
+        setNotice(result.requiresOwnerRevocation ? "Old access is still active on Ostium. Review its removal below before setting up your agent again." : "Ready for a fresh setup. The old request is saved in history; it has not been cancelled onchain.");
+      } else if (action === "prepare") {
         if (journal?.status === "started") return;
         const result = await post<GrantReview>("/api/permissions", ostiumPermissionRequest(account, draft));
         if (!current()) return;
@@ -157,7 +178,7 @@ export function OstiumAccountCard({ account, workspace: w }: { account: TradingA
         } catch {}
       }
       if (current()) setError(cause instanceof NativeAccessError ? cause.message : displayError(cause));
-    } finally { if (current()) { locked.current = false; setPending(null); } }
+    } finally { if (scope.current.isCurrent(ticket)) { locked.current = false; setPending(null); } }
   }
 
   if (account.venue !== "ostium") return null;
@@ -174,7 +195,13 @@ export function OstiumAccountCard({ account, workspace: w }: { account: TradingA
     {journal?.status === "started" ? <div className={styles.flow}>
       <h3>{journal.purpose === "grant" ? "Finish agent setup" : "Finish removing access"}</h3>
       <p className="fine-print">Check the original request in your wallet. Resolving verifies it and restores the original limits if access is confirmed. No new signature.</p>
-      <button className="button primary" type="button" disabled={!!pending || !signedInOwner} onClick={() => void perform("recover")}>{pending === "recover" && <Spinner/>}{pending === "recover" ? "Checking..." : "Resolve agent access"}</button>
+      <button className="button primary" type="button" disabled={!!pending || !signedInOwner || history.some(item => item.journal.permission?.id === journal.permission?.id)} onClick={() => void perform("recover")}>{pending === "recover" && <Spinner/>}{pending === "recover" ? "Checking..." : "Resolve agent access"}</button>
+      {journal.purpose === "grant" && <details className={styles.details}>
+        <summary>Cannot find this request?</summary>
+        <p className="fine-print">Restart with a different agent key. Your funds stay in your wallet. The old request is kept in history, not cancelled onchain.</p>
+        <label className="check-label"><input type="checkbox" disabled={!!pending} checked={restartConfirmed} onChange={event => setRestartConfirmed(event.target.checked)}/>Do not reuse the old agent. If its wallet prompt appears later, I will reject it. A new key needs its own gas.</label>
+        <button className="button secondary" type="button" disabled={!!pending || !signedInOwner || !restartConfirmed} onClick={() => void perform("restart")}>{pending === "restart" && <Spinner/>}{pending === "restart" ? "Checking and restarting..." : "Start over with a new agent key"}</button>
+      </details>}
     </div> : journal ? <div className={styles.flow}>
       <h3>{journal.purpose === "grant" ? "Review agent access" : "Remove access from Ostium"}</h3>
       {journal.purpose === "grant" && journal.permission ? <>
@@ -215,6 +242,7 @@ export function OstiumAccountCard({ account, workspace: w }: { account: TradingA
       <p className="fine-print">Manual trades use your wallet's ETH. Agent trades use the agent signer's ETH on Arbitrum Sepolia. No automatic top-ups. Test tokens have no monetary value.</p>
       <p className="fine-print">Pausing or expiry in Orcus does not remove Ostium's native permission. Collateral removal is never authorized by Orcus.</p>
       <details className="technical-limits"><summary>Access recovery and history</summary>
+        {!!history.length && <><p className="fine-print">Starting again does not cancel earlier onchain requests. Their results remain unknown; if one confirms later, its Ostium access may need removal.</p>{history.map(item => <div className={styles.history} key={`${item.journal.permission?.id}:${item.journal.plan.expiresAt}`}><span>Earlier setup request unresolved</span><Address value={item.journal.permission?.agentAddress} explorer="https://sepolia.arbiscan.io"/>{item.journal.transactionHash && <a className="text-link" href={`https://sepolia.arbiscan.io/tx/${item.journal.transactionHash}`} target="_blank" rel="noreferrer">View transaction</a>}</div>)}</>}
         <div className={styles.actions}>
           <button className="button secondary small" type="button" disabled={!!pending || !signedInOwner} onClick={() => void perform("disable")}>Disable in Orcus</button>
           <button className="button secondary small" type="button" disabled={!!pending || !loaded || !signedInOwner || journal?.status === "started"} onClick={() => void perform("review-revoke")}>Review removal from Ostium</button>
