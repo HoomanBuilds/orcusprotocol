@@ -33,6 +33,12 @@ describe("focused spot swap", () => {
     expect(html).not.toContain("4,500");
   });
 
+  it("labels stale balances without presenting them as fresh", () => {
+    expect(markup({ portfolio: { ...workspace.portfolio, observedAt: Date.now() - 120_000 } })).toContain("Balances last updated");
+    expect(markup({ portfolio: { ...workspace.portfolio, observedAt: Date.now() } })).not.toContain("Balances last updated");
+    expect(markup({ resourceErrors: { activity: "offline" } })).toContain("Activity could not refresh");
+  });
+
   it("requires wallet connection or trading account setup", () => {
     expect(markup({ account: undefined, session: { user: null, accounts: [], agent: null } })).toContain("Connect wallet");
     expect(markup({ account: undefined })).toContain("Set up trading account");

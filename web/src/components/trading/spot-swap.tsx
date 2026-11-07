@@ -46,6 +46,7 @@ export function SpotSwap({ workspace: w, onSetup }: { workspace: Workspace; onSe
   const account = w.account?.venue === "uniswap" ? w.account : undefined;
   const output = token === "USDC" ? "WETH" : "USDC";
   const balanceError = w.resourceErrors.portfolio || w.portfolio.errors?.find(error => error.accountId === account?.id)?.message;
+  const staleBalances = !w.demoMode && w.portfolio.observedAt > 0 && Date.now() - w.portfolio.observedAt > 60_000;
   const balances = account && !balanceError ? w.portfolio.balances.filter(item => item.accountId === account.id) : [];
   const balance = balances.find(item => item.symbol === token)?.amount;
   const gasBalance = balances.find(item => item.symbol === "ETH")?.amount;
@@ -105,6 +106,8 @@ export function SpotSwap({ workspace: w, onSetup }: { workspace: Workspace; onSe
           {account && <div className={styles.gas}><span>Gas in trading account</span><span>{gasBalance === undefined ? "--" : assetAmount(gasBalance, "ETH")}</span></div>}
           <InlineError message={formError ?? inputIssue}/>
           {balanceError && <p className={styles.warning} role="status">Balances could not refresh. <button type="button" disabled={checking} onClick={() => void checkStatus()}>Try again</button></p>}
+          {!balanceError && account && staleBalances && <p className={styles.warning} role="status">Balances last updated {time(w.portfolio.observedAt)}. <button type="button" disabled={checking} onClick={() => void checkStatus()}>Refresh</button></p>}
+          {w.resourceErrors.activity && <p className={styles.warning} role="status">Activity could not refresh. <button type="button" disabled={checking} onClick={() => void checkStatus()}>Check status</button></p>}
           {account && !gas.ready && <p className={styles.warning} role="status">Swap execution is temporarily unavailable.</p>}
           {unresolved && <div className={styles.warning} role="status"><span>{unresolved.status === "pending" ? "Your previous swap is confirming." : "Your previous swap needs a status check."}</span><button type="button" disabled={checking} onClick={() => void checkStatus()}>{checking ? "Checking..." : "Check status"}</button></div>}
           {!w.session.user ? <button className={styles.primary} type="button" onClick={() => void w.connect()} disabled={w.connecting}>{w.connecting ? <><Spinner/>Connecting...</> : "Connect wallet"}</button>
