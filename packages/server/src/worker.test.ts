@@ -24,6 +24,17 @@ function evaluated(input:Record<string,unknown>){
 }
 
 describe("durable worker coordination",()=>{
+  it("does not resubmit an expired Hyperliquid request",async()=>{
+    const{store,user,platform,account}=setup(),engine=vi.spyOn(engineBoundary,"callEngine");
+    try{
+      const request=tradeRequestSchema.parse({accountId:account.id,venue:"hyperliquid",type:"market",symbol:"ETH",side:"buy",amount:"0.0001",mode:"manual"});
+      const prepared:PreparedAction={id:"expired-owner",request,account,kind:"hyperliquid",expiresAt:Date.now()-300_000,controlRevision:0};
+      store.put("action",{id:prepared.id,userId:user.id,accountId:account.id,request,prepared,status:"expired",initiator:"manual",controlRevision:0,agentRevision:0,expiresAt:prepared.expiresAt,createdAt:Date.now()-360_000,updatedAt:Date.now()}satisfies StoredAction);
+      expect((await platform.submit(user,{actionId:prepared.id})).action.status).toBe("expired");
+      expect((await platform.submit(user,{actionId:prepared.id,result:{venue:"hyperliquid",submissionUnknown:true}})).action.status).toBe("expired");
+      expect(engine).not.toHaveBeenCalled();
+    }finally{engine.mockRestore();store.db.close();}
+  });
   it("reconciles owner evidence arriving after a queued proposal was cancelled",async()=>{
     const{store,user,platform,account}=setup(),engine=vi.spyOn(engineBoundary,"callEngine");
     try{

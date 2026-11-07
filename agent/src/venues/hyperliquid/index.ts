@@ -189,7 +189,31 @@ export async function submitHyperliquidAgentAction(prepared: PreparedAction, acc
   }
 }
 
-export async function reconcileHyperliquidAction(action: { orderId?: string; id?: string; prepared?: PreparedAction }, account: TradingAccount): Promise<SubmissionResult> {
+type ReconciliationAction = { orderId?: string; id?: string; status?: string; createdAt?: number; prepared?: PreparedAction };
+
+async function recoverExpiredIoc(action: ReconciliationAction, account: TradingAccount): Promise<SubmissionResult> {
+  const unknown: SubmissionResult = { status: "submitted-unknown" };
+  const prepared = action.prepared, operation = prepared?.hyperliquid, now = Date.now(), createdAt = action.createdAt;
+  if (!prepared || !["submitting", "submitted-unknown"].includes(action.status ?? "") || action.orderId !== undefined || operation?.method !== "order" || prepared.kind !== "hyperliquid") return unknown;
+  const params = operation.params, orders = params.orders as Array<{ c?: unknown; t?: { limit?: { tif?: unknown }; trigger?: unknown } }> | undefined;
+  if (!Array.isArray(orders) || orders.length !== 1 || params.grouping !== "na" || params.vaultAddress !== undefined || params.expiresAfter !== undefined || orders[0]?.t?.limit?.tif !== "Ioc" || orders[0]?.t?.trigger !== undefined || typeof orders[0]?.c !== "string" || !/^0x[\da-f]{32}$/i.test(orders[0].c)) return unknown;
+  if (prepared.account.id !== account.id || prepared.request.accountId !== account.id || prepared.request.venue !== "hyperliquid" || prepared.account.address.toLowerCase() !== account.address.toLowerCase()) return unknown;
+  if (!Number.isSafeInteger(createdAt) || createdAt! <= 0 || now - createdAt! > 86_400_000 || !Number.isSafeInteger(prepared.expiresAt) || prepared.expiresAt <= createdAt! || prepared.expiresAt - createdAt! > 300_000 || now - prepared.expiresAt < 300_000) return unknown;
+  const startTime = Math.max(0, createdAt! - 60_000);
+  try {
+    const [fills, orders, state] = await Promise.all([
+      hyperliquidInfo<unknown>({ type: "userFillsByTime", user: account.address, startTime, endTime: now, aggregateByTime: false }),
+      hyperliquidInfo<unknown>({ type: "openOrders", user: account.address }),
+      hyperliquidInfo<Clearinghouse & { time?: number }>({ type: "clearinghouseState", user: account.address }),
+    ]);
+    const nonnegative = (value: unknown): value is string => typeof value === "string" && value.length <= 80 && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value);
+    const zero = (value: unknown) => nonnegative(value) && /^0(?:\.0+)?$/.test(value);
+    if (!Array.isArray(fills) || fills.length !== 0 || !Array.isArray(orders) || orders.length !== 0 || !state || !Array.isArray(state.assetPositions) || state.assetPositions.length !== 0 || !nonnegative(state.marginSummary?.accountValue) || !nonnegative(state.withdrawable) || !zero(state.marginSummary?.totalMarginUsed) || !zero(state.marginSummary?.totalNtlPos) || !Number.isSafeInteger(state.time) || Date.now() - state.time! > 30_000 || state.time! - Date.now() > 5_000) return unknown;
+    return { status: "expired", evidence: { recovery: "expired-ioc-no-execution-observed", previousStatus: action.status, message: "Request expired. No execution, open orders or positions observed. The original request will not be retried.", signedExpiresAfter: prepared.expiresAt, checkedAt: Date.now(), historyStartTime: startTime, historyEndTime: now, clientOrderId: (params.orders as Array<{ c: string }>)[0].c, venueStatus: "unknownOid", observedFillCount: 0, observedOpenOrderCount: 0, observedPositionCount: 0, accountStateTime: state.time } };
+  } catch { return unknown; }
+}
+
+export async function reconcileHyperliquidAction(action: ReconciliationAction, account: TradingAccount): Promise<SubmissionResult> {
   assertAccount(account);
   const operation = action.prepared?.hyperliquid;
   const order = (operation?.params.orders as Array<{ c?: unknown }> | undefined)?.[0];
@@ -200,6 +224,7 @@ export async function reconcileHyperliquidAction(action: { orderId?: string; id?
   const oid = cancelOrderId ?? cloid ?? reportedOrderId;
   if (oid === undefined) return { status: "submitted-unknown", evidence: { message: "No venue or client order ID is available." } };
   const result = await hyperliquidInfo<{ status: string; order?: { status: string; order: { oid: number; sz: string; origSz: string; timestamp?: number; coin?: string } } }>({ type: "orderStatus", user: account.address, oid });
+  if (result?.status === "unknownOid") return recoverExpiredIoc(action, account);
   if (!result || result.status !== "order" || !result.order?.order) return { status: "submitted-unknown" };
   const status = result.order.status, venueOrder = result.order.order;
   if (!Number.isSafeInteger(venueOrder.oid) || venueOrder.oid < 0 || typeof oid === "number" && venueOrder.oid !== oid || reportedOrderId !== undefined && venueOrder.oid !== reportedOrderId || typeof status !== "string") return { status: "submitted-unknown", evidence: { message: "The venue returned inconsistent order identity." } };

@@ -23,7 +23,7 @@ import { recordOstiumActionApproval,recordUnknownOstiumApproval,rejectOstiumActi
 
 export const accountSchema=z.object({venue:venueSchema,address:z.string().optional(),smartAccountAddress:z.string().optional(),chainId:z.number().int().optional(),label:z.string().max(80).optional()}).strict();
 export const automationSchema=automationInputSchema;
-const terminalStates=new Set(["confirmed","rejected","cancelled"]);
+const terminalStates=new Set(["confirmed","rejected","cancelled","expired"]);
 const evaluationSchema=z.object({id:z.string(),automationId:z.string(),accountId:z.string(),chainId:z.number().int(),decision:z.enum(["allow","reject","no-action"]),reason:z.string(),source:z.literal("local-simulation"),observedAt:z.number().int(),expiresAt:z.number().int(),controlRevision:z.number().int(),policyVersion:z.number().int(),requestId:z.string().optional()}).passthrough();
 type AgentReply={modelId?:string;message:string;proposal?:TradeRequest;automationProposal?:unknown;requestId?:string;requestIds?:string[];modelCalls?:number;usage?:unknown;costUsd?:string;requiresClarification?:boolean;privacy?:StoredMessage["privacy"];privacyEvidence?:unknown;toolTrace?:unknown};
 
