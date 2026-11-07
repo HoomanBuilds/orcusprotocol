@@ -65,6 +65,10 @@ describe("funding transfer recovery", () => {
 
 describe("pending trade recovery", () => {
   it.each(["submitting", "submitted-unknown"] as const)("does not invite another submission for %s", status => expect(actionRecovery(status)).toMatch(/do not send a replacement/));
+  it("explains expired unobserved requests without claiming a venue rejection", () => {
+    expect(actionRecovery("expired")).toContain("No execution was observed");
+    expect(actionRecovery("expired")).toContain("will not be retried");
+  });
   it("distinguishes accepted, partially filled, and cancelled orders", () => {
     expect(actionRecovery("pending")).toMatch(/not confirmed/);
     expect(actionRecovery("partially-filled")).toMatch(/part of this order/);

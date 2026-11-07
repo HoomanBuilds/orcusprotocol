@@ -17,7 +17,7 @@ describe("saved owner action review", () => {
     expect(actionReviewIssue(action, "owner", [account], 2000)).toMatch(/expired/);
     expect(actionReviewIssue({ ...action, prepared: undefined }, "owner", [account], 1000)).toMatch(/expired/);
   });
-  it.each(["submitting", "submitted-unknown", "pending", "partially-filled", "confirmed", "rejected", "cancelled"] as const)("does not offer another submission for %s", status => {
+  it.each(["submitting", "submitted-unknown", "pending", "partially-filled", "confirmed", "rejected", "cancelled", "expired"] as const)("does not offer another submission for %s", status => {
     expect(actionReviewIssue({ ...action, status }, "owner", [account], 1000)).toMatch(/already submitted or closed/);
   });
   it("rejects a removed, switched or revised account and mismatched prepared payload", () => {

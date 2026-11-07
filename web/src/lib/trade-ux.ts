@@ -17,6 +17,7 @@ export function tradingGasStatus(config: WalletExecutionConfig | null, venue: Ve
 }
 
 export function actionRecovery(status: ActionStatus): string | undefined {
+  if (status === "expired") return "Request expired. No execution was observed. You can review a new trade; this request will not be retried.";
   if (["submitting", "submitted-unknown"].includes(status)) return "Submission is not resolved. Check this same action; do not send a replacement.";
   if (status === "pending") return "Submitted, not confirmed. Check status before placing the same action again.";
   if (status === "partially-filled") return "Only part of this order filled. Check the remaining venue order before changing exposure.";

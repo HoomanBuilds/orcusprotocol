@@ -49,6 +49,8 @@ describe("Hyperliquid compatible owner signing", () => {
     await expect(executePreparedAction(prepared)).resolves.toMatchObject({ orderId: "42" });
     expect(signedTypes).toEqual(["Agent"]);
     expect(fetch.mock.calls.filter(([url]) => String(url).includes("/exchange"))).toHaveLength(1);
+    const submission = fetch.mock.calls.find(([url]) => String(url).includes("/exchange"))!;
+    expect(JSON.parse(String(submission[1]?.body)).expiresAfter).toBe(prepared.expiresAt);
   });
   it("does not broadcast when the selected owner changes during approval signing", async () => {
     changedDuringSignature = true;

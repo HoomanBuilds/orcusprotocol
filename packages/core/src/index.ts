@@ -296,7 +296,7 @@ export const ostiumDelegationAcknowledgementSchema = z.object({
 }).strict();
 export type OstiumDelegationAcknowledgement = z.infer<typeof ostiumDelegationAcknowledgementSchema>;
 
-export type ActionStatus = "prepared" | "awaiting-approval" | "submitting" | "submitted-unknown" | "pending" | "partially-filled" | "confirmed" | "rejected" | "cancelled";
+export type ActionStatus = "prepared" | "awaiting-approval" | "submitting" | "submitted-unknown" | "pending" | "partially-filled" | "confirmed" | "rejected" | "cancelled" | "expired";
 export interface ActionRecord {
   id: string;
   userId: string;

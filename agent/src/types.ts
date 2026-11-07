@@ -12,7 +12,7 @@ export interface AccountPortfolio {
 }
 
 export interface SubmissionResult {
-  status: "pending" | "confirmed" | "partially-filled" | "submitted-unknown" | "rejected" | "cancelled";
+  status: "pending" | "confirmed" | "partially-filled" | "submitted-unknown" | "rejected" | "cancelled" | "expired";
   txHash?: string;
   orderId?: string;
   evidence?: Record<string, unknown>;
