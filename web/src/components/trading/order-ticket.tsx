@@ -7,7 +7,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
 } from "lucide-react";
-import { tradeRequestSchema, type TradeRequest } from "@orcus/core";
+import { checkHyperliquidOrderSize, tradeRequestSchema, type TradeRequest } from "@orcus/core";
 import type { Workspace } from "@/lib/use-workspace";
 import { number, usd } from "@/lib/format";
 import { displayError } from "@/lib/api";
@@ -60,6 +60,16 @@ export function OrderTicket({
     w.activeMarket && Number(amount) > 0
       ? Number(amount) * Number(w.activeMarket.midPrice)
       : undefined;
+  const sizeCheck = spot ? undefined : checkHyperliquidOrderSize({
+    amount,
+    price: orderType === "limit" ? price : w.activeMarket?.midPrice,
+    sizeDecimals: w.activeMarket?.sizeDecimals,
+    observedAt: w.activeMarket?.observedAt,
+    reduceOnly: reduceOnly || orderType === "stop-loss" || orderType === "take-profit",
+  });
+  const sizeHint = sizeCheck?.code === "MINIMUM_NOTIONAL"
+    ? `Minimum 10 USDC (${sizeCheck.minimumSize} ${asset} at this price).`
+    : amount && sizeCheck && !sizeCheck.valid ? sizeCheck.message : undefined;
 
   async function prepare() {
     setFormError(null);
@@ -68,6 +78,10 @@ export function OrderTicket({
       return;
     }
     try {
+      if (sizeCheck && !sizeCheck.valid) {
+        setFormError(sizeHint ?? sizeCheck.message ?? "Check the order amount.");
+        return;
+      }
       const request: TradeRequest = tradeRequestSchema.parse({
         accountId: w.account.id,
         venue: w.venue,
@@ -159,7 +173,7 @@ export function OrderTicket({
       {nativeAvailable && <label className="checkbox"><input type="checkbox" checked={nativeInput} disabled={w.preparing || w.executing} onChange={event => { setNativeInput(event.target.checked); setAmount(""); }} />Pay with native Sepolia ETH. Wrap and swap in one atomic account operation.</label>}
       {spot && side === "buy" && <p className="fine-print">Buying this pair receives WETH, not native ETH. No automatic unwrap or cross-chain transfer is included.</p>}
       <Field
-        label={spot ? "You pay" : "Position size"}
+        label={spot ? "You pay" : `Amount (${asset})`}
         hint={
           spot
             ? `Input token: ${inputAsset} from your trading account. ${nativeAvailable && nativeInput ? "ETH is wrapped into WETH inside the same swap operation." : "Quote uses the selected testnet pool."}`
@@ -179,6 +193,7 @@ export function OrderTicket({
           <span><AssetIcon symbol={inputAsset} size={22}/>{inputAsset}</span>
         </div>
       </Field>
+      {sizeHint && <p className="warning-note" role="status">{sizeHint}</p>}
       {!spot && orderType !== "market" && (
         <Field label={orderType === "limit" ? "Limit price" : "Trigger price"}>
           <div className="amount-input compact">
@@ -286,7 +301,7 @@ export function OrderTicket({
           className={`button full ${side === "buy" ? "primary" : "sell-button"}`}
           type="button"
           disabled={
-            w.preparing || w.executing || uncertain || !amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0
+            w.preparing || w.executing || uncertain || !amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0 || Boolean(sizeCheck && !sizeCheck.valid)
           }
           onClick={() => void prepare()}
         >

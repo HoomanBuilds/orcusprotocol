@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { ExchangeClient, HttpTransport, type IRequestTransport } from "@nktkas/hyperliquid";
+import { ApiRequestError } from "@nktkas/hyperliquid/api/exchange";
 import { getAddress, isAddressEqual } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { tradeRequestSchema, type Market, type MarketCandle, type PreparedAction, type TradingAccount, type TradeRequest } from "@orcus/core";
+import { checkHyperliquidOrderSize, tradeRequestSchema, type Market, type MarketCandle, type PreparedAction, type TradingAccount, type TradeRequest } from "@orcus/core";
 import { EngineError, requestJson } from "../../errors";
 import type { AccountPortfolio, SubmissionResult } from "../../types";
 import { decimalToAtoms, formatPrice, formatSize } from "./wire-format";
@@ -126,6 +127,8 @@ export async function prepareHyperliquidAction(input: TradeRequest, account: Tra
   if (action.type === "limit" && !action.price) throw new EngineError("PRICE_REQUIRED", "A limit price is required.");
   const rawPrice = isTrigger ? action.triggerPrice! : action.type === "limit" ? action.price! : ctx.midPx ?? ctx.markPx;
   const price = formatPrice(rawPrice, 6 - asset.szDecimals, side, action.type === "limit" ? 0 : action.slippageBps);
+  const sizeCheck = checkHyperliquidOrderSize({ amount: size, price, sizeDecimals: asset.szDecimals, reduceOnly });
+  if (!sizeCheck.valid) throw new EngineError(sizeCheck.code!, `${sizeCheck.message}${sizeCheck.minimumSize ? ` Minimum size: ${sizeCheck.minimumSize} ${symbol}.` : ""}`);
   const trigger = isTrigger ? { trigger: { isMarket: true, triggerPx: formatPrice(action.triggerPrice!, 6 - asset.szDecimals, side), tpsl: action.type === "stop-loss" ? "sl" : "tp" } } : { limit: { tif: action.type === "limit" ? "Gtc" : "Ioc" } };
   const cloid = `0x${base.id.replace(/-/g, "")}`;
   if (action.leverage) base.warnings.push("This order uses the account's current leverage setting. Change leverage in the venue before trading if needed.");
@@ -175,6 +178,13 @@ export async function submitHyperliquidAgentAction(prepared: PreparedAction, acc
   } catch (error) {
     if (authorityFailure) throw authorityFailure;
     if (!sendAttempted) throw Object.assign(error instanceof EngineError ? error : new EngineError("VENUE_PREFLIGHT_FAILED", "The venue request could not be signed or validated. Nothing was submitted.", 409), { phase: "not-submitted" as const });
+    if (error instanceof ApiRequestError) {
+      const response = error.response as { status?: string; response?: unknown };
+      const statuses = (response?.response as { data?: { statuses?: unknown[] } } | undefined)?.data?.statuses;
+      const orders = prepared.hyperliquid?.params.orders;
+      const singleOrderRejected = prepared.hyperliquid?.method === "order" && Array.isArray(orders) && orders.length === 1 && statuses?.length === 1 && typeof statuses[0] === "object" && statuses[0] !== null && "error" in statuses[0] && typeof statuses[0].error === "string";
+      if (response?.status === "err" && typeof response.response === "string" || singleOrderRejected) return { status: "rejected", evidence: { error: error.message, response: error.response } };
+    }
     return { status: "submitted-unknown", evidence: { message: "Submission result is unknown. Reconcile order state before any retry." } };
   }
 }

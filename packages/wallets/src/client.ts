@@ -1,4 +1,4 @@
-import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { ExchangeClient, HttpTransport, type IRequestTransport } from "@nktkas/hyperliquid";
 import { BrowserProvider, type TypedDataDomain, type TypedDataField } from "ethers";
 import { serializePermissionAccount } from "@zerodev/permissions";
 import { createKernelAccount, KernelV3_1AccountAbi } from "@zerodev/sdk";
@@ -267,7 +267,19 @@ export async function executePreparedAction(prepared: PreparedAction): Promise<{
     if (!prepared.hyperliquid || prepared.kind !== "hyperliquid") throw new Error("The venue request is missing.");
     if (prepared.account.chainId !== arbitrumSepolia.id || getAddress(prepared.account.address) !== owner || prepared.request.accountId !== prepared.account.id) throw new WalletActionError("ACCOUNT_CHANGED", "The Hyperliquid testnet account does not match this owner.");
     const wallet = await ownerWallet(arbitrumSepolia, owner);
-    const exchange = new ExchangeClient({ transport: new HttpTransport({ isTestnet: true }), wallet: await hyperliquidOwnerSigner(wallet.account.address), signatureChainId: "0x66eee", defaultExpiresAfter: prepared.expiresAt });
+    let sendAttempted = false;
+    const transport = new HttpTransport({ isTestnet: true });
+    const guardedTransport: IRequestTransport = {
+      isTestnet: true,
+      async request<T>(endpoint: "info" | "exchange", payload: unknown, signal?: AbortSignal): Promise<T> {
+        await accountControl(prepared.account, prepared.controlRevision);
+        await assertOwner(owner, arbitrumSepolia);
+        if (prepared.expiresAt <= Date.now()) throw new WalletActionError("QUOTE_EXPIRED", "This quote expired before submission. Review a fresh order.");
+        if (endpoint === "exchange") sendAttempted = true;
+        return transport.request<T>(endpoint, payload, signal);
+      },
+    };
+    const exchange = new ExchangeClient({ transport: guardedTransport, wallet: await hyperliquidOwnerSigner(wallet.account.address), signatureChainId: "0x66eee", defaultExpiresAfter: prepared.expiresAt });
     const operation = prepared.hyperliquid;
     if (operation.params.vaultAddress && getAddress(String(operation.params.vaultAddress)) !== owner) throw new WalletActionError("ACCOUNT_CHANGED", "Trading through a different Hyperliquid vault is not authorized.");
     await accountControl(prepared.account, prepared.controlRevision);
@@ -280,7 +292,11 @@ export async function executePreparedAction(prepared: PreparedAction): Promise<{
     else if (operation.method === "updateLeverage") response = await exchange.updateLeverage(operation.params as Parameters<typeof exchange.updateLeverage>[0]);
     else throw new Error("Unsupported venue operation.");
     } catch (error) {
-      if (isOwnerRejection(error)) throw new WalletActionError("OWNER_REJECTED", "You declined the wallet signature. Nothing was submitted.");
+      if (!sendAttempted) {
+        if (isOwnerRejection(error)) throw new WalletActionError("OWNER_REJECTED", "You declined the wallet signature. Nothing was submitted.");
+        if (error instanceof WalletActionError) throw error;
+        throw new WalletActionError("SIGNING_FAILED", "Your wallet could not sign or validate this order. Nothing was submitted.");
+      }
       try { await recordSubmission(prepared.id, { result: { venue: "hyperliquid", submissionUnknown: true } }); } catch {}
       throw new WalletActionError("SUBMISSION_UNKNOWN", "The venue response is unknown. Check orders and activity before retrying.", "submitted-unknown");
     }
