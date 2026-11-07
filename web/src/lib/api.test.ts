@@ -15,6 +15,15 @@ describe("safe actionable wallet and API errors", () => {
     expect(displayError({ code: "INSUFFICIENT_GAS" })).toMatch(/external-wallet deposits/);
   });
   it.each([
+    { code: "PREFLIGHT_FAILED", expected: "Wallet checks failed before sending. Check your connection and try again." },
+    { code: "ALLOWANCE_CLAIM_MISMATCH", expected: "Another wallet attempt owns this approval request. Check the existing request before retrying." },
+  ])("explains $code without exposing diagnostics or overriding uncertain submission", ({ code, expected }) => {
+    const error = new ApiError(code, "private provider credential 0xdeadbeef", 409);
+    expect(displayError(error)).toBe(expected);
+    expect(displayError({ cause: error })).toBe(expected);
+    expect(displayError({ phase: "submitted-unknown", cause: error })).toMatch(/do not submit a replacement/);
+  });
+  it.each([
     { code: "UNSUPPORTED_MARKET", expected: /supported market/ },
     { code: "TOKEN_DIRECTION_MISMATCH", expected: /buy\/sell direction/ },
     { code: "TRADE_LIMIT", expected: /approved limit/ },
