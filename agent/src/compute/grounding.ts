@@ -37,9 +37,11 @@ export function groundFinalAnswer(input: { message: string; basis: "observed" | 
   for (const trace of traces) if (trace.ok && evidenceTools.has(trace.name)) for (const source of researchSources(trace.result)) byId.set(source.id, source);
   const sources = [...byId.values()].slice(-5);
   const local = localObservations(traces);
+  const observationIds = [...local.map(observation => observation.id), ...traces.flatMap(trace => trace.ok && evidenceTools.has(trace.name) && typeof trace.observationId === "string" && /^[a-zA-Z0-9:_-]{1,80}$/.test(trace.observationId) && researchSources(trace.result).length ? [trace.observationId] : [])];
+  const validObservation = (id: string) => observationIds.filter(value => value === id).length === 1 && traces.filter(trace => trace.observationId === id).length <= 1;
   const links = input.message.match(/https?:\/\/[^\s<>\])]+/g) ?? [];
   const allowedUrls = new Set(sources.map(source => source.url));
-  if (links.some(url => !allowedUrls.has(publicSourceUrl(url) ?? "")) || input.sourceIds?.some(id => !byId.has(id) && !uniqueLocalReference(id, local)) || input.observationIds?.some(id => local.filter(observation => observation.id === id).length !== 1)) return { answer: "I could not verify the sources in that answer. No action was authorized. Ask me to retrieve the relevant market or research sources again.", requiresClarification: true, clearProposal: true };
+  if (links.some(url => !allowedUrls.has(publicSourceUrl(url) ?? "")) || input.sourceIds?.some(id => !byId.has(id) && !uniqueLocalReference(id, local)) || input.observationIds?.some(id => !validObservation(id))) return { answer: "I could not verify the sources in that answer. No action was authorized. Ask me to retrieve the relevant market or research sources again.", requiresClarification: true, clearProposal: true };
   if (input.requiresClarification) return { answer: input.message, requiresClarification: true, clearProposal: true };
   const attemptedResearch = traces.some(trace => evidenceTools.has(trace.name));
   if (hasProposal && !sources.length && !attemptedResearch) {
