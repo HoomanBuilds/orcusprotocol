@@ -18,6 +18,15 @@ function exactAmount(value: string | undefined, symbol: string) {
   return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${decimals ? `.${decimals}` : ""} ${symbol}`;
 }
 
+function hasSwapOutputs(output: string | undefined, minimum: string | undefined) {
+  const positiveDecimal = (value: unknown): value is string => typeof value === "string" && /^\d+(?:\.\d+)?$/.test(value) && /[1-9]/.test(value);
+  if (!positiveDecimal(output) || !positiveDecimal(minimum)) return false;
+  const [outputWhole, outputFraction = ""] = output.split(".");
+  const [minimumWhole, minimumFraction = ""] = minimum.split(".");
+  const precision = Math.max(outputFraction.length, minimumFraction.length);
+  return BigInt(minimumWhole + minimumFraction.padEnd(precision, "0")) <= BigInt(outputWhole + outputFraction.padEnd(precision, "0"));
+}
+
 export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [now, setNow] = useState(Date.now());
@@ -44,6 +53,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
   const outputAsset = request.side === "buy" ? baseAsset : quoteAsset;
   const expiresIn = Math.max(0, Math.ceil((prepared.expiresAt - now) / 1000));
   const isSwap = request.venue === "uniswap";
+  const invalidQuote = isSwap && !hasSwapOutputs(prepared.quote?.amountOut, prepared.quote?.minimumOut);
   return (
     <dialog
       ref={dialog}
@@ -105,6 +115,7 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
           <p>{request.mode === "agent" ? "Current permissions are checked again before signing." : "This signature is for this swap only. It does not authorize your agent."}</p>
         </details>
         {!gas.ready && <p className="warning-note">{gas.detail}</p>}
+        {invalidQuote && <p className="warning-note">A valid output and minimum received are required. Close this review and get a new quote.</p>}
       </> : <>
       <div className="preview-amount">
         <b>
@@ -196,8 +207,8 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
         <button
           type="button"
           className="button primary"
-          disabled={w.executing || !expiresIn || !gas.ready || invalidNative}
-          onClick={() => void w.confirm()}
+          disabled={w.executing || !expiresIn || !gas.ready || invalidNative || invalidQuote}
+          onClick={() => { if (!invalidQuote) void w.confirm(); }}
         >
           {w.executing ? (
             <>
@@ -210,6 +221,8 @@ export function ActionPreview({ workspace: w }: { workspace: Workspace }) {
             "Smart-account execution unavailable"
           ) : !expiresIn ? (
             "Quote expired"
+          ) : invalidQuote ? (
+            "Quote unavailable"
           ) : (
             prepared.request.mode === "agent" ? "Execute with agent" : "Sign and execute"
           )}
