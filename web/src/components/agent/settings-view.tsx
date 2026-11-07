@@ -35,6 +35,8 @@ import { ComputeFundingPanel } from "./compute-funding-panel";
 import { ServicePaymentPanel } from "./service-payment-panel";
 import { ExpenseBillingCheck } from "./expense-billing-check";
 import { OstiumAccountCard } from "./ostium-account-card";
+import { VenueSymbolPicker } from "./venue-symbol-picker";
+import styles from "./accounts-settings.module.css";
 import {
   Address,
   Badge,
@@ -53,7 +55,7 @@ type PreparedPermission = {
   policy?: KernelGrantPolicy;
 };
 
-function AccountCard({
+export function AccountCard({
   account,
   workspace: w,
 }: {
@@ -63,6 +65,8 @@ function AccountCard({
   const [busy, setBusy] = useState<string | null>(null);
   const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [now, setNow] = useState(Date.now);
   const [maxTrade, setMaxTrade] = useState("100");
   const [symbols, setSymbols] = useState(
     account.venue === "uniswap" ? "WETH/USDC" : "BTC, ETH",
@@ -81,7 +85,11 @@ function AccountCard({
   const permission = w.agentData?.permissions.find(
     (item) => item.accountId === account.id && item.status === "active",
   ) as Permission | undefined;
+  const permissionCurrent = !!permission && permission.expiresAt > now;
+  const agentPaused = !!w.agentData?.agent.paused;
+  const accessLabel = permissionCurrent ? agentPaused ? "Agent paused" : "Agent enabled" : permission ? "Agent access expired" : "Agent not enabled";
   const spot = account.venue === "uniswap";
+  const balances = w.portfolio.balances.filter(balance => balance.accountId === account.id);
   const disabledPermissions = (w.agentData?.permissions ?? []).filter(item => item.accountId === account.id && item.status === "revoked" && item.expiresAt > Date.now()) as Permission[];
   const gas = tradingGasStatus(w.walletConfig, account.venue);
   const fundingRecoveryKey = depositRecoveryKey(account.ownerAddress, account.id);
@@ -90,6 +98,10 @@ function AccountCard({
   const fundingLoaded = loadedFundingKey === fundingRecoveryKey;
   const fundingHash = fundingLoaded ? storedFundingHash : null;
   const fundingState = fundingLoaded ? storedFundingState : null;
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, []);
   useEffect(() => {
     setLoadedFundingKey(null); setFundingHash(null); setFundingState(null); setFundingChecked(false);
     try {
@@ -279,19 +291,29 @@ function AccountCard({
   }
 
   return (
-    <article className="settings-card account-card">
+    <article className={`settings-card account-card ${styles.card}`}>
       <div className="card-heading">
         <ProtocolIcon name={account.venue} size={36}/>
         <div>
           <h2>{spot ? "Uniswap" : "Hyperliquid"}</h2>
           <p>
             {spot
-              ? "Ethereum Sepolia / user-owned smart account"
-              : "Testnet / existing owner account"}
+              ? "Ethereum Sepolia"
+              : "Hyperliquid Testnet"}
           </p>
         </div>
-        <Status value={account.status} />
+        <Badge tone={permissionCurrent && !agentPaused ? "good" : "neutral"}>{accessLabel}</Badge>
       </div>
+      <dl className={styles.balances}>
+        <div><dt>{spot ? "Trading USDC" : "Account USDC"}</dt><dd>{assetAmount(balances.find(balance => balance.symbol === "USDC")?.amount, "USDC")}</dd></div>
+        {spot && <div><dt>Trading account gas</dt><dd>{assetAmount(balances.find(balance => balance.symbol === "ETH")?.amount, "ETH")}</dd></div>}
+        {!spot && <div><dt>Open positions</dt><dd>{w.portfolio.positions?.filter(position => position.accountId === account.id).length ?? "Unavailable"}</dd></div>}
+      </dl>
+      <p className={styles.caption}>{spot ? "Manual and agent swaps use this trading account." : "Trade yourself or let your agent manage the same positions."}</p>
+      {spot && !gas.ready && <p className="warning-note">{gas.label}. {gas.detail}</p>}
+      {!agentOpen && !prepared && !pendingPolicy && <button className="button primary" type="button" onClick={() => setAgentOpen(true)} aria-expanded={false} aria-controls={`agent-settings-${account.id}`}>{permission ? "Manage agent" : "Set up agent"}</button>}
+      <details className={styles.details}>
+      <summary>Account details</summary>
       <dl className="account-addresses">
         <div>
           <dt>Trading account</dt>
@@ -317,14 +339,13 @@ function AccountCard({
       </dl>
       <p className="fine-print">
         {spot
-          ? "Your owner wallet controls this Sepolia trading account. Fund it with trading assets and ETH for network fees; connecting does not move funds. Manual trades and your approved agent use this same account."
-          : "Existing supported positions stay in your account. The same positions can be managed manually or by your approved agent."}
+          ? "You own this smart account. Its Sepolia ETH pays network fees for manual and agent swaps. Connecting does not transfer funds."
+          : "Your owner wallet keeps control. Agent permissions do not create a separate trading account."}
       </p>
-      {spot && <p className={gas.ready ? "fine-print" : "warning-note"}><strong>{gas.label}.</strong> {gas.detail} No 0G is required for normal trading.</p>}
-      {spot && <p className="fine-print">Trading account balance: {assetAmount(w.portfolio.balances.find(balance => balance.accountId === account.id && balance.symbol === "ETH")?.amount, "ETH")}. This balance also covers any native ETH swap input; gas is checked separately before signing.</p>}
+      </details>
       {spot && (
-        <details className="technical-limits">
-          <summary>Deposit Sepolia assets from your owner wallet</summary>
+        <details className={styles.details} open={fundingState === "unknown" || fundingState === "reverted" || undefined}>
+          <summary>{fundingState === "unknown" ? "Deposit needs checking" : fundingState === "reverted" ? "Deposit failed" : "Add trading funds"}</summary>
           <div className="form-grid">
             <Field label="Asset">
               <select value={fundingAsset} onChange={event => setFundingAsset(event.target.value as typeof fundingAsset)}>
@@ -337,10 +358,10 @@ function AccountCard({
               <input inputMode="decimal" value={fundingAmount} onChange={event => setFundingAmount(event.target.value)} placeholder="0.00" />
             </Field>
           </div>
-          <p className="fine-print">Your owner wallet pays this transfer's Sepolia fee. Deposited ETH then pays network fees for both manual and agent trading from this smart account. Keep enough ETH for gas beyond any ETH swap amount. No automatic top-ups, mainnet bridging or 0G compute funding.</p>
+          <p className="fine-print">Transfer from your owner wallet on Sepolia. Keep ETH in both wallets for network fees. This does not fund AI compute.</p>
           <p className="fine-print">Funding address on Ethereum Sepolia: <Address value={account.smartAccountAddress ?? account.address} explorer="https://sepolia.etherscan.io" /></p>
           <button className="button secondary small" type="button" disabled={!!busy || !fundingLoaded || !!fundingHash || fundingState === "unknown" || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(fundingAmount) || Number(fundingAmount) <= 0} onClick={() => void fund()}>
-            {busy === "fund" ? <><Spinner />Confirm transfer and await receipt</> : <><Wallet size={13} />Review transfer in owner wallet</>}
+            {busy === "fund" ? <><Spinner />Confirming transfer...</> : "Review transfer in wallet"}
           </button>
           {(fundingHash || fundingState === "unknown") && <div className="warning-note"><p>{fundingState === "confirmed" ? "Deposit confirmed in the trading account." : fundingState === "reverted" ? "The transfer reverted. Check its receipt before another attempt." : "The transfer result is uncertain. Check this same transaction or your wallet history before sending more funds."}</p>{fundingHash && <a className="text-link" href={`https://sepolia.etherscan.io/tx/${fundingHash}`} target="_blank" rel="noreferrer">Inspect funding transaction<ExternalLink size={12} /></a>}{fundingState === "unknown" && <label className="checkbox"><input type="checkbox" checked={fundingChecked} onChange={event => setFundingChecked(event.target.checked)} />I checked the final receipt or wallet history and understand a second transfer is a separate deposit.</label>}<button className="button secondary small" type="button" disabled={!!busy || fundingState === "unknown" && !fundingChecked} onClick={() => { setFundingHash(null); setFundingState(null); setFundingChecked(false); clearDepositRecovery(localStorage, sessionStorage, account.ownerAddress, account.id); void w.refresh(); }}>Enter a separate new deposit</button></div>}
         </details>
@@ -352,12 +373,13 @@ function AccountCard({
           <button className="button danger small" type="button" disabled={!!busy || !confirmInvalidation || !gas.ready} onClick={() => void invalidatePending()}>{busy === "invalidate" ? <Spinner /> : <KeyRound size={13} />}Invalidate older approvals in owner wallet</button>
         </div>
       )}
+      {(agentOpen || prepared) && <div id={`agent-settings-${account.id}`} className={styles.agentPanel}>
+      <div className={styles.panelHeading}><h3>{permission ? "Agent access" : prepared ? "Confirm agent access" : "Set your agent limits"}</h3><button className="text-button" type="button" disabled={!!busy || !!prepared} onClick={() => setAgentOpen(false)}>Close</button></div>
       {permission ? (
         <>
           <div className="permission-active">
-            <ShieldCheck size={15} />
             <div>
-              <strong>Agent permission active</strong>
+              <strong>{accessLabel}</strong>
               <span>
                 {permission.allowedSymbols.join(", ") ||
                   "All supported symbols"}{" "}
@@ -367,31 +389,21 @@ function AccountCard({
             </div>
           </div>
           {spot && <p className="fine-print">{permission.policy?.nativeWrap ? `Native ETH wrapping is permitted up to ${formatUnits(BigInt(permission.policy.nativeWrap.maxAmountWei), 18)} ETH per call, within the approved routes and expiry.` : "Native ETH wrapping is not included in this grant. Manual ETH input remains an owner-signed action."}</p>}
+          {!spot && <p className="fine-print">Disabling here stops Orcus. Remove the agent in Hyperliquid to revoke its exchange access.</p>}
           <div className="form-actions">
-            <button
-              className="button secondary small"
-              type="button"
-              disabled={!!busy || spot && !gas.ready}
-              onClick={() => void revoke(true)}
-            >
-              {busy === "rotate" ? <Spinner /> : <RotateCw size={13} />}Rotate
-              signer
-            </button>
             <button
               className="button danger small"
               type="button"
               disabled={!!busy || spot && !gas.ready}
               onClick={() => void revoke()}
             >
-              {busy === "revoke" ? <Spinner /> : <KeyRound size={13} />}Revoke
-              agent access
+              {busy === "revoke" ? <Spinner /> : null}{spot ? "Revoke agent access" : "Disable agent in Orcus"}
             </button>
           </div>
           {spot && !gas.ready && <p className="warning-note">Native session revocation needs the execution service and enough Sepolia ETH in your trading smart account. <button className="text-button" type="button" onClick={() => void w.control("pause")} disabled={w.agentData?.agent.paused || w.controlling}>Pause new agent actions now</button>; existing onchain authority remains until it is revoked.</p>}
         </>
       ) : prepared ? (
         <div className="permission-review">
-          <span className="eyebrow">REVIEW THE AUTHORITY YOU ARE GRANTING</span>
           <Address value={prepared.agentAddress} />
           <dl>
             <div>
@@ -413,7 +425,7 @@ function AccountCard({
             </div>
           </dl>
           {prepared.policy?.nativeWrap && <p className="warning-note">This grant also permits bounded native ETH wrapping up to {formatUnits(BigInt(prepared.policy.nativeWrap.maxAmountWei), 18)} ETH per call. The approved swap pair, output bounds, recipient, and expiry still apply.</p>}
-          {spot && <p className="fine-print">Agent operations pay gas from this trading smart account's Sepolia ETH, not the agent signer. {w.walletConfig?.gasPayment?.maxOperationGasWei ? `The network fee cap is ${tokenUnits(w.walletConfig.gasPayment.maxOperationGasWei, 18, "ETH")} per operation, not an exact fee estimate.` : "The execution service must provide its gas cap before trading."} No automatic top-ups.</p>}
+          {spot ? <p className="fine-print">Gas comes from this trading account's Sepolia ETH. {w.walletConfig?.gasPayment?.maxOperationGasWei ? `Fee cap: ${tokenUnits(w.walletConfig.gasPayment.maxOperationGasWei, 18, "ETH")} per operation, not an estimate.` : "A configured execution fee cap is required before trading."}</p> : <p className="warning-note">These limits and expiry are enforced by Orcus. Hyperliquid grants broader trading access; disable its API wallet separately to remove that access.</p>}
           {prepared.policy && (
             <details className="technical-limits">
               <summary>Advanced onchain call constraints</summary>
@@ -438,18 +450,18 @@ function AccountCard({
             <button
               className="button primary small"
               type="button"
-              disabled={!!busy}
+              disabled={!!busy || prepared.permission.expiresAt <= now}
               onClick={() => void authorize()}
             >
-              {busy === "approve" ? <Spinner /> : <ShieldCheck size={14} />}
-              Approve in owner wallet
+              {busy === "approve" ? <Spinner /> : null}
+              {busy === "approve" ? "Confirming access..." : "Authorize in wallet"}
             </button>
           </div>
         </div>
       ) : (
         <div className="permission-form">
           <div className="form-grid">
-            <Field label="Maximum action value (USD)">
+            <Field label="Maximum per trade (USD)">
               <input
                 inputMode="decimal"
                 value={maxTrade}
@@ -467,16 +479,7 @@ function AccountCard({
               </select>
             </Field>
           </div>
-          <Field
-            label="Allowed symbols"
-            hint="Comma-separated. Permissions are checked separately from model reasoning."
-          >
-            <input
-              value={symbols}
-              onChange={(event) => setSymbols(event.target.value)}
-              placeholder="BTC, ETH"
-            />
-          </Field>
+          <VenueSymbolPicker venue={account.venue} value={symbols} onChange={setSymbols} disabled={!!busy}/>
           {spot && <label className="checkbox"><input type="checkbox" checked={allowNativeInput} disabled={!!busy} onChange={event => setAllowNativeInput(event.target.checked)} />Also allow bounded native ETH wrapping for WETH/USDC sells. Off by default; no general transfer authority.</label>}
           <button
             className="button secondary full"
@@ -489,13 +492,17 @@ function AccountCard({
             }
             onClick={() => void prepare()}
           >
-            {busy === "prepare" ? <Spinner /> : <KeyRound size={14} />}Prepare
-            agent permission
+            {busy === "prepare" ? <Spinner /> : null}{busy === "prepare" ? "Preparing review..." : "Review agent access"}
           </button>
         </div>
       )}
-      {!!disabledPermissions.length && <details className="technical-limits">
-        <summary>Review previously disabled or rotated signers</summary>
+      <p className="fine-print">{spot ? "Swap routes and expiry are account-enforced. USD limits also run in Orcus." : "Orcus limits do not restrict the agent key outside Orcus."}</p>
+      </div>}
+      {(permission || disabledPermissions.length > 0 || !spot) && <details className={styles.details}>
+        <summary>Advanced access controls</summary>
+        {permission && <><p className="fine-print">Replace the agent signer and disable its Orcus access. {spot ? "The existing session must first be revoked." : "The old API wallet must also be removed in Hyperliquid."}</p><button className="button secondary small" type="button" disabled={!!busy || spot && !gas.ready} onClick={() => void revoke(true)}>{busy === "rotate" ? <Spinner /> : null}Replace agent signer</button></>}
+      {!!disabledPermissions.length && <details className={styles.details}>
+        <summary>Previous permissions ({disabledPermissions.length})</summary>
         <p className="warning-note">Application disablement or key rotation does not prove native trading authority was removed. Check each previous signer in the venue or smart account, even after refreshing this page.</p>
         {disabledPermissions.map(previous => <div className="evaluation" key={previous.id}>
           <Address value={previous.agentAddress} />
@@ -504,12 +511,6 @@ function AccountCard({
           {!spot && <a className="text-link" href="https://app.hyperliquid-testnet.xyz/API" target="_blank" rel="noreferrer">Check this signer in native API wallet settings</a>}
         </div>)}
       </details>}
-      <p className="permission-boundary">
-        <ShieldCheck size={12} />
-        {spot
-          ? "Token pair, input/output bounds, recipient and expiry are account-enforced. USD/risk limits also run in the application."
-          : "Custom risk and USD limits are app-enforced. Hyperliquid grants broader native trading authority to the approved signer."}
-      </p>
       {!spot && (
         <a
           className="text-link"
@@ -521,6 +522,7 @@ function AccountCard({
           <ExternalLink size={12} />
         </a>
       )}
+      </details>}
       <InlineError message={error} />
     </article>
   );
@@ -687,13 +689,11 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
     <section className="workspace-page settings-page">
       <div className="page-heading settings-content-heading">
         <div>
-          <span className="eyebrow">OWNERSHIP BEFORE AUTOMATION</span>
-          <h2>{{ accounts: "Accounts & permissions", budget: "Operating budget", agent: "Agent preferences & memory", services: "Service status" }[section]}</h2>
+          <h2>{{ accounts: "Trading accounts", budget: "Operating budget", agent: "Agent preferences & memory", services: "Service status" }[section]}</h2>
           <p>
-            {{ accounts: "Trade yourself or grant limited access to the same accounts. Your owner private key is never shared.", budget: "Trading capital, application expense limits, service credits and native 0G are separate balances.", agent: "Control how your agent works and what it remembers. Preferences never grant trading authority.", services: "Inspect configuration and availability before relying on an integration." }[section]}
+            {{ accounts: "Your accounts. Trade manually, or enable your agent when you need it.", budget: "Trading capital, application expense limits, service credits and native 0G are separate balances.", agent: "Control how your agent works and what it remembers. Preferences never grant trading authority.", services: "Inspect configuration and availability before relying on an integration." }[section]}
           </p>
         </div>
-        <ShieldCheck size={22} />
       </div>
       <InlineError message={error} onDismiss={() => setError(null)} />
       {!w.session.user && section !== "services" ? (
@@ -746,7 +746,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
               )}
             </div>
           </div>
-          <div className="settings-grid">
+          <div className={`settings-grid ${styles.grid}`}>
             {w.session.accounts.map((account) => (
               account.venue === "ostium" ? <OstiumAccountCard key={account.id} account={account} workspace={w} /> : <AccountCard key={account.id} account={account} workspace={w} />
             ))}
