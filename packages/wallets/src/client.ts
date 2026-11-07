@@ -146,6 +146,14 @@ async function ostiumPreflight<T>(check: () => Promise<T>): Promise<T> {
   }
 }
 
+async function estimateOstiumOwnerGas(context: Awaited<ReturnType<typeof ostiumOwnerContext>>, transaction: EvmTransaction) {
+  let estimate: bigint;
+  try { estimate = await context.publicClient.estimateGas({ account: context.wallet.account.address, to: getAddress(transaction.to), data: transaction.data as Hex, value: 0n }); }
+  catch { throw new WalletActionError("GAS_ESTIMATION_FAILED", "Gas estimation failed before submission. Check your Arbitrum Sepolia connection and balance, then try again."); }
+  if (estimate <= 0n) throw new WalletActionError("GAS_ESTIMATION_FAILED", "The network returned an invalid gas estimate. Nothing was submitted; try again.");
+  return (estimate * 120n + 99n) / 100n;
+}
+
 async function changeOstiumDelegation(account: TradingAccount, plan: OstiumDelegationPlan, purpose: "grant" | "revoke") {
   const context = await ostiumPreflight(async () => {
     inspectOstiumOwnerPlan(account, plan, purpose);
@@ -153,13 +161,14 @@ async function changeOstiumDelegation(account: TradingAccount, plan: OstiumDeleg
     const current = await context.publicClient.readContract({ address: OSTIUM_TESTNET.trading, abi: ostiumTradingAbi, functionName: "delegations", args: [getAddress(account.ownerAddress)] });
     if (getAddress(current) !== getAddress(plan.currentDelegate)) throw new WalletActionError("CONTROL_CHANGED", "The native delegate changed after review. Refresh before signing.");
     if (plan.alreadyActive && getAddress(current) !== getAddress(plan.delegate)) throw new WalletActionError("CONTROL_CHANGED", "The reviewed delegation is not active.");
+    const gas = plan.alreadyActive ? undefined : await estimateOstiumOwnerGas(context, plan.transactions[0]!);
     inspectOstiumOwnerPlan(account, plan, purpose); await context.ready();
-    return context;
+    return { ...context, gas };
   });
   if (plan.alreadyActive) return { alreadyActive: true as const };
   const transaction = plan.transactions[0]!;
   let hash: Hex;
-  try { hash = await context.wallet.sendTransaction({ to: getAddress(transaction.to), data: transaction.data as Hex, value: 0n }); }
+  try { hash = await context.wallet.sendTransaction({ to: getAddress(transaction.to), data: transaction.data as Hex, value: 0n, gas: context.gas }); }
   catch (error) { throw new WalletActionError(isOwnerRejection(error) ? "OWNER_REJECTED" : "SUBMISSION_UNKNOWN", isOwnerRejection(error) ? "You declined the native permission change. Nothing was submitted." : "The permission transaction has an unknown result. Read native authority before requesting another signature.", isOwnerRejection(error) ? "not-submitted" : "submitted-unknown"); }
   let receipt;
   try { receipt = await context.publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 }); }
@@ -192,7 +201,11 @@ export async function approveOstiumAllowance(input: { account: TradingAccount; i
     if (!response.ok) throw new Error("The owner allowance state could not be recorded. Check the existing request before retrying.");
     return response.json();
   };
-  await ostiumPreflight(async () => { await context.ready(); inspectOstiumOwnerPlan(input.account, input.intent, "allowance"); });
+  const gas = await ostiumPreflight(async () => {
+    const gas = await estimateOstiumOwnerGas(context, input.intent.transaction);
+    await context.ready(); inspectOstiumOwnerPlan(input.account, input.intent, "allowance");
+    return gas;
+  });
   const submissionToken = crypto.randomUUID();
   await ostiumPreflight(() => post("submit", { submissionToken }));
   try {
@@ -204,7 +217,7 @@ export async function approveOstiumAllowance(input: { account: TradingAccount; i
   }
   let hash: Hex;
   try {
-    hash = await context.wallet.sendTransaction({ to: OSTIUM_TESTNET.usdc, data: input.intent.transaction.data as Hex, value: 0n });
+    hash = await context.wallet.sendTransaction({ to: OSTIUM_TESTNET.usdc, data: input.intent.transaction.data as Hex, value: 0n, gas });
   } catch (error) {
     if (isOwnerRejection(error)) { try { await post("cancel", { ownerRejected: true, submissionToken }); } catch {} throw new WalletActionError("OWNER_REJECTED", "You declined the exact USDC allowance. No approval was submitted."); }
     throw new WalletActionError("SUBMISSION_UNKNOWN", "The allowance wallet response is unknown. Recover the transaction hash in the existing request; do not open another signature.", "submitted-unknown");
