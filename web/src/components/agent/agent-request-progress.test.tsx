@@ -29,4 +29,21 @@ describe("durable agent progress", () => {
   it("shows the immutable model snapshot on a saved in-flight request", () => {
     expect(render({ ...request("running"), modelId: "snapshot-model" })).toContain("Model: snapshot-model");
   });
+  it.each([
+    ["INSUFFICIENT_BUDGET", "Review spending limit", "budget"],
+    ["INSUFFICIENT_SERVICE_CREDITS", "Review service credits", "budget"],
+    ["OPERATOR_COMPUTE_USER_CAP", "Review compute usage", "budget"],
+    ["INFERENCE_OUTCOME_UNKNOWN", "Check existing billing", "budget"],
+    ["AGENT_NOT_AUTHORIZED", "Review account access", "accounts"],
+    ["COMPUTE_CAP_CONFIG_INVALID", "View service status", "services"],
+  ])("links %s to its recovery settings without retrying", (errorCode, label, section) => {
+    const output = render({ ...request("failed"), errorCode, error: "Request stopped." });
+    expect(output).toContain(`href="/settings?section=${section}"`);
+    expect(output).toContain(label);
+    expect(output).not.toContain("<button");
+  });
+  it("does not show recovery controls for an ongoing or unrecognized failure", () => {
+    expect(render({ ...request("running"), errorCode: "INSUFFICIENT_BUDGET" })).not.toContain("Review spending limit");
+    expect(render({ ...request("failed"), errorCode: "UNRECOGNIZED_FAILURE" })).not.toContain('href="/settings');
+  });
 });
