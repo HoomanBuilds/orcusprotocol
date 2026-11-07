@@ -310,7 +310,7 @@ export function AccountCard({
         {!spot && <div><dt>Open positions</dt><dd>{w.portfolio.positions?.filter(position => position.accountId === account.id).length ?? "Unavailable"}</dd></div>}
       </dl>
       <p className={styles.caption}>{spot ? "Manual and agent swaps use this trading account." : "Trade yourself or let your agent manage the same positions."}</p>
-      {spot && !gas.ready && <p className="warning-note">{gas.label}. {gas.detail}</p>}
+      {spot && !gas.ready && <p className="warning-note">Trading service unavailable. You can still manage your account.</p>}
       {!agentOpen && !prepared && !pendingPolicy && <button className="button primary" type="button" onClick={() => setAgentOpen(true)} aria-expanded={false} aria-controls={`agent-settings-${account.id}`}>{permission ? "Manage agent" : "Set up agent"}</button>}
       <details className={styles.details}>
       <summary>Account details</summary>
@@ -342,6 +342,7 @@ export function AccountCard({
           ? "You own this smart account. Its Sepolia ETH pays network fees for manual and agent swaps. Connecting does not transfer funds."
           : "Your owner wallet keeps control. Agent permissions do not create a separate trading account."}
       </p>
+      {spot && !gas.ready && <p className="warning-note">{gas.label}. {gas.detail}</p>}
       </details>
       {spot && (
         <details className={styles.details} open={fundingState === "unknown" || fundingState === "reverted" || undefined}>

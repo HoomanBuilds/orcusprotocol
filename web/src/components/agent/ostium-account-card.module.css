@@ -16,6 +16,8 @@
 .flowHeading, .actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .actions { justify-content: flex-start; }
 .details { border-top: 1px solid var(--border); padding-top: 12px; }
+.details > summary { cursor: pointer; font-size: 13px; color: var(--muted); min-height: 32px; line-height: 32px; }
+.details[open] > summary { margin-bottom: 12px; color: var(--fg); }
 .allowance { border-top: 1px solid var(--border); padding-top: 12px; }
 .allowance h3 { font-size: 13px; font-weight: 500; }
 .allowance > .flow { border: 0; padding-top: 12px; }

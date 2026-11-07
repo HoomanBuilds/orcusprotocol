@@ -209,7 +209,7 @@ export function OstiumAccountCard({ account, workspace: w }: { account: TradingA
     {journal?.transactionHash && <a className="text-link" href={`https://sepolia.arbiscan.io/tx/${journal.transactionHash}`} target="_blank" rel="noreferrer">View wallet transaction</a>}
     {loaded && notice && <p className="fine-print" role="status">{notice}</p>}<InlineError message={error}/>
     <OstiumAllowanceControls account={account} workspace={w} compact/>
-    <details className={`technical-limits ${styles.details}`}>
+    <details className={styles.details}>
       <summary>Account details</summary>
       <dl className="account-addresses"><div><dt>Trading account / owner wallet</dt><dd><Address value={account.ownerAddress} explorer="https://sepolia.arbiscan.io"/></dd></div><div><dt>Agent signer</dt><dd><Address value={account.agentAddress} explorer="https://sepolia.arbiscan.io"/></dd></div></dl>
       <p className="fine-print">Manual trades use your wallet's ETH. Agent trades use the agent signer's ETH on Arbitrum Sepolia. No automatic top-ups. Test tokens have no monetary value.</p>
