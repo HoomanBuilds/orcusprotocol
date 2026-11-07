@@ -79,7 +79,7 @@ export function safeAgentRequestError(error: unknown) {
   const messages: Record<string, string> = {
     AGENT_REQUEST_CHANGED: "Owner controls, account permissions or privacy settings changed after this request was accepted. No further action was authorized.",
     AGENT_REQUEST_EXPIRED: "This queued instruction expired before the worker started it. No inference or trade was submitted.",
-    INSUFFICIENT_BUDGET: "The agent expense allowance is too low. Review the operating budget; this request will not retry itself.",
+    INSUFFICIENT_BUDGET: "Your remaining spending limit cannot cover the next AI call. Review the limit and pending expenses in Settings. This is separate from your 0G credits; no automatic retry is scheduled.",
     INSUFFICIENT_SERVICE_CREDITS: "Verified test service credits are too low. Review the separate service-credit balance.",
     OPERATOR_COMPUTE_USER_CAP: "The operator's user compute ceiling is exhausted or held by unresolved calls.",
     OPERATOR_COMPUTE_PROJECT_CAP: "The shared operator compute ceiling is exhausted or held by unresolved calls.",

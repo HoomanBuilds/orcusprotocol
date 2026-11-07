@@ -100,7 +100,7 @@ const safeErrors: Record<string, string> = {
   AUTOMATION_UNAVAILABLE: "This strategy cannot resume while its agent is paused or its grant is expired. Review permissions and create a renewed strategy if needed.",
   CONTROL_CHANGED: "Account authority changed before signing. Refresh permissions and review the action again.",
   STRATEGY_CHANGED: "This strategy or its account authority changed during evaluation. Review its current status before resuming.",
-  INSUFFICIENT_BUDGET: "The agent expense allowance is exhausted. Review its separate operating budget.",
+  INSUFFICIENT_BUDGET: "Your remaining spending limit cannot cover this request. Review the limit and pending expenses in Settings; this is separate from your 0G credits.",
   INSUFFICIENT_SERVICE_CREDITS: "Your verified testnet service credits are too low. Add credits or reconcile a pending payment; increasing the expense cap does not add credits.",
   OPERATOR_COMPUTE_USER_CAP: "Your daily platform compute allowance is exhausted or reserved by pending requests. Increasing your expense cap cannot raise this platform limit.",
   OPERATOR_COMPUTE_PROJECT_CAP: "The shared daily platform compute allowance is exhausted or reserved. Reconcile pending requests or wait for the operator's allowance to reset.",
