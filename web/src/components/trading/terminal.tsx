@@ -16,6 +16,7 @@ import { OstiumOrderTicket } from "./ostium-order-ticket";
 import { OrderTicket } from "./order-ticket";
 import { InlineError } from "./primitives";
 import { WalletRoles } from "./wallet-roles";
+import { SpotSwap } from "./spot-swap";
 
 export function Terminal() {
   const w = useWorkspace();
@@ -38,6 +39,8 @@ export function Terminal() {
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [marketOpen]);
 
+  if (w.venue === "uniswap") return <SpotSwap key={w.session.user?.id ?? "disconnected"} workspace={w} onSetup={() => router.push("/settings?section=accounts")}/>;
+
   return <div className="trade-workspace-page" data-mobile-view={mobileView}>
     <h1 className="workspace-visually-hidden">Trade</h1>
 
@@ -48,12 +51,11 @@ export function Terminal() {
       <div className="market-stat"><span>24h venue volume</span><strong>{market?.volume24h === undefined ? "Unavailable" : usd(market.volume24h)}</strong></div><div className="market-stat feed-state"><span>Market feed</span><strong className={stale ? "warning-text" : ""}><i className={`dot ${stale ? "warn" : market ? "good" : ""}`}/>{stale ? "Stale snapshot" : market ? "Venue snapshot" : "Unavailable"}</strong></div>
     </section>
     {w.marketError && <InlineError message={w.marketError}/>}
-    {w.venue === "uniswap" && <div className="trade-network-note"><ShieldCheck size={16}/><span>WETH/USDC on Ethereum Sepolia. Native ETH input is an explicit wrap step. A reviewed quote is not a confirmed swap.</span></div>}
-    <nav className="trade-mobile-tabs" aria-label="Terminal sections">{[{ id: "market", label: w.venue === "uniswap" ? "Swap" : "Chart" }, ...(w.venue === "uniswap" ? [] : [{ id: "book", label: "Depth" }]), { id: "order", label: "Ticket" }, { id: "positions", label: "Accounts" }].map(tab => <button key={tab.id} type="button" aria-pressed={mobileView === tab.id} className={mobileView === tab.id ? "selected" : ""} onClick={() => setMobileTab(tab.id)}>{tab.label}</button>)}</nav>
+    <nav className="trade-mobile-tabs" aria-label="Terminal sections">{[{ id: "market", label: "Chart" }, { id: "book", label: "Depth" }, { id: "order", label: "Ticket" }, { id: "positions", label: "Accounts" }].map(tab => <button key={tab.id} type="button" aria-pressed={mobileView === tab.id} className={mobileView === tab.id ? "selected" : ""} onClick={() => setMobileTab(tab.id)}>{tab.label}</button>)}</nav>
     <div className="trade-execution-grid" data-venue={w.venue}>
       <div className="trade-market-stack">
         <div className="trade-market-grid">
-          {w.venue !== "uniswap" && <div className="trade-chart-column"><MarketChart venue={w.venue} symbol={w.symbol}/></div>}
+          <div className="trade-chart-column"><MarketChart venue={w.venue} symbol={w.symbol}/></div>
           <div className="trade-depth-column">{w.venue === "ostium" ? <OstiumMarketContext market={market} symbol={w.symbol}/> : <MarketContextPanel venue={w.venue} symbol={w.symbol} prepared={w.preview?.execution}/>}</div>
         </div>
         <div className="trade-tables-row"><AccountTables key={w.session.user?.id ?? "disconnected"} workspace={w}/></div>

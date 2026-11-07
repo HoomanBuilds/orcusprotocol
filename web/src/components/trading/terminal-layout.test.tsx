@@ -20,6 +20,7 @@ vi.mock("./account-tables", () => ({ AccountTables: () => <section data-testid="
 vi.mock("./order-ticket", () => ({ OrderTicket: () => <section data-testid="ticket"/> }));
 vi.mock("./ostium-order-ticket", () => ({ OstiumOrderTicket: () => <section data-testid="native-ticket"/> }));
 vi.mock("./wallet-roles", () => ({ WalletRoles: () => null }));
+vi.mock("./spot-swap", () => ({ SpotSwap: () => <section data-testid="spot-swap"/> }));
 
 beforeEach(() => { state.venue = "hyperliquid"; state.symbol = "ETH"; state.activeMarket = undefined; });
 
@@ -28,7 +29,7 @@ describe("continuous trading terminal", () => {
     state.venue = "uniswap"; state.symbol = "BTC";
     state.activeMarket = { venue: "hyperliquid", symbol: "BTC", midPrice: "90000", quoteAsset: "USDC", observedAt: Date.now() };
     const markup = renderToStaticMarkup(<Terminal/>);
-    expect(markup).toContain('aria-label="Select market, Choose market"');
+    expect(markup).toContain('data-testid="spot-swap"');
     expect(markup).not.toContain('<strong>BTC</strong>');
     expect(markup).not.toContain("90,000");
   });
@@ -46,14 +47,12 @@ describe("continuous trading terminal", () => {
     expect(markup).toContain('data-testid="market-context"');
   });
 
-  it("uses real spot execution details instead of mounting an unsupported candle chart", () => {
+  it("shows a dedicated swap immediately without the perpetual terminal shell", () => {
     state.venue = "uniswap"; state.symbol = "WETH/USDC";
     const markup = renderToStaticMarkup(<Terminal/>);
     expect(markup).not.toContain('data-testid="chart"');
-    expect(markup).toContain('data-testid="market-context"');
-    expect(markup).toContain('data-venue="uniswap"');
-    expect(markup).toContain('class="selected">Swap</button>');
-    expect(markup).not.toContain('>Depth</button>');
+    expect(markup).toContain('data-testid="spot-swap"');
+    for (const text of ["market-context", "accounts", "trade-mobile-tabs", "24h", "Unrealized", "Take over"]) expect(markup).not.toContain(text);
   });
 
   it("preserves native venue chart, context, ticket and account controls", () => {
