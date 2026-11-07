@@ -7,6 +7,7 @@ import { api, displayError, post } from "../../lib/api";
 import { tokenUnits, usd } from "../../lib/format";
 import { Address, Badge, Field, InlineError, Spinner, Status } from "../trading/primitives";
 import { ServicePaymentScope } from "./service-payment-scope";
+import styles from "./settings-panels.module.css";
 
 type Intent = ServicePaymentQuote & { transactionHash?: string; amountUsd: string; createdAt: number };
 type Snapshot = { mode: string; configured: boolean; testOnly: true; token?: string; treasury?: string; message: string; credits: { paidUsd: string; spentUsd: string; reservedUsd: string; releasedUsd: string; remainingUsd: string; refundedUsd: string }; intents: Intent[] };
@@ -100,28 +101,37 @@ export function ServicePaymentPanel({ owner, onRefresh }: { owner: string; onRef
     } finally { if (current()) { locked.current = false; setPending(null); } }
   }
 
-  return <section className="technical-limits" aria-label="Testnet service credits">
-    <div className="card-heading"><div><h3>Agent service credits</h3><p>Separate from trading capital and the expense cap</p></div><Badge tone="warn">Testnet only</Badge></div>
-    <p className="fine-print">Sepolia USDC has no monetary value. One test USDC grants one USD-equivalent test credit. Live payments are disabled. Your owner wallet approves this exact transfer and pays its Sepolia ETH fee, capped at 0.003 ETH; no token allowance or agent permission is granted.</p>
-    {!snapshot && <p className="fine-print">Loading payment configuration...</p>}
-    {snapshot && <><Status value={snapshot.configured ? "configured" : "unconfigured"} /><dl className="account-addresses">
-      <div><dt>Paid test credits</dt><dd className="tabular-nums">{usd(snapshot.credits.paidUsd)}</dd></div>
-      <div><dt>Spent / reserved</dt><dd className="tabular-nums">{usd(snapshot.credits.spentUsd)} / {usd(snapshot.credits.reservedUsd)}</dd></div>
-      <div><dt>Remaining test credits</dt><dd className="tabular-nums">{usd(snapshot.credits.remainingUsd)}</dd></div>
-      <div><dt>Released reservations</dt><dd className="tabular-nums">{usd(snapshot.credits.releasedUsd)} - not token refunds</dd></div>
-      <div><dt>Payment treasury</dt><dd><Address value={snapshot.treasury} explorer="https://sepolia.etherscan.io" /></dd></div>
-    </dl></>}
-    <Field label="Test USDC amount"><input inputMode="decimal" value={amount} disabled={!!pending || unresolved} onChange={event => { setAmount(event.target.value); requestId.current = null; }} /></Field>
-    <button className="button secondary small" type="button" disabled={!!pending || !snapshot?.configured || unresolved || !/^(?:0|[1-9]\d{0,2})(?:\.\d{1,6})?$/.test(amount) || Number(amount) < 0.01 || Number(amount) > 100} onClick={() => void perform("prepare")}>{pending === "prepare" && <Spinner />}Review test payment</button>
-    {intent && <div className="evaluation"><Status value={intent.status} /><p>{tokenUnits(intent.amountBaseUnits, 6, "test USDC")} / {usd(intent.amountUsd)} test credits</p>
-      <p className="fine-print">New wallet flows stop after {new Date(intent.expiresAt).toLocaleString("en-US")}. Exact successful transfers remain recoverable after expiry or dismissal at the same fixed test-credit rate.</p>
-      {intent.status === "prepared" && <><label className="check-label"><input type="checkbox" checked={acknowledged} onChange={event => setAcknowledged(event.target.checked)} />I reviewed the exact treasury and test-only payment.</label><button className="button secondary small" type="button" disabled={!!pending || !servicePaymentCanPay(intent, Boolean(snapshot?.configured), acknowledged, now)} onClick={() => void perform("pay")}>{pending === "pay" && <Spinner />}Pay in owner wallet</button></>}
+  return <section className={`settings-card ${styles.card}`} aria-label="Testnet service credits">
+    <div className={styles.heading}><div><h2>Service credits</h2><p>For agent usage, not trading.</p></div><Badge tone="neutral">Test credits</Badge></div>
+    {!snapshot && <p className={styles.hint} role="status">Loading payment configuration...</p>}
+    {snapshot && <><dl className={styles.compactMetrics}>
+      <div><dt>Remaining test credits</dt><dd>{usd(snapshot.credits.remainingUsd)}</dd></div>
+      <div><dt>Used test credits</dt><dd>{usd(snapshot.credits.spentUsd)}</dd></div>
+    </dl>
+    {!snapshot.configured && <p className={styles.quietNotice}>Credit checkout is not enabled. Existing test credits are shown above.</p>}
+    </>}
+    {snapshot?.configured && !unresolved && <div className={styles.stack}>
+      <Field label="Add test credits (USDC)"><input inputMode="decimal" value={amount} disabled={!!pending || unresolved} onChange={event => { setAmount(event.target.value); requestId.current = null; }} /></Field>
+      <p className={styles.hint}>1 Sepolia test USDC = 1 test credit. These tokens have no monetary value.</p>
+      <button className="button secondary" type="button" disabled={!!pending || !snapshot?.configured || unresolved || !/^(?:0|[1-9]\d{0,2})(?:\.\d{1,6})?$/.test(amount) || Number(amount) < 0.01 || Number(amount) > 100} onClick={() => void perform("prepare")}>{pending === "prepare" && <Spinner />}Review payment</button>
+    </div>}
+    {intent && <div className={styles.review}><div className={styles.heading}><h3>{unresolved ? "Payment in progress" : "Latest payment"}</h3><Status value={intent.status} /></div><p>{tokenUnits(intent.amountBaseUnits, 6, "test USDC")} / {usd(intent.amountUsd)} test credits</p>
+      {intent.status === "prepared" && <>
+        <dl className="account-addresses"><div><dt>Pay to</dt><dd><Address value={intent.treasury} explorer="https://sepolia.etherscan.io"/></dd></div></dl>
+        <p className="fine-print">Your wallet sends this exact amount and pays Sepolia ETH gas, capped at 0.003 ETH. No token allowance or trading permission is granted. Test credits have no monetary value.</p>
+        <p className="fine-print">Review expires {new Date(intent.expiresAt).toLocaleString("en-US")}.</p>
+        <label className="check-label"><input type="checkbox" checked={acknowledged} disabled={!!pending} onChange={event => setAcknowledged(event.target.checked)} />I reviewed the recipient and test-only payment.</label><button className="button primary" type="button" disabled={!!pending || !servicePaymentCanPay(intent, Boolean(snapshot?.configured), acknowledged, now)} onClick={() => void perform("pay")}>{pending === "pay" && <Spinner />}Pay in owner wallet</button></>}
       {intent.transactionHash && <a className="text-link" href={`https://sepolia.etherscan.io/tx/${intent.transactionHash}`} target="_blank" rel="noreferrer">Inspect payment transaction</a>}
       {intent.status === "awaiting-wallet" && !intent.transactionHash && <Field label="Recover transaction hash from wallet history"><input value={recoveryHash} onChange={event => setRecoveryHash(event.target.value.trim())} placeholder="0x..." /></Field>}
       {intent.status !== "credited" && <button className="button secondary small" type="button" disabled={!!pending || !/^0x[\da-fA-F]{64}$/.test(intent.transactionHash ?? recoveryHash)} onClick={() => void perform("reconcile")}>{pending === "reconcile" && <Spinner />}Check payment</button>}
       {["prepared", "awaiting-wallet"].includes(intent.status) && !intent.transactionHash && <button className="button secondary small" type="button" disabled={!!pending} onClick={() => void perform("cancel")}>{pending === "cancel" && <Spinner />}{intent.status === "prepared" ? "Cancel unpaid quote" : "Dismiss only after checking wallet history"}</button>}
     </div>}
     {notice && <p className="fine-print" role="status">{notice}</p>}<InlineError message={error} />
-    <button className="button secondary small" type="button" disabled={!!pending} onClick={() => { const ticket = ownerScope.current.capture(); setError(null); load().catch(cause => { if (mounted.current && ownerScope.current.isCurrent(ticket)) setError(servicePaymentError(cause)); }); }}>Refresh credits</button>
+    <details className={styles.disclosure}><summary>Credit details & payment rules</summary>
+      {snapshot && <dl className="account-addresses"><div><dt>Paid test credits</dt><dd>{usd(snapshot.credits.paidUsd)}</dd></div><div><dt>Reserved</dt><dd>{usd(snapshot.credits.reservedUsd)}</dd></div><div><dt>Released reservations</dt><dd>{usd(snapshot.credits.releasedUsd)} - not refunds</dd></div><div><dt>Payment treasury</dt><dd><Address value={snapshot.treasury} explorer="https://sepolia.etherscan.io" /></dd></div></dl>}
+      <p>Live payments are disabled. Exact successful transfers remain recoverable after quote expiry or dismissal. Credits are added only after verification and are separate from your spending limit and trading capital.</p>
+      {snapshot?.message && <p>{snapshot.message}</p>}
+    </details>
+    <button className="text-link" type="button" disabled={!!pending} onClick={() => { const ticket = ownerScope.current.capture(); setError(null); load().catch(cause => { if (mounted.current && ownerScope.current.isCurrent(ticket)) setError(servicePaymentError(cause)); }); }}>Refresh credits</button>
   </section>;
 }

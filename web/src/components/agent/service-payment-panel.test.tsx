@@ -7,13 +7,13 @@ vi.mock("../trading/primitives", () => ({ Address: ({ value }: { value?: string 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("testnet service-credit controls", () => {
-  it("initially disables checkout and never fetches or broadcasts while rendering", () => {
+  it("hides checkout until configuration loads and never fetches or broadcasts while rendering", () => {
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
     const markup = renderToStaticMarkup(React.createElement(ServicePaymentPanel, { owner: `0x${"1".repeat(40)}`, onRefresh: vi.fn(async () => undefined) }));
     expect(markup).toContain("Live payments are disabled");
-    expect(markup).toContain("no token allowance or agent permission is granted");
-    expect(markup).toContain("Sepolia ETH fee");
-    expect(markup).toMatch(/disabled=""[^>]*>Review test payment/);
+    expect(markup).toContain("Loading payment configuration");
+    expect(markup).not.toContain("Review payment");
+    expect(markup).not.toContain("Pay in owner wallet");
     expect(fetcher).not.toHaveBeenCalled();
   });
   it("requires explicit confirmation and a fresh prepared quote, never enabling a submitted intent", () => {

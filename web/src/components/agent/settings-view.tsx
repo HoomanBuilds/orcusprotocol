@@ -2,13 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  Check,
-  Database,
   ExternalLink,
   KeyRound,
   Plus,
-  RotateCw,
-  ShieldCheck,
   Wallet,
 } from "lucide-react";
 import type { AgentPermission, TradingAccount, Venue } from "@orcus/core";
@@ -37,6 +33,7 @@ import { ExpenseBillingCheck } from "./expense-billing-check";
 import { OstiumAccountCard } from "./ostium-account-card";
 import { VenueSymbolPicker } from "./venue-symbol-picker";
 import styles from "./accounts-settings.module.css";
+import panels from "./settings-panels.module.css";
 import {
   Address,
   Badge,
@@ -687,12 +684,12 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
   }
 
   return (
-    <section className="workspace-page settings-page">
+    <section className={`workspace-page settings-page ${panels.page}`}>
       <div className="page-heading settings-content-heading">
         <div>
-          <h2>{{ accounts: "Trading accounts", budget: "Operating budget", agent: "Agent preferences & memory", services: "Service status" }[section]}</h2>
+          <h2>{{ accounts: "Trading accounts", budget: "Spending & credits", agent: "Your agent", services: "Connected services" }[section]}</h2>
           <p>
-            {{ accounts: "Your accounts. Trade manually, or enable your agent when you need it.", budget: "Trading capital, application expense limits, service credits and native 0G are separate balances.", agent: "Control how your agent works and what it remembers. Preferences never grant trading authority.", services: "Inspect configuration and availability before relying on an integration." }[section]}
+            {{ accounts: "Your accounts. Trade manually, or enable your agent when you need it.", budget: "Set an expense limit and manage credits. Your trading capital stays separate.", agent: "Choose how it works, what it remembers, and when it asks you.", services: "The tools behind your workspace, with their current configuration." }[section]}
           </p>
         </div>
       </div>
@@ -764,27 +761,21 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
             )}
           </div>
           </>}
-          {(section === "budget" || section === "agent") && <div className="settings-grid secondary-settings">
+          {section === "budget" && <dl className={panels.stats}>
+            <div className={panels.stat}><dt>Remaining expense allowance</dt><dd>{usd(w.budget?.availableUsd)}</dd><small>Spending limit, not a funded balance</small></div>
+            <div className={panels.stat}><dt>Recorded expenses</dt><dd>{usd(w.budget?.spentUsd)}</dd><small>Usage recorded by Orcus</small></div>
+            <div className={panels.stat}><dt>Reserved for pending work</dt><dd>{usd(w.budget?.reservedUsd)}</dd><small>Held until billing is resolved</small></div>
+          </dl>}
+          {(section === "budget" || section === "agent") && <div className={panels.layout}>
             {section === "budget" && <>
-            <article className="settings-card">
-              <div className="card-heading">
-                <Wallet size={20} />
+            <article className={`settings-card ${panels.card}`}>
+              <div className={panels.heading}>
                 <div>
-                  <h2>Agent operating budget</h2>
-                  <p>Expenses, not trading capital</p>
+                  <h2>Spending limit</h2>
+                  <p>Control what your agent can spend on running.</p>
                 </div>
               </div>
-              <div className="budget-values">
-                <div>
-                  <span>Available allowance</span>
-                  <strong>{usd(w.budget?.availableUsd)}</strong>
-                </div>
-                <div>
-                  <span>Recorded expenses</span>
-                  <strong>{usd(w.budget?.spentUsd)}</strong>
-                </div>
-              </div>
-              <Field label="Authorized expense cap (USD)">
+              <Field label="Total expense limit (USD)">
                 <input
                   inputMode="decimal"
                   value={cap}
@@ -793,12 +784,10 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
                 />
               </Field>
               <p className="fine-print">
-                This changes an application spending cap, not a wallet deposit.
-                Actual 0G credits and onchain operating funds are separate
-                balances.
+                Saving this limit does not deposit funds or add compute credits.
               </p>
               <button
-                className="button secondary full"
+                className="button primary"
                 type="button"
                 disabled={
                   busy === "budget" ||
@@ -808,9 +797,9 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
                 }
                 onClick={() => void saveBudget()}
               >
-                {busy === "budget" ? <Spinner /> : <Check size={14} />}Save
-                expense cap
+                {busy === "budget" && <Spinner />}Save spending limit
               </button>
+              <details className={panels.disclosure}><summary>Compute account & operating wallet</summary>
               <dl className="account-addresses">
                 <div>
                   <dt>Operating wallet</dt>
@@ -835,46 +824,34 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
                   </dd>
                 </div>
               </dl>
-              {w.budget?.storagePayer?.costBearer !== "operator" && <details className="technical-limits">
+              {w.budget?.providerBalance?.accountAddress && <p className="fine-print">Provider account: <Address value={w.budget.providerBalance.accountAddress} />. Shared provider credits, not a per-user pool.</p>}
+              {w.budget?.warning && <p className="fine-print">{w.budget.warning}</p>}
+              </details>
+              {w.budget?.storagePayer?.costBearer !== "operator" && <details className={panels.disclosure} open={!!operatingHash}>
                 <summary>Fund the operating wallet for testnet storage gas</summary>
                 <p className="fine-print">Transfer testnet 0G on Galileo to the separate operating address above. Your owner wallet signs the amount and pays gas. This neither funds trading nor deposits into the compute provider.</p>
                 <Field label="Testnet 0G amount"><input inputMode="decimal" value={operatingAmount} onChange={event => setOperatingAmount(event.target.value)} placeholder="0.01" /></Field>
                 <button className="button secondary small" type="button" disabled={!!busy || !!operatingHash || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(operatingAmount) || Number(operatingAmount) <= 0} onClick={() => void fundOperating()}>{busy === "fund-operating" ? <Spinner /> : <Wallet size={13} />}Fund in owner wallet</button>
                 {operatingHash && <><a className="text-link" href={`https://chainscan-galileo.0g.ai/tx/${operatingHash}`} target="_blank" rel="noreferrer">Inspect operating transfer<ExternalLink size={12} /></a><button className="button secondary small" type="button" onClick={() => setOperatingHash(null)}>I checked this transfer; enter another</button></>}
               </details>}
-              {w.budget?.providerBalance?.accountAddress && <p className="fine-print">Configured provider account: <Address value={w.budget.providerBalance.accountAddress} />. This is not a separate per-user credit pool.</p>}
-              <p className="fine-print">Pending expense reservations: {usd(w.budget?.reservedUsd)}. Requests with unknown billing retain their reservation instead of reporting an invented cost.</p>
-              {!!w.budget?.expenses?.length && <details className="technical-limits"><summary>Operating expense evidence</summary>{w.budget.expenses.slice(0, 20).map(expense => <div className="evaluation" key={expense.id}><small>{expense.status} / {usd(expense.amountUsd)}</small><code>{expense.reference}</code>{w.session.user && <ExpenseBillingCheck key={`${w.session.user.address.toLowerCase()}:${expense.id}`} owner={w.session.user.address} expenseId={expense.id} status={expense.status} onRefresh={w.refresh} />}</div>)}</details>}
-              <p className="warning-note">
-                {w.budget?.warning ??
-                  "Live credit balance and replenishment require a verified provider funding path. Owner deposits are not earned revenue."}
-              </p>
+              {!!w.budget?.expenses?.length && <details className={panels.disclosure} open={w.budget.expenses.some(expense => expense.status === "unknown")}><summary>Expense history ({w.budget.expenses.length})</summary>{w.budget.expenses.slice(0, 20).map(expense => <div className="evaluation" key={expense.id}><small>{expense.status} / {usd(expense.amountUsd)}</small><code>{expense.reference}</code>{w.session.user && <ExpenseBillingCheck key={`${w.session.user.address.toLowerCase()}:${expense.id}`} owner={w.session.user.address} expenseId={expense.id} status={expense.status} onRefresh={w.refresh} />}</div>)}</details>}
             </article>
             {w.session.user && <ServicePaymentPanel key={`service:${w.session.user.address.toLowerCase()}`} owner={w.session.user.address} onRefresh={w.refresh} />}
-            {w.session.user && <details className="technical-limits"><summary>Advanced: native compute-account funding</summary><p className="fine-print">Optional operator integration controls, not a requirement for using agent inference. A service-payment checkout is separate from these native deposits.</p><ComputeFundingPanel key={w.session.user.id} onRefresh={w.refresh} /></details>}
+            {w.session.user && <details className={`${panels.disclosure} ${panels.full}`} open={w.funding?.intents.some(intent => ["submitting", "submitted-unknown"].includes(intent.status))}><summary>Advanced compute funding</summary><p className="fine-print">Optional native 0G deposits. Not required to use agent inference and separate from service credits.</p><ComputeFundingPanel key={w.session.user.id} onRefresh={w.refresh} /></details>}
             </>}
-            {section === "agent" && <article className="settings-card">
-              <div className="card-heading">
-                <ShieldCheck size={20} />
+            {section === "agent" && <article className={`settings-card ${panels.card}`}>
+              <div className={panels.heading}>
                 <div>
-                  <h2>Agent preferences</h2>
-                  <p>Your instructions never override account permissions</p>
+                  <h2>How your agent works</h2>
+                  <p>Preferences stay within your account permissions.</p>
                 </div>
+                <Badge tone={!agent || agent.paused ? "neutral" : "good"}>{!agent ? "Unavailable" : agent.paused ? "Paused" : "Running"}</Badge>
               </div>
-              <Field label="Execution mode">
-                <select
-                  value={mode}
-                  onChange={(event) =>
-                    setMode(event.target.value as typeof mode)
-                  }
-                >
-                  <option value="approval-required">Ask for my approval</option>
-                  <option value="autonomous">
-                    Autonomous within granted limits
-                  </option>
-                </select>
-              </Field>
-              <Field label="Preferences">
+              <fieldset className={panels.modeGrid}><legend>Execution mode</legend>
+                <label className={panels.mode}><input type="radio" name="agent-mode" value="approval-required" checked={mode === "approval-required"} disabled={!!busy} onChange={() => setMode("approval-required")}/><span><strong>Ask me first</strong><small>Review each proposed action.</small></span></label>
+                <label className={panels.mode}><input type="radio" name="agent-mode" value="autonomous" checked={mode === "autonomous"} disabled={!!busy} onChange={() => setMode("autonomous")}/><span><strong>Within my limits</strong><small>Act using granted permissions.</small></span></label>
+              </fieldset>
+              <Field label="Your instructions">
                 <textarea
                   rows={4}
                   value={preferences}
@@ -882,63 +859,64 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
                   placeholder="My preferred assets, risk tolerance and trading constraints..."
                 />
               </Field>
-              <label className="checkbox">
+              <label className={panels.toggleRow}>
+                <span><strong>Require private inference</strong><p className={panels.hint}>Stops if the selected privacy assurance is unavailable.</p></span>
                 <input
                   type="checkbox"
                   checked={privateOnly}
                   onChange={(event) => setPrivateOnly(event.target.checked)}
                 />
-                Require private inference
               </label>
               {privateOnly && <Field label="Private inference assurance"><select value={privateVerification} onChange={event => setPrivateVerification(event.target.value as typeof privateVerification)}><option value="independent-gateway">Independent hardware and code verification</option><option value="gateway-reported">Trust 0G gateway's sealed-execution report</option></select></Field>}
-              <p className="fine-print">Independent mode verifies the gateway and pins its TLS certificate; it stops if required evidence is unavailable. Gateway-reported mode explicitly trusts 0G&apos;s sealed-execution report and is not independently attested. Neither mode makes public venue trades private.</p>
+              {privateOnly && <p className={panels.hint}>{privateVerification === "independent-gateway" ? "Verifies gateway evidence and pins its TLS certificate. Missing evidence stops inference." : "Trusts the 0G gateway report, without independent hardware attestation."} Public venue trades remain public.</p>}
               <button
-                className="button secondary full"
+                className="button primary"
                 type="button"
                 disabled={busy === "agent"}
                 onClick={() => void saveAgent()}
               >
-                {busy === "agent" ? <Spinner /> : <Check size={14} />}Save agent
-                preferences
+                {busy === "agent" && <Spinner />}Save preferences
               </button>
-              <div className="settings-emergency">
+              <div className={panels.footer}>
+                <p>Pause new actions.<br/>Submitted trades still reconcile.</p>
+                <div className={panels.actions}>
                 <button
-                  className="button danger small"
+                  className="button secondary small"
                   type="button"
-                  onClick={() => void w.control("pause")}
+                  disabled={w.controlling}
+                  onClick={() => void w.control(agent?.paused ? "resume" : "pause")}
                 >
-                  Pause agent
+                  {w.controlling && <Spinner/>}{agent?.paused ? "Resume agent" : "Pause agent"}
                 </button>
                 <button
                   className="button secondary small"
                   type="button"
+                  disabled={w.controlling}
                   onClick={() => void w.control("take-over")}
                 >
                   Take over accounts
                 </button>
+                </div>
               </div>
             </article>}
+            {section === "agent" && <MemoryControls key={w.session.user.id} userId={w.session.user.id} />}
           </div>}
         </>
       ) : null}
       {w.session.user && section === "agent" && (
-        <section className="settings-card service-status">
-          <div className="card-heading">
-            <Database size={19} />
+        <section className={`settings-card ${panels.card}`}>
+          <div className={panels.heading}>
             <div>
-              <h2>Encrypted agent memory</h2>
-              <p>0G Storage / separate from wallet signing credentials</p>
+              <h2>Memory backups</h2>
+              <p>Encrypted preferences and conversation context on 0G Storage.</p>
             </div>
+            <Badge tone={w.budget?.storagePayer?.enabled ? "good" : "neutral"}>{w.budget?.storagePayer?.enabled ? "Available" : "Not enabled"}</Badge>
           </div>
-          <p className="fine-print">
-            Back up encrypted preferences and conversation context with the
-            {w.budget?.storagePayer?.costBearer === "operator" ? "configured Galileo payer. Backups are disabled unless a payer is explicitly configured." : "authorized Galileo operating wallet."} Each backup can spend up to the gas and storage-fee caps below. These native 0G costs are separate from the USD inference allowance. A
-            failed upload is never shown as a persisted backup.
-          </p>
-          {w.budget?.storagePayer && <p className="fine-print">{w.budget.storagePayer.message}{w.budget.storagePayer.dailyCap0G ? ` Shared platform daily limit: ${w.budget.storagePayer.dailyCap0G} 0G.` : ""}</p>}
-          {w.budget?.storagePayer?.payerAddress && <p className="fine-print">Storage fee payer: <Address value={w.budget.storagePayer.payerAddress} explorer="https://chainscan-galileo.0g.ai" /></p>}
-          {w.budget?.storagePayer?.enabled === false && <p className="warning-note">The storage integration is currently disabled by the operator.</p>}
-          <details className="technical-limits"><summary>Advanced native fee ceilings</summary><div className="form-grid">
+          {w.budget?.storagePayer?.enabled === false ? <p className={panels.quietNotice}>Cloud backups are disabled. Saved notes and preferences remain available in your workspace.</p> : <p className={panels.hint}>Each backup can spend up to {storageGasCap} 0G in gas and {storageFeeCap} 0G in storage fees, separate from your inference allowance. Wallet signing credentials are not included.</p>}
+          <details className={panels.disclosure}><summary>Storage payer & fee limits</summary>
+          {w.budget?.storagePayer && <p>{w.budget.storagePayer.message}{w.budget.storagePayer.dailyCap0G ? ` Shared daily limit: ${w.budget.storagePayer.dailyCap0G} 0G.` : ""}</p>}
+          {w.budget?.storagePayer?.payerAddress && <p>Fee payer: <Address value={w.budget.storagePayer.payerAddress} explorer="https://chainscan-galileo.0g.ai" /></p>}
+          <div className="form-grid">
             <Field label="Maximum transaction gas per backup (0G)"><input inputMode="decimal" value={storageGasCap} maxLength={27} disabled={!!busy} onChange={event => setStorageGasCap(event.target.value)} /></Field>
             <Field label="Maximum storage fee per backup (0G)"><input inputMode="decimal" value={storageFeeCap} maxLength={27} disabled={!!busy} onChange={event => setStorageFeeCap(event.target.value)} /></Field>
           </div></details>
@@ -949,8 +927,7 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
               disabled={!!busy || w.budget?.storagePayer?.enabled === false}
               onClick={() => void memory("backup")}
             >
-              {busy === "backup" ? <Spinner /> : <Database size={13} />}Back up
-              encrypted memory
+              {busy === "backup" && <Spinner />}Back up memory
             </button>
             <button
               className="button secondary small"
@@ -958,62 +935,38 @@ export function SettingsView({ workspace: w, section = "accounts" }: { workspace
               disabled={!!busy || w.budget?.storagePayer?.enabled === false}
               onClick={() => void memory("restore")}
             >
-              {busy === "restore" ? <Spinner /> : <RotateCw size={13} />}Restore
-              latest backup
+              {busy === "restore" && <Spinner />}Restore latest backup
             </button>
           </div>
           {memoryStatus && (
-            <p className="memory-status" role="status">
+            <p className={panels.quietNotice} role="status">
               {memoryStatus}
             </p>
           )}
-          {!!w.budget?.nativeExpenses?.length && <details className="technical-limits"><summary>Native storage expense receipts</summary>{w.budget.nativeExpenses.map(expense => <div className="evaluation" key={expense.id} style={{ fontVariantNumeric: "tabular-nums" }}><Status value={expense.status} /><small>Total: {tokenUnits(expense.totalSpentWei, 18, "0G")}; gas: {tokenUnits(expense.gasPaidWei, 18, "0G")}; storage: {tokenUnits(expense.storageFeeWei, 18, "0G")}</small><a className="text-link" href={`https://chainscan-galileo.0g.ai/tx/${expense.transactionHash}`} target="_blank" rel="noreferrer">Inspect expense<ExternalLink size={12} /></a>{expense.status === "submitted-unknown" && <button className="button secondary small" type="button" disabled={!!busy} onClick={() => void reconcileStorage(expense.id)}>Check receipt without uploading again</button>}</div>)}</details>}
-          <MemoryControls key={w.session.user.id} userId={w.session.user.id} />
+          {!!w.budget?.nativeExpenses?.length && <details className={panels.disclosure} open={w.budget.nativeExpenses.some(expense => expense.status === "submitted-unknown")}><summary>Storage receipts</summary>{w.budget.nativeExpenses.map(expense => <div className="evaluation" key={expense.id} style={{ fontVariantNumeric: "tabular-nums" }}><Status value={expense.status} /><small>Total: {tokenUnits(expense.totalSpentWei, 18, "0G")}; gas: {tokenUnits(expense.gasPaidWei, 18, "0G")}; storage: {tokenUnits(expense.storageFeeWei, 18, "0G")}</small><a className="text-link" href={`https://chainscan-galileo.0g.ai/tx/${expense.transactionHash}`} target="_blank" rel="noreferrer">View receipt<ExternalLink size={12} /></a>{expense.status === "submitted-unknown" && <button className="button secondary small" type="button" disabled={!!busy} onClick={() => void reconcileStorage(expense.id)}>Check receipt without uploading again</button>}</div>)}</details>}
         </section>
       )}
-      {section === "services" && <section className="service-status settings-card">
-        <div className="card-heading">
-          <Database size={19} />
-          <div>
-            <h2>Integration status</h2>
-            <p>Configuration is not proof of a successful live request.</p>
-          </div>
-        </div>
-        <div className="service-grid">
+      {section === "services" && <>
+        <div className={panels.services}>
           {(
             ["compute", "storage", "uniswap", "hyperliquid", "ostium", "cre"] as const
           ).map((key) => {
             const service = w.health?.[key];
             return (
-              <div className="service-item" key={key}>
-                <div>
-                  <strong>
-                    {
-                      {
-                        compute: "0G inference",
-                        storage: "0G encrypted memory",
-                        uniswap: "Uniswap V3",
-                        hyperliquid: "Hyperliquid testnet",
-                        ostium: "Ostium / Arbitrum Sepolia",
-                        cre: "Chainlink CRE",
-                      }[key]
-                    }
-                  </strong>
-                  <Badge tone={service?.configured ? "good" : "warn"}>
-                    {service?.configured ? "Configured" : "Needs setup"}
-                  </Badge>
+              <article className={`settings-card ${panels.card}`} key={key}>
+                <div className={panels.serviceTitle}>
+                  <ProtocolIcon name={key === "compute" || key === "storage" ? "0g" : key === "cre" ? "chainlink" : key} size={32}/>
+                  <div><h3>{{ compute: "0G inference", storage: "0G Storage", uniswap: "Uniswap", hyperliquid: "Hyperliquid", ostium: "Ostium", cre: "Chainlink CRE" }[key]}</h3>
+                  <p>{{ compute: "Agent reasoning", storage: "Encrypted backups", uniswap: "Sepolia spot swaps", hyperliquid: "Testnet perpetuals", ostium: "Arbitrum Sepolia", cre: "Local workflow simulation" }[key]}</p></div>
                 </div>
-                <p>{service?.message ?? "Waiting for service status."}</p>
-              </div>
+                <div className={panels.serviceState}><span>Configuration</span><Badge tone={service?.configured ? "good" : "neutral"}>{!service ? "Checking" : service.configured ? "Configured" : "Not configured"}</Badge></div>
+                <details className={panels.disclosure}><summary>View details</summary><p>{service?.message ?? "Waiting for service status."}</p></details>
+              </article>
             );
           })}
         </div>
-        <p className="fine-print">
-          CRE runs as local simulation with a managed worker in this build, not
-          hosted DON execution. Public swaps and positions remain public. Manual
-          owner exits do not depend on inference or the CRE runner.
-        </p>
-      </section>}
+        <p className={panels.hint}>Configured does not guarantee a successful live request. CRE uses local simulation, not hosted DON execution. Public venue trades remain public.</p>
+      </>}
     </section>
   );
 }
