@@ -99,7 +99,12 @@ async function proxyRpc(request: Request, user: User, platform: Platform, bundle
   catch { throw new ApiError("RPC_UNAVAILABLE", "The testnet RPC is temporarily unavailable.", 503); }
   if (!response.ok) throw new ApiError("RPC_UNAVAILABLE", "The testnet RPC could not complete this request.", 503);
   const output = await readBody(new Request("http://localhost/response", { method: "POST", body: response.body, duplex: "half" } as RequestInit), 1_048_576);
-  if ((output as { error?: unknown }).error) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32000, message: "The configured RPC rejected this request. Provider details were withheld." } });
+  const upstreamError = (output as { error?: { data?: unknown } }).error;
+  if (upstreamError) {
+    const data = upstreamError.data;
+    const revertData = !bundler && body.method === "eth_call" && typeof data === "string" && data.length <= 32_770 && /^0x(?:[\da-fA-F]{2})*$/.test(data) ? data : undefined;
+    return json({ jsonrpc: "2.0", id: body.id, error: { code: -32000, message: "The configured RPC rejected this request. Provider details were withheld.", ...(revertData === undefined ? {} : { data: revertData }) } });
+  }
   if (body.method === "eth_chainId" && (output as { result?: string }).result !== "0xaa36a7") throw new ApiError("WRONG_NETWORK", "The configured RPC is not Ethereum Sepolia.", 503);
   if (bundler && body.method === "eth_getUserOperationReceipt") settleSelfFundedReceipt(platform.store, user, (output as { result?: unknown }).result);
   return json(output);
